@@ -1,0 +1,8 @@
+node_modules
+dist
+.playwright-mcp
+*.png
+.DS_Store
+
+# Rust build cache (the compiled wasm in src/wasm is vendored/committed)
+crates/**/target

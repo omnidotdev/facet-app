@@ -1,0 +1,17 @@
+{
+  "name": "facet-kernel",
+  "type": "module",
+  "description": "Facet geometry kernel (Rust -> WASM). P1: mesh CSG; P2 target: truck B-rep.",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "files": [
+    "facet_kernel_bg.wasm",
+    "facet_kernel.js",
+    "facet_kernel.d.ts"
+  ],
+  "main": "facet_kernel.js",
+  "types": "facet_kernel.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
