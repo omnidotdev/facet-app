@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.tanstack
+.output
+src-tauri/target
+src-tauri/gen
+crates/**/target
+*.png
+.playwright-mcp
+.github
+.husky
