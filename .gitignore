@@ -4,7 +4,7 @@ src/routeTree.gen.ts
 .tanstack
 .output
 .playwright-mcp
-*.png
+/*.png
 .DS_Store
 
 # Rust build cache (the compiled wasm in src/wasm is vendored/committed)
