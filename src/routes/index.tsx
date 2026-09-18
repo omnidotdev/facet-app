@@ -1,285 +1,391 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { Link, createFileRoute } from "@tanstack/react-router";
 
-import { createEditor } from "@/editor";
-import { defaultExample, examples } from "@/examples";
-import {
-  Shape,
-  box,
-  cube,
-  cylinder,
-  difference,
-  intersection,
-  meshKernel,
-  sphere,
-  union,
-} from "@/facet";
-import { loadWasmKernel } from "@/facet/wasmKernel";
-import { ParamStore } from "@/params";
-import { applyTheme, getInitialTheme } from "@/theme";
-import { Viewport } from "@/viewport";
-
-import type { FacetEditor } from "@/editor";
-import type { Kernel, OpNode } from "@/facet";
-import type { Theme } from "@/theme";
-import "@/facet.css";
+import "@/landing.css";
 
 /** @knipignore */
 export const Route = createFileRoute("/")({
-  component: FacetStudio,
+  component: Landing,
 });
 
-// The API surface injected into user model code.
-const api = {
-  cube,
-  box,
-  sphere,
-  cylinder,
-  union,
-  difference,
-  intersection,
-} as const;
+const FEATURES = [
+  {
+    title: "A real language",
+    body: "Model in TypeScript, not a toy DSL. Functions, modules, types, npm - the whole toolbox.",
+    icon: (
+      <path
+        d="M8 6 3 12l5 6M16 6l5 6-5 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    ),
+  },
+  {
+    title: "Two geometry kernels",
+    body: "A mesh CSG kernel in TypeScript and a Rust kernel compiled to WebAssembly - swap them live.",
+    icon: (
+      <>
+        <rect
+          x="3"
+          y="3"
+          width="12"
+          height="12"
+          rx="1.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+        <rect
+          x="9"
+          y="9"
+          width="12"
+          height="12"
+          rx="1.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+      </>
+    ),
+  },
+  {
+    title: "Live parameters",
+    body: "Declare typed parameters and get sliders that reshape the model in real time.",
+    icon: (
+      <>
+        <path
+          d="M4 8h16M4 16h16"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+        <circle cx="9" cy="8" r="2.4" fill="currentColor" />
+        <circle cx="15" cy="16" r="2.4" fill="currentColor" />
+      </>
+    ),
+  },
+  {
+    title: "Print-ready export",
+    body: "Export watertight STL straight from the browser, ready for the slicer and the printer.",
+    icon: (
+      <>
+        <path
+          d="M12 3v11M8 10l4 4 4-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M4 20h16"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      </>
+    ),
+  },
+  {
+    title: "Runs anywhere",
+    body: "It's the web, so it's everywhere - plus native desktop and mobile builds via Tauri.",
+    icon: (
+      <>
+        <rect
+          x="3"
+          y="4"
+          width="18"
+          height="12"
+          rx="1.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+        <path
+          d="M8 20h8"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      </>
+    ),
+  },
+  {
+    title: "Open source",
+    body: "Part of the Omni ecosystem and open by default. Fork it, script it, build on it.",
+    icon: (
+      <>
+        <circle
+          cx="6"
+          cy="7"
+          r="2.6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+        <circle
+          cx="6"
+          cy="18"
+          r="2.6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+        <circle
+          cx="18"
+          cy="7"
+          r="2.6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+        <path
+          d="M6 9.6v5.8M18 9.6c0 4-6 2-6 5.4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        />
+      </>
+    ),
+  },
+];
 
-function FacetStudio() {
-  const editorMount = useRef<HTMLDivElement>(null);
-  const viewportMount = useRef<HTMLDivElement>(null);
-  const paramsMount = useRef<HTMLDivElement>(null);
-  const statusRef = useRef<HTMLDivElement>(null);
-  const exampleRef = useRef<HTMLSelectElement>(null);
-  const kernelRef = useRef<HTMLSelectElement>(null);
-  const themeBtnRef = useRef<HTMLButtonElement>(null);
-  const themeLabelRef = useRef<HTMLSpanElement>(null);
-  const exportRef = useRef<HTMLButtonElement>(null);
-  const inited = useRef(false);
-
-  useEffect(() => {
-    if (inited.current) return; // guard StrictMode double-invoke
-    inited.current = true;
-
-    const store = new ParamStore();
-    let theme: Theme = getInitialTheme();
-    applyTheme(theme);
-
-    const viewport = new Viewport(viewportMount.current!, theme);
-    const kernels: Record<string, Kernel> = { ts: meshKernel };
-    let activeKernel: Kernel = meshKernel;
-    let currentNode: OpNode | null = null;
-    let paramsSignature = " ";
-
-    const build = (code: string): OpNode => {
-      store.begin();
-      const names = [...Object.keys(api), "param"];
-      // biome-ignore lint/security/noGlobalEval: MVP eval; P1b moves this to a sandboxed worker + esbuild
-      const fn = new Function(...names, `"use strict";\n${code}`);
-      const result = fn(...Object.values(api), store.api());
-      if (!(result instanceof Shape)) {
-        throw new Error(
-          "Your model must `return` a shape (e.g. `return cube(10);`).",
-        );
-      }
-      return result.node;
-    };
-
-    const renderParams = () => {
-      const paramsEl = paramsMount.current!;
-      const decls = store.list();
-      const sig = store.signature();
-      if (sig === paramsSignature) return;
-      paramsSignature = sig;
-
-      paramsEl.textContent = "";
-      paramsEl.hidden = decls.length === 0;
-      if (!decls.length) return;
-
-      const title = document.createElement("div");
-      title.className = "params-title";
-      title.textContent = "Parameters";
-      paramsEl.appendChild(title);
-
-      for (const d of decls) {
-        const row = document.createElement("label");
-        row.className = "param-row";
-        const name = document.createElement("span");
-        name.className = "param-name";
-        name.textContent = d.name;
-        const value = document.createElement("span");
-        value.className = "param-value";
-        value.textContent = String(d.value);
-        const input = document.createElement("input");
-        input.type = "range";
-        input.min = String(d.min);
-        input.max = String(d.max);
-        input.step = String(d.step);
-        input.value = String(d.value);
-        input.addEventListener("input", () => {
-          store.set(d.name, Number(input.value));
-          value.textContent = input.value;
-          scheduleRun();
-        });
-        row.append(name, value, input);
-        paramsEl.appendChild(row);
-      }
-    };
-
-    const run = () => {
-      const t0 = performance.now();
-      const statusEl = statusRef.current!;
-      try {
-        const node = build(editor.getValue());
-        const mesh = activeKernel.evaluate(node);
-        viewport.setMesh(mesh);
-        currentNode = node;
-        renderParams();
-        const ms = (performance.now() - t0).toFixed(0);
-        statusEl.className = "status ok";
-        statusEl.textContent = `✓ ${mesh.triangleCount.toLocaleString()} triangles · ${ms} ms · ${activeKernel.name}`;
-      } catch (err) {
-        currentNode = null;
-        statusEl.className = "status err";
-        statusEl.textContent = `✗ ${err instanceof Error ? err.message : String(err)}`;
-      }
-    };
-
-    let timer: number | undefined;
-    const scheduleRun = () => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(run, 200);
-    };
-
-    const editor: FacetEditor = createEditor(editorMount.current!, {
-      doc: examples[defaultExample] ?? "",
-      onChange: scheduleRun,
-      theme,
-    });
-
-    const setTheme = (next: Theme) => {
-      theme = next;
-      applyTheme(theme);
-      editor.setTheme(theme);
-      viewport.setTheme(theme);
-      themeLabelRef.current!.textContent = theme === "dark" ? "Dark" : "Light";
-    };
-    const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
-    themeLabelRef.current!.textContent = theme === "dark" ? "Dark" : "Light";
-
-    themeBtnRef.current!.addEventListener("click", toggleTheme);
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "t" && e.key !== "T") return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const target = e.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          target.closest(".cm-editor") ||
-          ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))
-      ) {
-        return;
-      }
-      e.preventDefault();
-      toggleTheme();
-    };
-    window.addEventListener("keydown", onKey);
-
-    exampleRef.current!.addEventListener("change", () => {
-      editor.setValue(examples[exampleRef.current!.value] ?? "");
-      run();
-    });
-
-    kernelRef.current!.addEventListener("change", () => {
-      activeKernel = kernels[kernelRef.current!.value] ?? meshKernel;
-      run();
-    });
-
-    exportRef.current!.addEventListener("click", () => {
-      const statusEl = statusRef.current!;
-      if (!currentNode) {
-        statusEl.className = "status err";
-        statusEl.textContent = "✗ Nothing to export - fix the model first.";
-        return;
-      }
-      const stl = activeKernel.export(currentNode, "stl");
-      const blob = new Blob([stl.buffer as ArrayBuffer], { type: "model/stl" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "facet-model.stl";
-      a.click();
-      URL.revokeObjectURL(url);
-    });
-
-    loadWasmKernel().then((rust) => {
-      if (!rust) return;
-      kernels.rust = rust;
-      const opt = document.createElement("option");
-      opt.value = "rust";
-      opt.textContent = "Kernel: Rust/WASM";
-      kernelRef.current?.appendChild(opt);
-    });
-
-    run();
-
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
+function Landing() {
   return (
-    <div className="facet-app">
-      <header>
-        <span className="brand">
-          🔶 <b>Facet</b>
+    <div className="facet-landing">
+      <nav className="fl-nav">
+        <span className="fl-logo">
+          <span className="mark">🔶</span> Facet
         </span>
-        <span className="tag">code CAD · write TypeScript, get geometry</span>
-        <span className="spacer" />
-        <select
-          ref={exampleRef}
-          title="Load an example"
-          defaultValue={defaultExample}
-        >
-          {Object.keys(examples).map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-        <select ref={kernelRef} title="Geometry kernel" defaultValue="ts">
-          <option value="ts">Kernel: TS</option>
-        </select>
-        <button
-          ref={themeBtnRef}
-          type="button"
-          className="icon-btn"
-          title="Toggle light/dark"
-        >
-          <span ref={themeLabelRef}>Theme</span> <kbd className="kbd">T</kbd>
-        </button>
-        <button
-          ref={exportRef}
-          type="button"
-          className="primary"
-          title="Download STL"
-        >
-          Export STL
-        </button>
-      </header>
+        <span className="fl-nav-spacer" />
+        <span className="fl-nav-links">
+          <a href="https://omni.dev" target="_blank" rel="noreferrer">
+            Omni
+          </a>
+          <Link to="/studio">Studio</Link>
+          <span className="fl-pill">Preview</span>
+        </span>
+      </nav>
 
-      <main className="facet-main">
-        <section className="editor-pane">
-          <div className="code" ref={editorMount} />
-          <div className="status" ref={statusRef} />
-        </section>
-        <section className="viewport">
-          <div className="viewport-canvas" ref={viewportMount} />
-          <div className="params" ref={paramsMount} hidden />
-        </section>
-      </main>
+      <div className="fl-wrap">
+        <header className="fl-hero">
+          <div>
+            <span className="fl-eyebrow">Code-first parametric CAD</span>
+            <h1 className="fl-title">
+              Write code.
+              <br />
+              Get <span className="accent">geometry</span>.
+            </h1>
+            <p className="fl-sub">
+              Facet turns TypeScript into solid geometry. Model parametric parts
+              in real code, evaluate them with a proper geometry kernel, and
+              export print-ready meshes - right in your browser.
+            </p>
+            <div className="fl-cta-row">
+              <Link to="/studio" className="fl-btn fl-btn-primary">
+                Open the Studio <span className="soon">Soon</span>
+              </Link>
+              <a
+                className="fl-btn fl-btn-ghost"
+                href="https://omni.dev"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Explore Omni
+              </a>
+            </div>
+          </div>
 
-      <footer>
-        Made with <span className="mark">🔶</span> by{" "}
-        <a href="https://omni.dev" target="_blank" rel="noreferrer">
-          Omni
-        </a>{" "}
-        · part of the Omni ecosystem
-      </footer>
+          <div className="fl-visual">
+            <div className="fl-code">
+              <div>
+                <span className="c-com">{"// a bracket, parametrically"}</span>
+              </div>
+              <div>
+                <span className="c-key">const</span> t ={" "}
+                <span className="c-fn">param</span>.
+                <span className="c-fn">number</span>(
+                <span className="c-num">"thickness"</span>, {"{ "}min:{" "}
+                <span className="c-num">3</span>, max:{" "}
+                <span className="c-num">12</span>
+                {" }"});
+              </div>
+              <div>
+                <span className="c-key">let</span> part ={" "}
+                <span className="c-fn">cube</span>([
+                <span className="c-num">40</span>,{" "}
+                <span className="c-num">40</span>, t]);
+              </div>
+              <div>
+                part = part.<span className="c-fn">subtract</span>(
+              </div>
+              <div>
+                {"  "}
+                <span className="c-fn">cylinder</span>(
+                <span className="c-num">4</span>, t).
+                <span className="c-fn">translate</span>(
+                <span className="c-num">20</span>,{" "}
+                <span className="c-num">20</span>,{" "}
+                <span className="c-num">0</span>),
+              </div>
+              <div>);</div>
+              <div>
+                <span className="c-key">return</span> part;
+              </div>
+            </div>
+            <BlueprintPart />
+          </div>
+        </header>
+      </div>
+
+      <div className="fl-wrap">
+        <section className="fl-section">
+          <div className="fl-kicker">How it works</div>
+          <div className="fl-steps">
+            <div className="fl-step">
+              <div className="fl-step-num">01</div>
+              <h3>Write TypeScript</h3>
+              <p>
+                Describe the part with primitives, transforms, and boolean ops.
+              </p>
+            </div>
+            <div className="fl-step">
+              <div className="fl-step-num">02</div>
+              <h3>The kernel builds it</h3>
+              <p>
+                A solid-geometry kernel evaluates your code into real geometry.
+              </p>
+            </div>
+            <div className="fl-step">
+              <div className="fl-step-num">03</div>
+              <h3>Preview &amp; export</h3>
+              <p>
+                Spin it in 3D, tune the parameters, and export STL to print.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="fl-section">
+          <div className="fl-kicker">Built for makers who code</div>
+          <div className="fl-features">
+            {FEATURES.map((f) => (
+              <div className="fl-card" key={f.title}>
+                <svg className="ic" viewBox="0 0 24 24" aria-hidden="true">
+                  {f.icon}
+                </svg>
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="fl-section">
+          <div className="fl-band">
+            <h2>
+              The Studio is <span className="accent">under construction</span>
+            </h2>
+            <p>
+              Facet is in preview. The full code editor, live kernel, and STL
+              export are being finished - check back soon.
+            </p>
+          </div>
+        </section>
+
+        <footer className="fl-footer">
+          <span className="made">
+            Made with 🔶 by{" "}
+            <a href="https://omni.dev" target="_blank" rel="noreferrer">
+              Omni
+            </a>{" "}
+            · part of the Omni ecosystem
+          </span>
+          <span className="links">
+            <Link to="/studio">Studio</Link>
+            <a href="https://omni.dev" target="_blank" rel="noreferrer">
+              omni.dev
+            </a>
+          </span>
+        </footer>
+      </div>
     </div>
+  );
+}
+
+/** Isometric wireframe of a plate with a bored hole - the drafting motif. */
+function BlueprintPart() {
+  return (
+    <svg className="fl-blueprint" viewBox="0 0 360 300" aria-hidden="true">
+      <g fill="none" strokeLinejoin="round" strokeLinecap="round">
+        {/* faint construction lines */}
+        <g
+          stroke="rgba(120,150,180,0.28)"
+          strokeWidth="1"
+          strokeDasharray="4 5"
+        >
+          <path d="M180 44v212M40 152h280" />
+        </g>
+
+        {/* side faces */}
+        <g stroke="#dd6e33" strokeWidth="2">
+          <path
+            d="M110 158 180 200 180 246 110 204Z"
+            fill="rgba(221,110,51,0.10)"
+          />
+          <path
+            d="M250 158 180 200 180 246 250 204Z"
+            fill="rgba(221,110,51,0.06)"
+          />
+          {/* top face */}
+          <path
+            d="M180 116 250 158 180 200 110 158Z"
+            fill="rgba(221,110,51,0.14)"
+          />
+        </g>
+
+        {/* bored hole - top rim + bottom rim */}
+        <g stroke="#f0a566" strokeWidth="2">
+          <ellipse
+            cx="180"
+            cy="157"
+            rx="30"
+            ry="16"
+            fill="rgba(11,28,46,0.85)"
+          />
+          <ellipse
+            cx="180"
+            cy="171"
+            rx="30"
+            ry="16"
+            fill="none"
+            opacity="0.6"
+          />
+          <path d="M150 157v14M210 157v14" opacity="0.6" />
+        </g>
+
+        {/* dimension line */}
+        <g stroke="rgba(147,168,189,0.9)" strokeWidth="1.2">
+          <path d="M110 268 250 268" />
+          <path d="M110 262v12M250 262v12" />
+          <path
+            d="M110 268l10-4v8ZM250 268l-10-4v8Z"
+            fill="rgba(147,168,189,0.9)"
+          />
+        </g>
+      </g>
+      <text
+        x="180"
+        y="285"
+        textAnchor="middle"
+        fill="#93a8bd"
+        fontFamily="ui-monospace, monospace"
+        fontSize="12"
+      >
+        parametric
+      </text>
+    </svg>
   );
 }
