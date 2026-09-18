@@ -64,18 +64,21 @@ export class Vertex {
     this.normal = this.normal.negated();
   }
   interpolate(other: Vertex, t: number): Vertex {
-    return new Vertex(this.pos.lerp(other.pos, t), this.normal.lerp(other.normal, t));
+    return new Vertex(
+      this.pos.lerp(other.pos, t),
+      this.normal.lerp(other.normal, t),
+    );
   }
 }
 
-const enum Loc {
+enum Loc {
   COPLANAR = 0,
   FRONT = 1,
   BACK = 2,
   SPANNING = 3,
 }
 
-export class Plane {
+class Plane {
   static EPSILON = 1e-5;
   constructor(
     public normal: Vector,
@@ -103,14 +106,22 @@ export class Plane {
     const types: Loc[] = [];
     for (const v of polygon.vertices) {
       const t = this.normal.dot(v.pos) - this.w;
-      const type = t < -Plane.EPSILON ? Loc.BACK : t > Plane.EPSILON ? Loc.FRONT : Loc.COPLANAR;
+      const type =
+        t < -Plane.EPSILON
+          ? Loc.BACK
+          : t > Plane.EPSILON
+            ? Loc.FRONT
+            : Loc.COPLANAR;
       polygonType |= type;
       types.push(type);
     }
 
     switch (polygonType) {
       case Loc.COPLANAR:
-        (this.normal.dot(polygon.plane.normal) > 0 ? coplanarFront : coplanarBack).push(polygon);
+        (this.normal.dot(polygon.plane.normal) > 0
+          ? coplanarFront
+          : coplanarBack
+        ).push(polygon);
         break;
       case Loc.FRONT:
         front.push(polygon);
@@ -130,7 +141,9 @@ export class Plane {
           if (ti !== Loc.BACK) f.push(vi);
           if (ti !== Loc.FRONT) b.push(ti !== Loc.BACK ? vi.clone() : vi);
           if ((ti | tj) === Loc.SPANNING) {
-            const t = (this.w - this.normal.dot(vi.pos)) / this.normal.dot(vj.pos.minus(vi.pos));
+            const t =
+              (this.w - this.normal.dot(vi.pos)) /
+              this.normal.dot(vj.pos.minus(vi.pos));
             const v = vi.interpolate(vj, t);
             f.push(v);
             b.push(v.clone());
@@ -150,7 +163,11 @@ export class Polygon {
     public vertices: Vertex[],
     public shared?: unknown,
   ) {
-    this.plane = Plane.fromPoints(vertices[0].pos, vertices[1].pos, vertices[2].pos);
+    this.plane = Plane.fromPoints(
+      vertices[0].pos,
+      vertices[1].pos,
+      vertices[2].pos,
+    );
   }
   clone(): Polygon {
     return new Polygon(
@@ -159,7 +176,8 @@ export class Polygon {
     );
   }
   flip(): void {
-    this.vertices.reverse().forEach((v) => v.flip());
+    this.vertices.reverse();
+    for (const v of this.vertices) v.flip();
     this.plane.flip();
   }
 }

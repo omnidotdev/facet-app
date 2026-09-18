@@ -1,8 +1,6 @@
 :root {
-  /* Amber accent is constant across themes. */
   --accent: #dd6e33;
   --accent-ink: #241206;
-  /* Dark (default): blueprint ink. */
   --bg: #0d2033;
   --panel: #122a43;
   --panel-2: #17324c;
@@ -11,11 +9,9 @@
   --line: #24405c;
   --ok: #7fd6a3;
   --err: #ef8f7a;
-  color-scheme: dark;
 }
 
 :root[data-theme="light"] {
-  /* Light: concrete + blueprint-ink text. */
   --accent: #c8611f;
   --accent-ink: #fff6ee;
   --bg: #efe9dd;
@@ -26,53 +22,138 @@
   --line: #cabfa8;
   --ok: #2f7d4f;
   --err: #b4451f;
-  color-scheme: light;
-}
-
-* {
-  box-sizing: border-box;
 }
 
 html,
 body,
-#app {
+#root {
   height: 100%;
   margin: 0;
 }
 
-body {
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-}
-
-#app {
+.facet-app {
+  height: 100%;
   display: grid;
   grid-template-rows: auto 1fr auto;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
-footer {
-  padding: 7px 16px;
+.facet-app header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.facet-app .brand {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-size: 16px;
+}
+.facet-app .brand b {
+  color: var(--accent);
+}
+.facet-app .tag {
   font-size: 12px;
   color: var(--muted);
-  background: var(--panel);
-  border-top: 1px solid var(--line);
-  text-align: center;
+}
+.facet-app .spacer {
+  flex: 1;
 }
 
-footer .mark {
-  filter: saturate(1.1);
+.facet-app select,
+.facet-app button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
 }
-
-footer a {
-  color: var(--accent);
-  text-decoration: none;
+.facet-app button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
+.facet-app button:hover,
+.facet-app select:hover {
+  border-color: var(--accent);
+}
+.facet-app button.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.facet-app kbd.kbd {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--muted);
+}
 
-footer a:hover {
-  text-decoration: underline;
+.facet-main {
+  display: grid;
+  grid-template-columns: minmax(280px, 40%) 1fr;
+  min-height: 0;
+}
+
+.editor-pane {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  border-right: 1px solid var(--line);
+  min-height: 0;
+}
+
+.editor-pane .code {
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+}
+.cm-editor {
+  height: 100%;
+}
+.cm-editor .cm-scroller {
+  padding: 8px 4px;
+}
+
+.status {
+  padding: 8px 16px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  border-top: 1px solid var(--line);
+  white-space: pre-wrap;
+  min-height: 34px;
+}
+.status.ok {
+  color: var(--ok);
+}
+.status.err {
+  color: var(--err);
+}
+
+.viewport {
+  position: relative;
+  min-height: 0;
+}
+.viewport-canvas {
+  position: absolute;
+  inset: 0;
+}
+.viewport canvas {
+  display: block;
 }
 
 .params {
@@ -88,7 +169,6 @@ footer a:hover {
   backdrop-filter: blur(6px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
 }
-
 .params-title {
   font-size: 11px;
   text-transform: uppercase;
@@ -96,7 +176,6 @@ footer a:hover {
   color: var(--muted);
   margin-bottom: 8px;
 }
-
 .param-row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -104,18 +183,15 @@ footer a:hover {
   gap: 2px 8px;
   margin: 6px 0;
 }
-
 .param-name {
   font-size: 12px;
   color: var(--text);
 }
-
 .param-value {
   font-family: ui-monospace, monospace;
   font-size: 12px;
   color: var(--accent);
 }
-
 .param-row input[type="range"] {
   grid-column: 1 / -1;
   width: 100%;
@@ -123,131 +199,25 @@ footer a:hover {
   cursor: pointer;
 }
 
-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-}
-
-header .brand {
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  font-size: 16px;
-}
-
-header .brand b {
-  color: var(--accent);
-}
-
-header .tag {
+.facet-app footer {
+  padding: 7px 16px;
   font-size: 12px;
   color: var(--muted);
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  text-align: center;
 }
-
-header .spacer {
-  flex: 1;
-}
-
-select,
-button {
-  font: inherit;
-  font-size: 13px;
-  color: var(--text);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px 10px;
-  cursor: pointer;
-}
-
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+.facet-app footer a {
+  color: var(--accent);
+  text-decoration: none;
   font-weight: 600;
 }
-
-button:hover,
-select:hover {
-  border-color: var(--accent);
-}
-
-button.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-kbd.kbd {
-  font-family: ui-monospace, monospace;
-  font-size: 11px;
-  line-height: 1;
-  padding: 2px 5px;
-  border: 1px solid var(--line);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  background: var(--panel);
-  color: var(--muted);
-}
-
-main {
-  display: grid;
-  grid-template-columns: minmax(280px, 40%) 1fr;
-  min-height: 0;
-}
-
-.editor-pane {
-  display: grid;
-  grid-template-rows: 1fr auto;
-  border-right: 1px solid var(--line);
-  min-height: 0;
-}
-
-#code {
-  min-height: 0;
-  overflow: hidden;
-  background: var(--panel);
-}
-
-.cm-editor {
-  height: 100%;
-}
-
-.cm-editor .cm-scroller {
-  padding: 8px 4px;
-}
-
-.status {
-  padding: 8px 16px;
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  border-top: 1px solid var(--line);
-  white-space: pre-wrap;
-  min-height: 34px;
-}
-
-.status.ok {
-  color: var(--ok);
-}
-
-.status.err {
-  color: var(--err);
-}
-
-.viewport {
-  position: relative;
-  min-height: 0;
-}
-
-.viewport canvas {
-  display: block;
+.facet-app footer a:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 760px) {
-  main {
+  .facet-main {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr 1fr;
   }

@@ -4,14 +4,14 @@
  * registry after a run to build sliders, and writes back when one is dragged.
  */
 
-export interface NumberOpts {
+interface NumberOpts {
   min?: number;
   max?: number;
   step?: number;
   default?: number;
 }
 
-export interface ParamDecl {
+interface ParamDecl {
   name: string;
   min: number;
   max: number;
@@ -19,7 +19,7 @@ export interface ParamDecl {
   value: number;
 }
 
-export interface ParamApi {
+interface ParamApi {
   number(name: string, opts?: NumberOpts): number;
 }
 
@@ -60,6 +60,8 @@ export class ParamStore {
 
   /** Identity of the current control set, so the UI only rebuilds when it changes. */
   signature(): string {
-    return this.declared.map((d) => `${d.name}:${d.min}:${d.max}:${d.step}`).join("|");
+    return this.declared
+      .map((d) => `${d.name}:${d.min}:${d.max}:${d.step}`)
+      .join("|");
   }
 }

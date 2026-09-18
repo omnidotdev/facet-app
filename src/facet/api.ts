@@ -43,7 +43,10 @@ export class Shape {
 
   /** Fuse this shape with others. */
   union(...others: Shape[]): Shape {
-    return this.wrap({ op: "union", children: [this.node, ...others.map((s) => s.node)] });
+    return this.wrap({
+      op: "union",
+      children: [this.node, ...others.map((s) => s.node)],
+    });
   }
   add(...others: Shape[]): Shape {
     return this.union(...others);
@@ -51,7 +54,10 @@ export class Shape {
 
   /** Cut others out of this shape. */
   subtract(...others: Shape[]): Shape {
-    return this.wrap({ op: "difference", children: [this.node, ...others.map((s) => s.node)] });
+    return this.wrap({
+      op: "difference",
+      children: [this.node, ...others.map((s) => s.node)],
+    });
   }
   sub(...others: Shape[]): Shape {
     return this.subtract(...others);
@@ -59,14 +65,20 @@ export class Shape {
 
   /** Keep only the overlap with others. */
   intersect(...others: Shape[]): Shape {
-    return this.wrap({ op: "intersect", children: [this.node, ...others.map((s) => s.node)] });
+    return this.wrap({
+      op: "intersect",
+      children: [this.node, ...others.map((s) => s.node)],
+    });
   }
 }
 
 // --- Primitives -------------------------------------------------------------
 
 /** A box. `cube(10)` is 10 on a side; `cube([w,d,h])` is rectangular. Centered by default. */
-export function cube(size: number | Vec3 = 1, opts: { center?: boolean } = {}): Shape {
+export function cube(
+  size: number | Vec3 = 1,
+  opts: { center?: boolean } = {},
+): Shape {
   const s: Vec3 = Array.isArray(size) ? size : [size, size, size];
   return new Shape({ op: "cube", size: s, center: opts.center ?? true });
 }
@@ -77,8 +89,18 @@ export function sphere(r = 1, opts: { segments?: number } = {}): Shape {
   return new Shape({ op: "sphere", r, segments: opts.segments ?? 32 });
 }
 
-export function cylinder(r = 1, h = 1, opts: { center?: boolean; segments?: number } = {}): Shape {
-  return new Shape({ op: "cylinder", r, h, segments: opts.segments ?? 32, center: opts.center ?? true });
+export function cylinder(
+  r = 1,
+  h = 1,
+  opts: { center?: boolean; segments?: number } = {},
+): Shape {
+  return new Shape({
+    op: "cylinder",
+    r,
+    h,
+    segments: opts.segments ?? 32,
+    center: opts.center ?? true,
+  });
 }
 
 // --- Free-function booleans (read nicely at the top level) ------------------

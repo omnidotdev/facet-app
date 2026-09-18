@@ -1,11 +1,15 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
 import type { Mesh } from "./facet";
 import type { Theme } from "./theme";
 
 const FACET_AMBER = 0xdd6e33;
 
-const THEME_COLORS: Record<Theme, { bg: number; grid: number; gridOpacity: number }> = {
+const THEME_COLORS: Record<
+  Theme,
+  { bg: number; grid: number; gridOpacity: number }
+> = {
   dark: { bg: 0x0d2033, grid: 0x3a4654, gridOpacity: 0.35 },
   light: { bg: 0xe7e2d8, grid: 0xb7ab90, gridOpacity: 0.6 },
 };
@@ -92,7 +96,10 @@ export class Viewport {
     if (mesh.triangleCount === 0) return;
 
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
+    geometry.setAttribute(
+      "position",
+      new THREE.BufferAttribute(mesh.positions, 3),
+    );
     geometry.setAttribute("normal", new THREE.BufferAttribute(mesh.normals, 3));
     geometry.computeBoundingSphere();
 
@@ -115,7 +122,9 @@ export class Viewport {
     const dist = r * 3;
     const dir = new THREE.Vector3(1, -1, 0.7).normalize();
     this.controls.target.copy(sphere.center);
-    this.camera.position.copy(sphere.center.clone().add(dir.multiplyScalar(dist)));
+    this.camera.position.copy(
+      sphere.center.clone().add(dir.multiplyScalar(dist)),
+    );
     this.camera.near = r / 100;
     this.camera.far = r * 100;
     this.camera.updateProjectionMatrix();

@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+
 import { cube, cylinder, sphere } from "./api";
 import { meshBounds } from "./kernel";
-import type { Mesh } from "./kernel";
 import { meshKernel } from "./meshKernel";
 import { meshToStlBinary } from "./stl";
+
+import type { Mesh } from "./kernel";
 
 /** Signed volume of a closed triangle mesh (divergence theorem). */
 function meshVolume(mesh: Mesh): number {
@@ -11,10 +13,20 @@ function meshVolume(mesh: Mesh): number {
   const p = mesh.positions;
   for (let t = 0; t < mesh.triangleCount; t++) {
     const b = t * 9;
-    const ax = p[b], ay = p[b + 1], az = p[b + 2];
-    const bx = p[b + 3], by = p[b + 4], bz = p[b + 5];
-    const cx = p[b + 6], cy = p[b + 7], cz = p[b + 8];
-    v += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
+    const ax = p[b],
+      ay = p[b + 1],
+      az = p[b + 2];
+    const bx = p[b + 3],
+      by = p[b + 4],
+      bz = p[b + 5];
+    const cx = p[b + 6],
+      cy = p[b + 7],
+      cz = p[b + 8];
+    v +=
+      (ax * (by * cz - bz * cy) -
+        ay * (bx * cz - bz * cx) +
+        az * (bx * cy - by * cx)) /
+      6;
   }
   return Math.abs(v);
 }

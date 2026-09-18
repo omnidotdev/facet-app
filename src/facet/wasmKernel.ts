@@ -1,6 +1,7 @@
+import { meshToStlBinary } from "./stl";
+
 import type { ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode } from "./opgraph";
-import { meshToStlBinary } from "./stl";
 
 /**
  * Load the Rust geometry kernel compiled to WebAssembly and adapt it to the
@@ -27,7 +28,8 @@ export async function loadWasmKernel(): Promise<Kernel | null> {
       name: wasm.name(),
       evaluate,
       export: (node: OpNode, format: ExportFormat): Uint8Array => {
-        if (format !== "stl") throw new Error(`unsupported export format: ${format}`);
+        if (format !== "stl")
+          throw new Error(`unsupported export format: ${format}`);
         return meshToStlBinary(evaluate(node));
       },
     };

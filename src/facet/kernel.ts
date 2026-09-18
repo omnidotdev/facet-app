@@ -40,4 +40,4 @@ export function meshBounds(mesh: Mesh): { min: Vec3f; max: Vec3f } {
   return { min, max };
 }
 
-export type Vec3f = [number, number, number];
+type Vec3f = [number, number, number];

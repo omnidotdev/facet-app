@@ -1,19 +1,38 @@
 import { CSG, Polygon, Vector, Vertex } from "./csg";
+import { meshToStlBinary } from "./stl";
+
 import type { ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode, Vec3 } from "./opgraph";
-import { meshToStlBinary } from "./stl";
 
 // --- Primitive solids as CSG polygon sets -----------------------------------
 
 function csgCube(center: Vec3, radius: Vec3): CSG {
   const c = new Vector(center[0], center[1], center[2]);
   const faces: Array<[number[], Vec3]> = [
-    [[0, 4, 6, 2], [-1, 0, 0]],
-    [[1, 3, 7, 5], [1, 0, 0]],
-    [[0, 1, 5, 4], [0, -1, 0]],
-    [[2, 6, 7, 3], [0, 1, 0]],
-    [[0, 2, 3, 1], [0, 0, -1]],
-    [[4, 5, 7, 6], [0, 0, 1]],
+    [
+      [0, 4, 6, 2],
+      [-1, 0, 0],
+    ],
+    [
+      [1, 3, 7, 5],
+      [1, 0, 0],
+    ],
+    [
+      [0, 1, 5, 4],
+      [0, -1, 0],
+    ],
+    [
+      [2, 6, 7, 3],
+      [0, 1, 0],
+    ],
+    [
+      [0, 2, 3, 1],
+      [0, 0, -1],
+    ],
+    [
+      [4, 5, 7, 6],
+      [0, 0, 1],
+    ],
   ];
   const polygons = faces.map(([idx, n]) => {
     const normal = new Vector(n[0], n[1], n[2]);
@@ -35,7 +54,11 @@ function csgSphere(r: number, slices: number, stacks: number): CSG {
   const vertex = (theta: number, phi: number, out: Vertex[]) => {
     const t = theta * Math.PI * 2;
     const p = phi * Math.PI;
-    const dir = new Vector(Math.cos(t) * Math.sin(p), Math.cos(p), Math.sin(t) * Math.sin(p));
+    const dir = new Vector(
+      Math.cos(t) * Math.sin(p),
+      Math.cos(p),
+      Math.sin(t) * Math.sin(p),
+    );
     out.push(new Vertex(dir.times(r), dir));
   };
   for (let i = 0; i < slices; i++) {
@@ -51,7 +74,12 @@ function csgSphere(r: number, slices: number, stacks: number): CSG {
   return CSG.fromPolygons(polygons);
 }
 
-function csgCylinder(r: number, h: number, center: boolean, slices: number): CSG {
+function csgCylinder(
+  r: number,
+  h: number,
+  center: boolean,
+  slices: number,
+): CSG {
   const z0 = center ? -h / 2 : 0;
   const z1 = center ? h / 2 : h;
   const s = new Vector(0, 0, z0);
@@ -68,7 +96,9 @@ function csgCylinder(r: number, h: number, center: boolean, slices: number): CSG
     const angle = slice * Math.PI * 2;
     const out = axisX.times(Math.cos(angle)).plus(axisY.times(Math.sin(angle)));
     const pos = s.plus(ray.times(stack)).plus(out.times(r));
-    const normal = out.times(1 - Math.abs(normalBlend)).plus(axisZ.times(normalBlend));
+    const normal = out
+      .times(1 - Math.abs(normalBlend))
+      .plus(axisZ.times(normalBlend));
     return new Vertex(pos, normal);
   };
   const polygons: Polygon[] = [];
@@ -76,7 +106,14 @@ function csgCylinder(r: number, h: number, center: boolean, slices: number): CSG
     const t0 = i / slices;
     const t1 = (i + 1) / slices;
     polygons.push(new Polygon([start, point(0, t0, -1), point(0, t1, -1)]));
-    polygons.push(new Polygon([point(0, t1, 0), point(0, t0, 0), point(1, t0, 0), point(1, t1, 0)]));
+    polygons.push(
+      new Polygon([
+        point(0, t1, 0),
+        point(0, t0, 0),
+        point(1, t0, 0),
+        point(1, t1, 0),
+      ]),
+    );
     polygons.push(new Polygon([end, point(1, t1, 1), point(1, t0, 1)]));
   }
   return CSG.fromPolygons(polygons);
@@ -86,7 +123,10 @@ function csgCylinder(r: number, h: number, center: boolean, slices: number): CSG
 
 function mapVerts(csg: CSG, fn: (p: Vector) => Vector): CSG {
   return CSG.fromPolygons(
-    csg.polygons.map((poly) => new Polygon(poly.vertices.map((v) => new Vertex(fn(v.pos), v.normal)))),
+    csg.polygons.map(
+      (poly) =>
+        new Polygon(poly.vertices.map((v) => new Vertex(fn(v.pos), v.normal))),
+    ),
   );
 }
 
@@ -113,18 +153,31 @@ function rotatePoint(p: Vector, deg: Vec3): Vector {
 function evalNode(node: OpNode): CSG {
   switch (node.op) {
     case "cube": {
-      const radius: Vec3 = [node.size[0] / 2, node.size[1] / 2, node.size[2] / 2];
+      const radius: Vec3 = [
+        node.size[0] / 2,
+        node.size[1] / 2,
+        node.size[2] / 2,
+      ];
       const center: Vec3 = node.center ? [0, 0, 0] : radius;
       return csgCube(center, radius);
     }
     case "sphere":
-      return csgSphere(node.r, node.segments, Math.max(2, Math.round(node.segments / 2)));
+      return csgSphere(
+        node.r,
+        node.segments,
+        Math.max(2, Math.round(node.segments / 2)),
+      );
     case "cylinder":
       return csgCylinder(node.r, node.h, node.center, node.segments);
     case "translate":
-      return mapVerts(evalNode(node.child), (p) => p.plus(new Vector(node.v[0], node.v[1], node.v[2])));
+      return mapVerts(evalNode(node.child), (p) =>
+        p.plus(new Vector(node.v[0], node.v[1], node.v[2])),
+      );
     case "scale":
-      return mapVerts(evalNode(node.child), (p) => new Vector(p.x * node.v[0], p.y * node.v[1], p.z * node.v[2]));
+      return mapVerts(
+        evalNode(node.child),
+        (p) => new Vector(p.x * node.v[0], p.y * node.v[1], p.z * node.v[2]),
+      );
     case "rotate":
       return mapVerts(evalNode(node.child), (p) => rotatePoint(p, node.deg));
     case "union":
@@ -170,7 +223,8 @@ export class MeshKernel implements Kernel {
     return csgToMesh(evalNode(node));
   }
   export(node: OpNode, format: ExportFormat): Uint8Array {
-    if (format !== "stl") throw new Error(`unsupported export format: ${format}`);
+    if (format !== "stl")
+      throw new Error(`unsupported export format: ${format}`);
     return meshToStlBinary(this.evaluate(node));
   }
 }

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.jsonc",
+  // Route files are only imported by the generated (gitignored) routeTree.gen.ts,
+  // so treat them as entry points. src/facet/index.ts is the engine's public API
+  // barrel, exercised by the app and its tests.
+  "entry": ["src/main.tsx", "src/routes/**/*.tsx", "src/facet/index.ts"],
+  // Generated wasm-pack output.
+  "ignore": ["src/wasm/**"],
+  "ignoreUnresolved": ["@/routeTree.gen"],
+  // `box` is an intentional alias of `cube` in the authoring API.
+  "rules": { "duplicates": "off" },
+  // wasm:build shells out to wasm-pack (a toolchain binary, not an npm dep).
+  "ignoreBinaries": ["wasm-pack"],
+  // Tauri plugin JS layers for the Rust plugins registered in src-tauri/src/lib.rs.
+  // Wired and ready for adopters even though the current UI does not call them yet.
+  "ignoreDependencies": [
+    "@tauri-apps/api",
+    "@tauri-apps/plugin-deep-link",
+    "@tauri-apps/plugin-geolocation",
+    "@tauri-apps/plugin-notification",
+    "@tauri-apps/plugin-opener",
+    "@tauri-apps/plugin-process",
+    "@tauri-apps/plugin-updater"
+  ]
+}

@@ -1,8 +1,15 @@
 node_modules
 dist
+src/routeTree.gen.ts
+.tanstack
+.output
 .playwright-mcp
 *.png
 .DS_Store
 
 # Rust build cache (the compiled wasm in src/wasm is vendored/committed)
 crates/**/target
+
+# Tauri build output and generated mobile projects
+src-tauri/target
+src-tauri/gen

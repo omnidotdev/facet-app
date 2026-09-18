@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
+
 import { cube, cylinder, difference, sphere, union } from "./api";
 
 describe("authoring API builds an op-graph without computing geometry", () => {
   test("cube is centered by default", () => {
-    expect(cube(10).node).toEqual({ op: "cube", size: [10, 10, 10], center: true });
+    expect(cube(10).node).toEqual({
+      op: "cube",
+      size: [10, 10, 10],
+      center: true,
+    });
   });
 
   test("cube accepts a size vector and an uncentered flag", () => {
