@@ -185,7 +185,7 @@ function Landing() {
             </p>
             <div className="fl-cta-row">
               <Link to="/studio" className="fl-btn fl-btn-primary">
-                Open the Studio <span className="soon">Soon</span>
+                Open the Studio
               </Link>
               <a
                 className="fl-btn fl-btn-ghost"
@@ -310,12 +310,15 @@ function Landing() {
         <section className="fl-section">
           <div className="fl-band">
             <h2>
-              The Studio is <span className="accent">under construction</span>
+              The Studio is <span className="accent">open</span>
             </h2>
             <p>
-              Facet is in preview. The full code editor, live kernel, and STL
-              export are being finished - check back soon.
+              Write code, tune live parameters, and export a print-ready STL -
+              free, open source, right in your browser.
             </p>
+            <Link to="/studio" className="fl-btn fl-btn-primary">
+              Open the Studio
+            </Link>
           </div>
         </section>
 
