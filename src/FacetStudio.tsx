@@ -288,8 +288,7 @@ export default function FacetStudio() {
         in partnership with{" "}
         <a href="https://matterforge.io" target="_blank" rel="noreferrer">
           MatterForge
-        </a>{" "}
-        · part of the Omni ecosystem
+        </a>
       </footer>
     </div>
   );
