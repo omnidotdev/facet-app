@@ -108,20 +108,20 @@ export default function FacetStudio() {
         input.addEventListener("input", () => {
           store.set(d.name, Number(input.value));
           value.textContent = input.value;
-          scheduleRun();
+          scheduleLive();
         });
         row.append(name, value, input);
         paramsEl.appendChild(row);
       }
     };
 
-    const run = () => {
+    const run = (reframe = false) => {
       const t0 = performance.now();
       const statusEl = statusRef.current!;
       try {
         const node = build(editor.getValue());
         const mesh = activeKernel.evaluate(node);
-        viewport.setMesh(mesh);
+        viewport.setMesh(mesh, reframe);
         currentNode = node;
         renderParams();
         const ms = (performance.now() - t0).toFixed(0);
@@ -134,10 +134,23 @@ export default function FacetStudio() {
       }
     };
 
+    // Editor edits re-eval arbitrary code, so debounce them while typing.
     let timer: number | undefined;
     const scheduleRun = () => {
       window.clearTimeout(timer);
-      timer = window.setTimeout(run, 200);
+      timer = window.setTimeout(() => run(), 200);
+    };
+
+    // Slider drags only change a value on an already-valid model (a few ms to
+    // recompute), so run live, coalesced to one recompute per animation frame
+    // for instant feedback without reframing the camera.
+    let liveRaf: number | undefined;
+    const scheduleLive = () => {
+      if (liveRaf !== undefined) return;
+      liveRaf = requestAnimationFrame(() => {
+        liveRaf = undefined;
+        run();
+      });
     };
 
     const editor: FacetEditor = createEditor(editorMount.current!, {
@@ -177,7 +190,7 @@ export default function FacetStudio() {
 
     exampleRef.current!.addEventListener("change", () => {
       editor.setValue(examples[exampleRef.current!.value] ?? "");
-      run();
+      run(true);
     });
 
     kernelRef.current!.addEventListener("change", () => {
@@ -211,7 +224,7 @@ export default function FacetStudio() {
       kernelRef.current?.appendChild(opt);
     });
 
-    run();
+    run(true);
 
     return () => window.removeEventListener("keydown", onKey);
   }, []);
@@ -222,7 +235,7 @@ export default function FacetStudio() {
         <span className="brand">
           🔶 <b>Facet</b>
         </span>
-        <span className="tag">code CAD · write TypeScript, get geometry</span>
+        <span className="tag">code CAD · write code, get geometry</span>
         <span className="spacer" />
         <select
           ref={exampleRef}
