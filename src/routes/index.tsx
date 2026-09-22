@@ -179,9 +179,9 @@ function Landing() {
               Get <span className="accent">geometry</span>.
             </h1>
             <p className="fl-sub">
-              Facet turns TypeScript into solid geometry. Model parametric parts
-              in real code, evaluate them with a proper geometry kernel, and
-              export print-ready meshes - right in your browser.
+              Facet turns code into solid geometry. Model parametric parts in
+              real code, evaluate them with a proper geometry kernel, and export
+              print-ready meshes - right in your browser.
             </p>
             <div className="fl-cta-row">
               <Link to="/studio" className="fl-btn fl-btn-primary">
@@ -246,7 +246,7 @@ function Landing() {
           <div className="fl-steps">
             <div className="fl-step">
               <div className="fl-step-num">01</div>
-              <h3>Write TypeScript</h3>
+              <h3>Write code</h3>
               <p>
                 Describe the part with primitives, transforms, and boolean ops.
               </p>

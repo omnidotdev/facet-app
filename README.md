@@ -1,46 +1,69 @@
 # Facet 🔶
 
-Code-first parametric CAD. Write a model in TypeScript, a mesh/CSG kernel turns
-it into geometry, and a WebGPU/WebGL viewport shows it live. Export STL.
+Code-first parametric CAD, in the browser. Write a model in code, a solid
+geometry (CSG) kernel turns it into a mesh, a 3D viewport shows it live, and you
+export a print-ready STL.
 
-"OpenSCAD, but with a proper programming language and a serious kernel."
+Script-based CAD with a real programming language and a serious geometry kernel.
 
-Realm: **FABRIC** (content creation + design), alongside Foundry. Brand color:
-Facet Amber `#DD6E33` on Blueprint Ink `#122A43`.
+Part of the [Omni](https://omni.dev) ecosystem. Realm: **Fabric**. Brand color:
+Facet Amber `#DD6E33`.
 
-## Status: P1 (MVP)
+## Features
 
-This is the first vertical slice from `plans/2026-09-17-code-cad-design.md`:
+- 🧩 **Write code, get geometry**: primitives, transforms, and boolean ops
+  (`union` / `subtract` / `intersect`) that build a serializable op-graph.
+- 🎛️ **Live parameters**: declare `param.number(...)` and get sliders that
+  reshape the model in real time.
+- ⚙️ **Two swappable kernels**: a mesh CSG kernel in TypeScript and a Rust
+  kernel compiled to WebAssembly, selectable at runtime.
+- 🖥️ **3D viewport**: [Three.js](https://threejs.org), Z-up, flat-shaded facets.
+- 📦 **Print-ready export**: STL straight from the browser, ready for a slicer.
+- 📱 **Runs anywhere**: a web app, plus native desktop and mobile builds via
+  [Tauri](https://v2.tauri.app).
 
-- **Authoring API** (`src/facet/api.ts`) - `cube`, `sphere`, `cylinder`,
-  transforms, and boolean ops, building a serializable **op-graph**.
-- **Kernel** (`src/facet/meshKernel.ts`) - a BSP-tree CSG kernel in TypeScript
-  behind a stable `Kernel` interface (`src/facet/kernel.ts`). The P2 Rust/WASM
-  B-rep kernel drops in here.
-- **Viewport** (`src/viewport.ts`) - Three.js, Z-up, flat-shaded facets.
-- **Editor** (`src/main.ts`) - live re-run on edit, examples, STL export.
-
-## Run
+## Quickstart
 
 ```bash
 bun install
-bun run dev      # http://localhost:5180
-bun test         # engine unit tests (no browser needed)
-bun run typecheck
+bun run dev        # https://localhost:3000
 ```
 
-## Write a model
+## Dev commands
 
-A model is code that returns a shape:
-
-```ts
-const base = cube([40, 40, 5], { center: false });
-const hole = cylinder(3.2, 20, { segments: 32 });
-return base.subtract(hole.translate(20, 20, 2.5));
+```bash
+bun run dev            # dev server with HMR (https://localhost:3000)
+bun test src           # engine unit tests (no browser needed)
+bunx tsc --noEmit      # typecheck
+bun run check          # Biome lint + format check
+bun run knip           # unused code / dependency check
+bun run build          # production build -> dist/
+bun run preview        # serve the production build locally
 ```
 
-## Roadmap (see design doc)
+### Rebuilding the Rust/WASM kernel
 
-- **P2** - Rust `truck` B-rep kernel: exact geometry, fillets/chamfers, STEP export.
-- **P3** - npm part libraries, Foundry publish/print, Gatekeeper auth, Aether tiers.
-- **P4** - WebGPU heavy tessellation, collaborative editing, Rust authoring hatch.
+The compiled kernel is vendored in `src/wasm`, so day-to-day work needs no Rust
+toolchain. To rebuild it you need [`wasm-pack`](https://rustwasm.github.io/wasm-pack):
+
+```bash
+bun run wasm:build
+```
+
+### Desktop / mobile (Tauri)
+
+```bash
+bun run tauri dev             # desktop
+bun run tauri:ios:dev         # iOS (after tauri:ios:init)
+bun run tauri:android:dev     # Android (after tauri:android:init)
+```
+
+## Self-hosting
+
+Facet is a static single-page app; `bun run build` emits `dist/`, which any
+static host can serve. The included `Dockerfile` builds it and serves it with
+nginx. See the [docs](https://omni.dev/products/facet) for a full guide.
+
+## License
+
+[Apache-2.0](./LICENSE.md).
