@@ -291,8 +291,8 @@ function Landing() {
                 From code to a <span className="accent">real part</span>
               </h2>
               <p>
-                Facet gets you a print-ready STL. MatterForge, our 3D printing
-                service, turns it into something you can hold.
+                Facet gets you a print-ready STL. Soon you'll be able to send it
+                to MatterForge, our printing partner, and hold the real thing.
               </p>
               <a
                 className="fl-btn fl-btn-primary"
@@ -300,7 +300,7 @@ function Landing() {
                 target="_blank"
                 rel="noreferrer"
               >
-                Print with MatterForge
+                Print with MatterForge <span className="soon">Soon</span>
               </a>
             </div>
             <PrintMotif />
