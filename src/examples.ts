@@ -7,9 +7,11 @@ const h = param.number("height", { min: 4, max: 40, default: 12, step: 1 });
 const r = param.number("hole", { min: 0, max: 14, default: 6, step: 0.5 });
 
 let plate = cube([w, d, h]);
+
 if (r > 0) {
   plate = plate.subtract(cylinder(r, h + 2, { segments: 48 }));
 }
+
 return plate;`,
 
   "L-bracket": `// L-bracket with two bolt holes
