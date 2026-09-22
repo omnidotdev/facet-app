@@ -302,6 +302,9 @@
   margin: 0 auto;
   max-width: 52ch;
 }
+.fl-band .fl-btn {
+  margin-top: 20px;
+}
 
 /* --- Code to print (MatterForge) --- */
 .fl-print {

@@ -5,7 +5,7 @@ import "@/landing.css";
 
 // The Studio is built and working; it is gated while Facet is in preview.
 // Flip this to true to open it to everyone.
-const STUDIO_ENABLED = false;
+const STUDIO_ENABLED = true;
 
 /** @knipignore */
 export const Route = createFileRoute("/studio")({
