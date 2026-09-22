@@ -327,8 +327,8 @@ function Landing() {
             Made with 🔶 by{" "}
             <a href="https://omni.dev" target="_blank" rel="noreferrer">
               Omni
-            </a>
-            , in partnership with{" "}
+            </a>{" "}
+            in partnership with{" "}
             <a href="https://matterforge.io" target="_blank" rel="noreferrer">
               MatterForge
             </a>{" "}

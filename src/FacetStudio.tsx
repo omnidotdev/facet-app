@@ -285,6 +285,10 @@ export default function FacetStudio() {
         <a href="https://omni.dev" target="_blank" rel="noreferrer">
           Omni
         </a>{" "}
+        in partnership with{" "}
+        <a href="https://matterforge.io" target="_blank" rel="noreferrer">
+          MatterForge
+        </a>{" "}
         · part of the Omni ecosystem
       </footer>
     </div>
