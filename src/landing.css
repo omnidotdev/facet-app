@@ -65,7 +65,8 @@
   font-size: 18px;
 }
 .fl-logo .mark {
-  font-size: 20px;
+  width: 22px;
+  height: 22px;
 }
 .fl-nav-spacer {
   flex: 1;
@@ -300,6 +301,42 @@
   color: var(--muted);
   margin: 0 auto;
   max-width: 52ch;
+}
+
+/* --- Code to print (MatterForge) --- */
+.fl-print {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 32px 36px;
+  background: rgba(18, 40, 61, 0.4);
+}
+.fl-print-copy {
+  flex: 1;
+}
+.fl-print h2 {
+  font-size: 24px;
+  margin: 0 0 8px;
+}
+.fl-print p {
+  color: var(--muted);
+  margin: 0 0 20px;
+  max-width: 52ch;
+}
+.fl-print-svg {
+  width: 200px;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .fl-print {
+    flex-direction: column-reverse;
+    text-align: center;
+  }
+  .fl-print p {
+    margin-inline: auto;
+  }
 }
 
 /* --- Footer --- */

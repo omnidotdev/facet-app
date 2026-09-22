@@ -157,7 +157,7 @@ function Landing() {
     <div className="facet-landing">
       <nav className="fl-nav">
         <span className="fl-logo">
-          <span className="mark">🔶</span> Facet
+          <img src="/mark.svg" alt="" className="mark" /> Facet
         </span>
         <span className="fl-nav-spacer" />
         <span className="fl-nav-links">
@@ -284,6 +284,30 @@ function Landing() {
         </section>
 
         <section className="fl-section">
+          <div className="fl-kicker">From code to the real world</div>
+          <div className="fl-print">
+            <div className="fl-print-copy">
+              <h2>
+                From code to a <span className="accent">real part</span>
+              </h2>
+              <p>
+                Facet gets you a print-ready STL. MatterForge, our 3D printing
+                service, turns it into something you can hold.
+              </p>
+              <a
+                className="fl-btn fl-btn-primary"
+                href="https://matterforge.io"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Print with MatterForge
+              </a>
+            </div>
+            <PrintMotif />
+          </div>
+        </section>
+
+        <section className="fl-section">
           <div className="fl-band">
             <h2>
               The Studio is <span className="accent">under construction</span>
@@ -386,6 +410,42 @@ function BlueprintPart() {
       >
         parametric
       </text>
+    </svg>
+  );
+}
+
+/** A part building up in printed layers - the code-to-print motif. */
+function PrintMotif() {
+  return (
+    <svg className="fl-print-svg" viewBox="0 0 220 200" aria-hidden="true">
+      <g fill="none" strokeLinejoin="round" strokeLinecap="round">
+        {/* print bed */}
+        <path
+          d="M40 150 110 186 180 150 110 114Z"
+          fill="rgba(147,168,189,0.08)"
+          stroke="rgba(147,168,189,0.5)"
+          strokeWidth="1.4"
+        />
+        {/* stacked layers */}
+        <g stroke="#dd6e33" strokeWidth="2">
+          <path
+            d="M74 132 110 150 146 132 110 114Z"
+            fill="rgba(221,110,51,0.16)"
+          />
+          <path
+            d="M78 118 110 134 142 118 110 102Z"
+            fill="rgba(221,110,51,0.13)"
+          />
+          <path
+            d="M82 104 110 118 138 104 110 90Z"
+            fill="rgba(221,110,51,0.10)"
+          />
+        </g>
+        {/* rising layer lines */}
+        <g stroke="rgba(240,165,102,0.55)" strokeWidth="1">
+          <path d="M92 97 110 106 128 97M88 111 110 122 132 111M84 125 110 138 136 125" />
+        </g>
+      </g>
     </svg>
   );
 }
