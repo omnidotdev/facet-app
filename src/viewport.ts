@@ -22,6 +22,7 @@ export class Viewport {
   private controls: OrbitControls;
   private grid: THREE.GridHelper;
   private current: THREE.Mesh | null = null;
+  private hasFramed = false;
 
   constructor(
     private container: HTMLElement,
@@ -85,8 +86,13 @@ export class Viewport {
     this.renderer.render(this.scene, this.camera);
   };
 
-  /** Replace the displayed solid. */
-  setMesh(mesh: Mesh): void {
+  /**
+   * Replace the displayed solid. The camera only refits when `reframe` is set
+   * (initial load, example switch), so editing a parameter grows the model in
+   * place instead of jumping the view on every recompute. The first mesh always
+   * frames, since there is no prior fit to preserve.
+   */
+  setMesh(mesh: Mesh, reframe = false): void {
     if (this.current) {
       this.scene.remove(this.current);
       this.current.geometry.dispose();
@@ -111,7 +117,10 @@ export class Viewport {
     });
     this.current = new THREE.Mesh(geometry, material);
     this.scene.add(this.current);
-    this.frame(geometry);
+    if (reframe || !this.hasFramed) {
+      this.frame(geometry);
+      this.hasFramed = true;
+    }
   }
 
   /** Point the camera at the model and pull back to fit it. */

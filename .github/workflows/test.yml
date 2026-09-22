@@ -46,6 +46,9 @@ jobs:
       - name: TypeScript
         run: bun tsc --noEmit
 
+      - name: Unit tests
+        run: bun test src
+
       # This is a cargo-generate template: src-tauri carries {{project-name}}
       # placeholders (an invalid Cargo package name) and ships an empty icons
       # directory. Substitute a throwaway name and generate icons so the Rust
