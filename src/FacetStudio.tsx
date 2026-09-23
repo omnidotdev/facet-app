@@ -19,7 +19,7 @@ import { applyTheme, getInitialTheme } from "@/theme";
 import { Viewport } from "@/viewport";
 
 import type { FacetEditor } from "@/editor";
-import type { Kernel, OpNode } from "@/facet";
+import type { ExportFormat, Kernel, OpNode } from "@/facet";
 import type { Theme } from "@/theme";
 import "@/facet.css";
 
@@ -44,6 +44,7 @@ export default function FacetStudio() {
   const themeBtnRef = useRef<HTMLButtonElement>(null);
   const themeLabelRef = useRef<HTMLSpanElement>(null);
   const exportRef = useRef<HTMLButtonElement>(null);
+  const formatRef = useRef<HTMLSelectElement>(null);
   const inited = useRef(false);
 
   useEffect(() => {
@@ -205,12 +206,14 @@ export default function FacetStudio() {
         statusEl.textContent = "✗ Nothing to export - fix the model first.";
         return;
       }
-      const stl = activeKernel.export(currentNode, "stl");
-      const blob = new Blob([stl.buffer as ArrayBuffer], { type: "model/stl" });
+      const format = (formatRef.current?.value ?? "stl") as ExportFormat;
+      const mime = format === "3mf" ? "model/3mf" : "model/stl";
+      const data = activeKernel.export(currentNode, format);
+      const blob = new Blob([data.buffer as ArrayBuffer], { type: mime });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = "facet-model.stl";
+      a.download = `facet-model.${format}`;
       a.click();
       URL.revokeObjectURL(url);
     });
@@ -259,13 +262,17 @@ export default function FacetStudio() {
         >
           <span ref={themeLabelRef}>Theme</span> <kbd className="kbd">T</kbd>
         </button>
+        <select ref={formatRef} title="Export format" defaultValue="stl">
+          <option value="stl">STL</option>
+          <option value="3mf">3MF</option>
+        </select>
         <button
           ref={exportRef}
           type="button"
           className="primary"
-          title="Download STL"
+          title="Download the model"
         >
-          Export STL
+          Export
         </button>
       </header>
 

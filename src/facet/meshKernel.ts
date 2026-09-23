@@ -1,5 +1,6 @@
 import { CSG, Polygon, Vector, Vertex } from "./csg";
 import { meshToStlBinary } from "./stl";
+import { meshTo3mf } from "./threeMf";
 
 import type { ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode, Vec3 } from "./opgraph";
@@ -223,9 +224,10 @@ export class MeshKernel implements Kernel {
     return csgToMesh(evalNode(node));
   }
   export(node: OpNode, format: ExportFormat): Uint8Array {
-    if (format !== "stl")
-      throw new Error(`unsupported export format: ${format}`);
-    return meshToStlBinary(this.evaluate(node));
+    const mesh = this.evaluate(node);
+    if (format === "stl") return meshToStlBinary(mesh);
+    if (format === "3mf") return meshTo3mf(mesh);
+    throw new Error(`unsupported export format: ${format}`);
   }
 }
 
