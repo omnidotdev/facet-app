@@ -15,6 +15,7 @@ import {
 } from "@/facet";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { ParamStore } from "@/params";
+import { loadProject, saveProject } from "@/storage";
 import { applyTheme, getInitialTheme } from "@/theme";
 import { Viewport } from "@/viewport";
 
@@ -60,6 +61,9 @@ export default function FacetStudio() {
     let activeKernel: Kernel = meshKernel;
     let currentNode: OpNode | null = null;
     let paramsSignature = " ";
+
+    // Restore the last session (model + prefs) if one was saved.
+    const saved = loadProject();
 
     const build = (code: string): OpNode => {
       store.begin();
@@ -154,11 +158,31 @@ export default function FacetStudio() {
       });
     };
 
-    const editor: FacetEditor = createEditor(editorMount.current!, {
-      doc: examples[defaultExample] ?? "",
-      onChange: scheduleRun,
+    // Autosave the working model + prefs (debounced) so work survives a reload.
+    // Declared before the editor so the saver can read it.
+    let editor: FacetEditor;
+    let saveTimer: number | undefined;
+    const saveSoon = () => {
+      window.clearTimeout(saveTimer);
+      saveTimer = window.setTimeout(() => {
+        saveProject({
+          code: editor.getValue(),
+          kernel: kernelRef.current?.value ?? "ts",
+          format: formatRef.current?.value ?? "stl",
+        });
+      }, 400);
+    };
+
+    editor = createEditor(editorMount.current!, {
+      doc: saved?.code ?? examples[defaultExample] ?? "",
+      onChange: () => {
+        scheduleRun();
+        saveSoon();
+      },
       theme,
     });
+    if (formatRef.current) formatRef.current.value = saved?.format ?? "stl";
+    formatRef.current?.addEventListener("change", saveSoon);
 
     const setTheme = (next: Theme) => {
       theme = next;
@@ -197,6 +221,7 @@ export default function FacetStudio() {
     kernelRef.current!.addEventListener("change", () => {
       activeKernel = kernels[kernelRef.current!.value] ?? meshKernel;
       run();
+      saveSoon();
     });
 
     exportRef.current!.addEventListener("click", () => {
@@ -225,6 +250,12 @@ export default function FacetStudio() {
       opt.value = "rust";
       opt.textContent = "Kernel: Rust/WASM";
       kernelRef.current?.appendChild(opt);
+      // Restore a saved Rust selection once the option exists.
+      if (saved?.kernel === "rust" && kernelRef.current) {
+        kernelRef.current.value = "rust";
+        activeKernel = rust;
+        run();
+      }
     });
 
     run(true);
