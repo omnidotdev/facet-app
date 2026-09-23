@@ -11,7 +11,7 @@ export interface Mesh {
   triangleCount: number;
 }
 
-export type ExportFormat = "stl";
+export type ExportFormat = "stl" | "3mf";
 
 /**
  * The seam that matters. P1 ships a mesh/CSG kernel in TypeScript; a Rust

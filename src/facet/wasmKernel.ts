@@ -1,4 +1,5 @@
 import { meshToStlBinary } from "./stl";
+import { meshTo3mf } from "./threeMf";
 
 import type { ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode } from "./opgraph";
@@ -28,9 +29,10 @@ export async function loadWasmKernel(): Promise<Kernel | null> {
       name: wasm.name(),
       evaluate,
       export: (node: OpNode, format: ExportFormat): Uint8Array => {
-        if (format !== "stl")
-          throw new Error(`unsupported export format: ${format}`);
-        return meshToStlBinary(evaluate(node));
+        const mesh = evaluate(node);
+        if (format === "stl") return meshToStlBinary(mesh);
+        if (format === "3mf") return meshTo3mf(mesh);
+        throw new Error(`unsupported export format: ${format}`);
       },
     };
   } catch (err) {
