@@ -65,7 +65,7 @@
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.31.1",
     "@tailwindcss/vite": "^4.3.3",
-    "@tanstack/devtools-vite": "^0.6.1",
+    "@tanstack/devtools-vite": "^0.8.0",
     "@tanstack/router-cli": "^1.167.38",
     "@tanstack/router-plugin": "^1.168.40",
     "@tauri-apps/cli": "^2.11.5",
