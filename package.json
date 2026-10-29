@@ -58,7 +58,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwindcss": "^4.3.3",
-    "three": "^0.160.1"
+    "three": "^0.160.1",
+    "wgpu-matrix": "3.4.2"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.12",
