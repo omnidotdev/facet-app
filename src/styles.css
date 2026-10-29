@@ -96,6 +96,9 @@
 }
 
 :root {
+  /* Light is the default; drives native scrollbars and form controls */
+  color-scheme: light;
+
   --titlebar-height: 32px;
 
   --base-50: oklch(0.985 0.0013 286.84);
@@ -179,6 +182,9 @@
 
 /* Dark token values, keyed to Facet's data-theme attribute (not `.dark`) */
 [data-theme="dark"] {
+  /* Dark scrollbars and form controls to match the dark palette */
+  color-scheme: dark;
+
   --background: var(--base-950);
   --foreground: var(--base-200);
   --card: var(--base-950);
