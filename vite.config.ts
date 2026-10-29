@@ -2,6 +2,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { devtools } from "@tanstack/devtools-vite";
 import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
+import typegpu from "unplugin-typegpu/vite";
 import { defineConfig } from "vite";
 import mkcert from "vite-plugin-mkcert";
 
@@ -15,6 +16,8 @@ export default defineConfig(({ command }) => ({
     command === "serve" && mkcert(),
     TanStackRouterVite(),
     tailwindcss(),
+    // Transpiles TGSL 'use gpu' shader functions to WGSL at build time
+    typegpu(),
     react(),
   ],
   clearScreen: false,
