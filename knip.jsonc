@@ -20,6 +20,9 @@
     "@tauri-apps/plugin-notification",
     "@tauri-apps/plugin-opener",
     "@tauri-apps/plugin-process",
-    "@tauri-apps/plugin-updater"
+    "@tauri-apps/plugin-updater",
+    // Runtime peer dependency of @omnidotdev/thornberry's shipped components
+    // (its `cn` helper), resolved at runtime but not imported by app source.
+    "tailwind-merge"
   ]
 }
