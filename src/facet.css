@@ -1,4 +1,10 @@
-:root {
+/*
+ * Studio tokens are scoped to the .facet-app subtree (every consumer lives
+ * under it) rather than :root, so names like --accent and --muted do not
+ * clobber the Sigil/Thornberry design tokens defined on :root in styles.css
+ * that the shared command palette resolves against.
+ */
+.facet-app {
   --accent: #dd6e33;
   --accent-ink: #241206;
   --bg: #0d2033;
@@ -11,7 +17,7 @@
   --err: #ef8f7a;
 }
 
-:root[data-theme="light"] {
+[data-theme="light"] .facet-app {
   --accent: #c8611f;
   --accent-ink: #fff6ee;
   --bg: #efe9dd;

@@ -16,7 +16,7 @@ import {
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { ParamStore } from "@/params";
 import { loadProject, saveProject } from "@/storage";
-import { applyTheme, getInitialTheme } from "@/theme";
+import { getTheme, subscribe, toggleTheme } from "@/themeStore";
 import { Viewport } from "@/viewport";
 
 import type { FacetEditor } from "@/editor";
@@ -53,10 +53,11 @@ export default function FacetStudio() {
     inited.current = true;
 
     const store = new ParamStore();
-    let theme: Theme = getInitialTheme();
-    applyTheme(theme);
+    // The theme is stamped on <html> at app boot (main.tsx initTheme). Read the
+    // current value to seed the viewport and editor.
+    const initialTheme = getTheme();
 
-    const viewport = new Viewport(viewportMount.current!, theme);
+    const viewport = new Viewport(viewportMount.current!, initialTheme);
     const kernels: Record<string, Kernel> = { ts: meshKernel };
     let activeKernel: Kernel = meshKernel;
     let currentNode: OpNode | null = null;
@@ -179,39 +180,27 @@ export default function FacetStudio() {
         scheduleRun();
         saveSoon();
       },
-      theme,
+      theme: initialTheme,
     });
     if (formatRef.current) formatRef.current.value = saved?.format ?? "stl";
     formatRef.current?.addEventListener("change", saveSoon);
 
-    const setTheme = (next: Theme) => {
-      theme = next;
-      applyTheme(theme);
-      editor.setTheme(theme);
-      viewport.setTheme(theme);
-      themeLabelRef.current!.textContent = theme === "dark" ? "Dark" : "Light";
+    // The shared command palette owns the theme store and the `t` hotkey
+    // fleet-wide. The Studio subscribes so the viewport, editor, and label
+    // re-theme whoever flips it (the palette action, the `t` hotkey, or this
+    // button), keeping the imperative viewport/editor in sync with the store.
+    const syncThemeLabel = (next: Theme) => {
+      themeLabelRef.current!.textContent = next === "dark" ? "Dark" : "Light";
     };
-    const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
-    themeLabelRef.current!.textContent = theme === "dark" ? "Dark" : "Light";
+    syncThemeLabel(initialTheme);
+
+    const unsubscribeTheme = subscribe((next) => {
+      editor.setTheme(next);
+      viewport.setTheme(next);
+      syncThemeLabel(next);
+    });
 
     themeBtnRef.current!.addEventListener("click", toggleTheme);
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "t" && e.key !== "T") return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const target = e.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.isContentEditable ||
-          target.closest(".cm-editor") ||
-          ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))
-      ) {
-        return;
-      }
-      e.preventDefault();
-      toggleTheme();
-    };
-    window.addEventListener("keydown", onKey);
 
     exampleRef.current!.addEventListener("change", () => {
       editor.setValue(examples[exampleRef.current!.value] ?? "");
@@ -260,7 +249,7 @@ export default function FacetStudio() {
 
     run(true);
 
-    return () => window.removeEventListener("keydown", onKey);
+    return () => unsubscribeTheme();
   }, []);
 
   return (
