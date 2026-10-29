@@ -9,6 +9,8 @@
   "ignoreUnresolved": ["@/routeTree.gen"],
   // `box` is an intentional alias of `cube` in the authoring API.
   "rules": { "duplicates": "off" },
+  // Types/interfaces consumed only within their own module (used in signatures there).
+  "ignoreExportsUsedInFile": { "interface": true, "type": true },
   // wasm:build shells out to wasm-pack (a toolchain binary, not an npm dep).
   "ignoreBinaries": ["wasm-pack"],
   // Tauri plugin JS layers for the Rust plugins registered in src-tauri/src/lib.rs.
