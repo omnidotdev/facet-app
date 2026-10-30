@@ -10,6 +10,9 @@
 #   cargo build --release -p odk-cli   # or: cargo install --path odk-cli
 # Then run with ODK set to the binary (or put `odk` on PATH):
 #   ODK=/path/to/odk bun opgraph:generate
+#
+# ODK emits variants and fields in schema declaration order and is byte-stable
+# across runs, so regenerating with an unchanged schema produces no diff.
 set -euo pipefail
 
 # Run from the repo root regardless of the caller's cwd (direct ./ invocation
@@ -21,12 +24,8 @@ SCHEMA="schema/opgraph.odk.yaml"
 TS_DIR="src/facet"
 RUST_DIR="crates/facet-kernel/src"
 
-# ODK writes `models.<ext>`; rename to the stable, home-specific filenames
-# (this overwrites any existing opgraph.gen.* / opgraph_gen.* in place)
-"$ODK" generate "$SCHEMA" -t typescript -o "$TS_DIR"
-mv "$TS_DIR/models.ts" "$TS_DIR/opgraph.gen.ts"
-
-"$ODK" generate "$SCHEMA" -t rust -o "$RUST_DIR"
-mv "$RUST_DIR/models.rs" "$RUST_DIR/opgraph_gen.rs"
+# --out-file names the output stem directly, so no rename step is needed
+"$ODK" generate "$SCHEMA" -t typescript --out-file opgraph.gen -o "$TS_DIR"
+"$ODK" generate "$SCHEMA" -t rust --out-file opgraph_gen -o "$RUST_DIR"
 
 echo "Regenerated opgraph.gen.ts and opgraph_gen.rs from $SCHEMA"
