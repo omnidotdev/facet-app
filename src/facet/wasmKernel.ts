@@ -1,3 +1,4 @@
+import { KernelError } from "./kernel";
 import { meshToStlBinary } from "./stl";
 import { meshTo3mf } from "./threeMf";
 
@@ -15,7 +16,18 @@ export async function loadWasmKernel(): Promise<Kernel | null> {
     await wasm.default();
 
     const evaluate = (node: OpNode): Mesh => {
-      const res = wasm.evaluate(JSON.stringify(node));
+      let res: ReturnType<typeof wasm.evaluate>;
+      try {
+        res = wasm.evaluate(JSON.stringify(node));
+      } catch (err) {
+        // The Rust kernel rejects exact-geometry ops (fillet/chamfer/shell)
+        // with a user-facing "Switch the kernel to B-rep (OCCT)" message thrown
+        // as a string; mark those safe to show, but leave any other failure
+        // (e.g. a malformed op-graph) as an internal detail
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes("B-rep kernel")) throw new KernelError(message);
+        throw err;
+      }
       const mesh: Mesh = {
         positions: res.positions,
         normals: res.normals,
@@ -29,6 +41,12 @@ export async function loadWasmKernel(): Promise<Kernel | null> {
       name: wasm.name(),
       evaluate,
       export: (node: OpNode, format: ExportFormat): Uint8Array => {
+        // The Rust kernel tessellates; STEP needs exact B-rep geometry, so send
+        // the user to the kernel that can emit it instead of a mesh
+        if (format === "step")
+          throw new KernelError(
+            "STEP export needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+          );
         const mesh = evaluate(node);
         if (format === "stl") return meshToStlBinary(mesh);
         if (format === "3mf") return meshTo3mf(mesh);

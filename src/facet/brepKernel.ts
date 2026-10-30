@@ -3,10 +3,12 @@
 // stays lean and the wasm is fetched on demand the first time this kernel loads
 import wasmUrl from "replicad-opencascadejs/wasm?url";
 
+import { KernelError } from "./kernel";
 import { meshToStlBinary } from "./stl";
 import { meshTo3mf } from "./threeMf";
 
 import type { Shape3D } from "replicad";
+import type { OpenCascadeInstance } from "replicad-opencascadejs";
 import type { ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode } from "./opgraph";
 
@@ -29,7 +31,7 @@ const DEG_TO_RAD = Math.PI / 180;
  * the user, so the Studio may show it verbatim; any other kernel failure is
  * replaced with a generic message and the real detail is logged.
  */
-class BrepModelingError extends Error {
+class BrepModelingError extends KernelError {
   constructor(message: string) {
     super(message);
     this.name = "BrepModelingError";
@@ -184,6 +186,76 @@ export function evaluateOpGraph(rc: Replicad, node: OpNode): Mesh {
     return toMesh(evalNode(rc, keep, node));
   } finally {
     gc();
+  }
+}
+
+/**
+ * Evaluate the op-graph to its exact B-rep solid and serialize that solid to an
+ * ISO-10303-21 STEP byte stream. STEP carries exact analytic geometry, so it
+ * must come from the solid itself, never the display mesh: a model that dropped
+ * to a mesh (an unsupported op such as a non-uniform scale) has no exact B-rep
+ * and is refused with a user-safe message. Shares the `localGC` discipline of
+ * `evaluateOpGraph`: every handle, including the evaluated solid, is swept once
+ * the STEP bytes are copied out of the wasm heap.
+ */
+export function exportOpGraphStep(rc: Replicad, node: OpNode): Uint8Array {
+  const [keep, gc] = rc.localGC();
+  try {
+    const geom = evalNode(rc, keep, node);
+    if (geom.kind !== "brep")
+      throw new BrepModelingError(
+        "STEP export needs exact geometry; this model used an unsupported operation.",
+      );
+    return shapeToStepBytes(rc.getOC(), geom.shape);
+  } finally {
+    gc();
+  }
+}
+
+/**
+ * Write a single exact solid to an ISO-10303-21 STEP (AP242) byte stream. This
+ * mirrors replicad's `blobSTEP`, but reads the bytes straight out of OCCT's
+ * in-memory filesystem with `oc.FS.readFile` so the result is a synchronous
+ * `Uint8Array`, not a `Blob` whose async `arrayBuffer()` would force the whole
+ * export path async. Schema 5 selects AP242, the manufacturing-grade protocol
+ * that carries exact analytic surfaces (planes, cylinders) rather than a mesh.
+ * The writer and progress handles are raw OCCT objects, not replicad shapes, so
+ * `localGC` does not track them: free them by hand once the bytes are copied.
+ */
+function shapeToStepBytes(oc: OpenCascadeInstance, shape: Shape3D): Uint8Array {
+  const path = "/facet-model.step";
+  const writer = new oc.STEPControl_Writer();
+  const progress = new oc.Message_ProgressRange();
+  // Write writes the MEMFS file, so track whether it landed and always clean it
+  // up in finally: an abort before the read must not leave a stale file behind
+  let written = false;
+  try {
+    oc.Interface_Static.SetIVal("write.step.schema", 5);
+    const transferred = writer.Transfer(
+      shape.wrapped,
+      oc.STEPControl_StepModelType.STEPControl_AsIs,
+      true,
+      progress,
+    );
+    if (transferred !== oc.IFSelect_ReturnStatus.IFSelect_RetDone)
+      throw new Error("STEP transfer did not complete");
+    written = writer.Write(path) === oc.IFSelect_ReturnStatus.IFSelect_RetDone;
+    if (!written) throw new Error("STEP write did not complete");
+    // readFile copies the bytes out of the wasm heap into a fresh array, so the
+    // MEMFS file can be freed right after (the unlink runs in finally)
+    return oc.FS.readFile(path);
+  } finally {
+    writer.delete();
+    progress.delete();
+    // Only a successful write created the file; guard the unlink so a cleanup
+    // failure never masks the original error
+    if (written) {
+      try {
+        oc.FS.unlink(path);
+      } catch {
+        // Best-effort cleanup; the path is constant so a leftover is bounded
+      }
+    }
   }
 }
 
@@ -344,10 +416,21 @@ export function loadBrepKernel(): Promise<Kernel | null> {
         name: "facet-occt-brep",
         evaluate,
         export: (node: OpNode, format: ExportFormat): Uint8Array => {
-          const mesh = evaluate(node);
-          if (format === "stl") return meshToStlBinary(mesh);
-          if (format === "3mf") return meshTo3mf(mesh);
-          throw new Error(`unsupported export format: ${format}`);
+          try {
+            // STEP comes from the exact solid, never the mesh, so it has its own
+            // evaluate-to-shape path; STL and 3MF stay mesh-based
+            if (format === "step") return exportOpGraphStep(rc, node);
+            const mesh = evaluate(node);
+            if (format === "stl") return meshToStlBinary(mesh);
+            if (format === "3mf") return meshTo3mf(mesh);
+            throw new Error(`unsupported export format: ${format}`);
+          } catch (err) {
+            if (err instanceof BrepModelingError) throw err;
+            console.warn("Facet OCCT/B-rep export failed:", err);
+            throw new BrepModelingError(
+              "The B-rep kernel couldn't export this model.",
+            );
+          }
         },
       } satisfies Kernel;
     } catch (err) {

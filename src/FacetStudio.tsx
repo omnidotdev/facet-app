@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { createEditor } from "@/editor";
 import { defaultExample, examples } from "@/examples";
 import {
+  KernelError,
   Shape,
   box,
   cube,
@@ -260,15 +261,34 @@ export default function FacetStudio() {
         return;
       }
       const format = (formatRef.current?.value ?? "stl") as ExportFormat;
-      const mime = format === "3mf" ? "model/3mf" : "model/stl";
-      const data = activeKernel.export(currentNode, format);
-      const blob = new Blob([data.buffer as ArrayBuffer], { type: mime });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `facet-model.${format}`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const mime =
+        format === "3mf"
+          ? "model/3mf"
+          : format === "step"
+            ? "model/step"
+            : "model/stl";
+      try {
+        const data = activeKernel.export(currentNode, format);
+        const blob = new Blob([data.buffer as ArrayBuffer], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        // Lowercase extension, so facet-model.step for a STEP export
+        a.download = `facet-model.${format}`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        // Only a KernelError carries a message written for the user (e.g. STEP
+        // on a mesh kernel, or a model with no exact B-rep); any other failure
+        // is an internal detail, so log it and show a generic message
+        statusEl.className = "status err";
+        if (err instanceof KernelError) {
+          statusEl.textContent = `✗ ${err.message}`;
+        } else {
+          console.warn("Facet export failed:", err);
+          statusEl.textContent = "✗ Export failed.";
+        }
+      }
     });
 
     loadWasmKernel().then((rust) => {
@@ -332,6 +352,7 @@ export default function FacetStudio() {
         <select ref={formatRef} title="Export format" defaultValue="stl">
           <option value="stl">STL</option>
           <option value="3mf">3MF</option>
+          <option value="step">STEP</option>
         </select>
         <button
           ref={exportRef}

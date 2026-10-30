@@ -103,3 +103,11 @@ describe("STL export", () => {
     expect(count).toBe(mesh.triangleCount);
   });
 });
+
+describe("STEP export is rejected by the mesh kernel", () => {
+  test("STEP needs exact geometry, so point the user at the B-rep kernel", () => {
+    expect(() => meshKernel.export(cube(10).node, "step")).toThrow(
+      /B-rep kernel/,
+    );
+  });
+});

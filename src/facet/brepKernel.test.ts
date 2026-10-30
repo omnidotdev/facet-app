@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { evaluateOpGraph } from "./brepKernel";
+import { evaluateOpGraph, exportOpGraphStep } from "./brepKernel";
 
 import type { OpNode } from "./opgraph";
 
@@ -167,6 +167,60 @@ describe("OCCT B-rep kernel", () => {
     for (let i = 0; i < 40; i++) {
       const mesh = evaluateOpGraph(rc!, node);
       expect(mesh.triangleCount).toBeGreaterThan(0);
+    }
+    expect(heapBytes()).toBeLessThanOrEqual(warmHeap);
+  });
+
+  test.skipIf(!rc)("exports a cube to an ISO-10303-21 B-rep STEP", () => {
+    const node: OpNode = { op: "cube", size: [10, 10, 10], center: true };
+    const bytes = exportOpGraphStep(rc!, node);
+    expect(bytes.length).toBeGreaterThan(0);
+    const text = new TextDecoder().decode(bytes);
+    // A real STEP part file opens with the ISO-10303-21 exchange header
+    expect(text.startsWith("ISO-10303-21;")).toBe(true);
+    expect(text).toContain("FILE_DESCRIPTION");
+    // Exact B-rep entities, so this is the analytic solid, not a mesh dump
+    expect(text).toContain("MANIFOLD_SOLID_BREP");
+    expect(text).toContain("ADVANCED_BREP_SHAPE_REPRESENTATION");
+  });
+
+  test.skipIf(!rc)("exports a filleted part as exact B-rep STEP", () => {
+    const node: OpNode = {
+      op: "fillet",
+      radius: 1,
+      child: { op: "cube", size: [10, 10, 10], center: true },
+    };
+    const bytes = exportOpGraphStep(rc!, node);
+    const text = new TextDecoder().decode(bytes);
+    expect(text.startsWith("ISO-10303-21;")).toBe(true);
+    expect(text).toContain("MANIFOLD_SOLID_BREP");
+  });
+
+  test.skipIf(!rc)("refuses STEP when the geometry dropped to a mesh", () => {
+    // A non-uniform scale has no exact B-rep, so STEP export must refuse rather
+    // than silently emit nothing or crash
+    const node: OpNode = {
+      op: "scale",
+      v: [1, 1, 1.5],
+      child: { op: "cube", size: [10, 10, 10], center: true },
+    };
+    expect(() => exportOpGraphStep(rc!, node)).toThrow(/exact geometry/);
+  });
+
+  test.skipIf(!rc)("sweeps OCCT handles across repeated STEP exports", () => {
+    const node: OpNode = {
+      op: "fillet",
+      radius: 1,
+      child: { op: "cube", size: [10, 10, 10], center: true },
+    };
+    const heapBytes = () => rc!.getOC().wasmMemory.buffer.byteLength;
+    // STEP export allocates the writer, progress handle, and the evaluated
+    // solid; a leak in any of them would climb the heap across repeats
+    for (let i = 0; i < 5; i++) exportOpGraphStep(rc!, node);
+    const warmHeap = heapBytes();
+    for (let i = 0; i < 20; i++) {
+      const bytes = exportOpGraphStep(rc!, node);
+      expect(bytes.length).toBeGreaterThan(0);
     }
     expect(heapBytes()).toBeLessThanOrEqual(warmHeap);
   });
