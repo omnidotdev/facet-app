@@ -23,8 +23,8 @@ const FEATURES = [
     ),
   },
   {
-    title: "Two geometry kernels",
-    body: "A mesh CSG kernel in TypeScript and a Rust kernel compiled to WebAssembly - swap them live.",
+    title: "Three geometry kernels",
+    body: "A mesh CSG kernel in TypeScript, a Rust kernel in WebAssembly, and an OCCT B-rep kernel - swap them live.",
     icon: (
       <>
         <rect

@@ -73,6 +73,26 @@ describe("mesh kernel evaluates the op-graph into geometry", () => {
   });
 });
 
+describe("B-rep-only ops are rejected by the mesh kernel", () => {
+  test("fillet asks the user to switch to the B-rep kernel", () => {
+    expect(() => meshKernel.evaluate(cube(10).fillet(2).node)).toThrow(
+      /B-rep kernel/,
+    );
+  });
+
+  test("chamfer asks the user to switch to the B-rep kernel", () => {
+    expect(() => meshKernel.evaluate(cube(10).chamfer(1).node)).toThrow(
+      /B-rep kernel/,
+    );
+  });
+
+  test("shell asks the user to switch to the B-rep kernel", () => {
+    expect(() => meshKernel.evaluate(cube(10).shell(2).node)).toThrow(
+      /B-rep kernel/,
+    );
+  });
+});
+
 describe("STL export", () => {
   test("binary STL is 84 + 50 bytes per triangle", () => {
     const mesh = meshKernel.evaluate(cube(10).node);
@@ -81,5 +101,13 @@ describe("STL export", () => {
     // Triangle count is echoed at byte offset 80, little-endian.
     const count = new DataView(stl.buffer).getUint32(80, true);
     expect(count).toBe(mesh.triangleCount);
+  });
+});
+
+describe("STEP export is rejected by the mesh kernel", () => {
+  test("STEP needs exact geometry, so point the user at the B-rep kernel", () => {
+    expect(() => meshKernel.export(cube(10).node, "step")).toThrow(
+      /B-rep kernel/,
+    );
   });
 });

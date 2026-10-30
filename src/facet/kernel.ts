@@ -11,7 +11,15 @@ export interface Mesh {
   triangleCount: number;
 }
 
-export type ExportFormat = "stl" | "3mf";
+export type ExportFormat = "stl" | "3mf" | "step";
+
+/**
+ * A kernel error whose message is written for the user, so the Studio may show
+ * it verbatim (e.g. "STEP export needs the B-rep kernel"). Any error that is
+ * not a `KernelError` is treated as an internal detail: it is logged and
+ * replaced with a generic message, never surfaced raw.
+ */
+export class KernelError extends Error {}
 
 /**
  * The seam that matters. P1 ships a mesh/CSG kernel in TypeScript; a Rust

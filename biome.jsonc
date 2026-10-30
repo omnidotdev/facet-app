@@ -31,7 +31,15 @@
     }
   },
   "files": {
-    "includes": ["**", "!!**/src-tauri", "!!index.html", "!!src/wasm"],
+    // src/facet/opgraph.gen.ts is ODK-generated (do not edit); exclude it from
+    // formatting/linting like the other generated output
+    "includes": [
+      "**",
+      "!!**/src-tauri",
+      "!!index.html",
+      "!!src/wasm",
+      "!!src/facet/opgraph.gen.ts"
+    ],
     "ignoreUnknown": true
   },
   "formatter": {
