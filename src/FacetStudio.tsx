@@ -11,6 +11,8 @@ import {
   difference,
   intersection,
   meshKernel,
+  requiresBrep,
+  shouldAutoSwitchToBrep,
   sphere,
   union,
 } from "@/facet";
@@ -65,6 +67,9 @@ export default function FacetStudio() {
     let activeKernelKey = "ts";
     // Guards a second click while the on-demand B-rep wasm is still fetching
     let brepLoading = false;
+    // Set when run() triggers an automatic switch to B-rep, so the first render
+    // on the newly active kernel can explain why the kernel changed
+    let announceAutoSwitch = false;
     let currentNode: OpNode | null = null;
     let paramsSignature = " ";
 
@@ -129,15 +134,45 @@ export default function FacetStudio() {
     const run = (reframe = false) => {
       const t0 = performance.now();
       const statusEl = statusRef.current!;
+      let node: OpNode;
       try {
-        const node = build(editor.getValue());
+        node = build(editor.getValue());
+      } catch (err) {
+        currentNode = null;
+        statusEl.className = "status err";
+        statusEl.textContent = `✗ ${err instanceof Error ? err.message : String(err)}`;
+        return;
+      }
+
+      // Fillet/chamfer/shell exist only on the B-rep (OCCT) kernel, so load and
+      // switch to it on demand rather than erroring on the mesh/Rust kernel.
+      // activateBrepKernel flips activeKernelKey to "brep" before it re-runs, so
+      // this branch cannot re-trigger itself and cause a switch loop
+      if (shouldAutoSwitchToBrep(node, activeKernelKey)) {
+        announceAutoSwitch = true;
+        activateBrepKernel(reframe);
+        return;
+      }
+
+      try {
         const mesh = activeKernel.evaluate(node);
         viewport.setMesh(mesh, reframe);
         currentNode = node;
         renderParams();
-        const ms = (performance.now() - t0).toFixed(0);
-        statusEl.className = "status ok";
-        statusEl.textContent = `✓ ${mesh.triangleCount.toLocaleString()} triangles · ${ms} ms · ${activeKernel.name}`;
+        if (announceAutoSwitch && requiresBrep(node)) {
+          // First successful render of a B-rep model after an automatic switch:
+          // say why the kernel changed, then fall back to the usual stats. Gate
+          // on requiresBrep so a failed first eval cannot mislabel a later
+          // non-B-rep render with the switch notice
+          announceAutoSwitch = false;
+          statusEl.className = "status ok";
+          statusEl.textContent =
+            "✓ Using the B-rep kernel for fillet/chamfer/shell";
+        } else {
+          const ms = (performance.now() - t0).toFixed(0);
+          statusEl.className = "status ok";
+          statusEl.textContent = `✓ ${mesh.triangleCount.toLocaleString()} triangles · ${ms} ms · ${activeKernel.name}`;
+        }
       } catch (err) {
         currentNode = null;
         statusEl.className = "status err";
@@ -212,35 +247,53 @@ export default function FacetStudio() {
       run(true);
     });
 
-    // Switch the active kernel. The B-rep (OCCT) kernel is a ~6.9 MB gzipped
-    // wasm, so it is never loaded at boot: the first time it is selected, load
-    // it on demand, keep the current kernel live while it fetches, and fall back
-    // if it fails
-    const selectKernel = (value: string) => {
+    // Load (once, on demand) and activate the B-rep (OCCT) kernel, then re-run.
+    // Shared by the manual dropdown and the automatic switch for B-rep-only ops.
+    // The kernel is a ~6.9 MB gzipped wasm, so it is never loaded at boot: the
+    // first time it is needed, fetch it, keep the current kernel live while it
+    // fetches, and fall back if it fails. The dropdown is moved to "brep" up
+    // front so a switch away during the load is respected (manual path) and the
+    // pending switch is visible (auto path)
+    const activateBrepKernel = (reframe = false) => {
       const statusEl = statusRef.current!;
-      if (value === "brep" && !kernels.brep) {
-        if (brepLoading) return;
-        brepLoading = true;
-        statusEl.className = "status";
-        statusEl.textContent = "Loading B-rep kernel…";
-        loadBrepKernel().then((brep) => {
-          brepLoading = false;
-          if (!brep) {
-            // Keep running on the kernel that was active before the switch
-            statusEl.className = "status err";
-            statusEl.textContent = "✗ The B-rep kernel could not be loaded.";
-            if (kernelRef.current) kernelRef.current.value = activeKernelKey;
-            return;
-          }
-          // Cache it regardless, but only activate if the user has not switched
-          // the dropdown away while the wasm was loading
-          kernels.brep = brep;
-          if (kernelRef.current?.value !== "brep") return;
-          activeKernel = brep;
-          activeKernelKey = "brep";
-          run();
-          saveSoon();
-        });
+      if (kernelRef.current) kernelRef.current.value = "brep";
+      if (kernels.brep) {
+        activeKernel = kernels.brep;
+        activeKernelKey = "brep";
+        run(reframe);
+        saveSoon();
+        return;
+      }
+      if (brepLoading) return; // a fetch is already in flight; it will re-run
+      brepLoading = true;
+      statusEl.className = "status";
+      statusEl.textContent = "Loading B-rep kernel…";
+      loadBrepKernel().then((brep) => {
+        brepLoading = false;
+        if (!brep) {
+          // Keep running on the kernel that was active before the switch
+          announceAutoSwitch = false;
+          statusEl.className = "status err";
+          statusEl.textContent = "✗ The B-rep kernel could not be loaded.";
+          if (kernelRef.current) kernelRef.current.value = activeKernelKey;
+          return;
+        }
+        // Cache it regardless, but only activate if the dropdown has not been
+        // switched away while the wasm was loading
+        kernels.brep = brep;
+        if (kernelRef.current?.value !== "brep") return;
+        activeKernel = brep;
+        activeKernelKey = "brep";
+        run(reframe);
+        saveSoon();
+      });
+    };
+
+    // Switch the active kernel from an explicit dropdown choice. B-rep goes
+    // through the on-demand loader; the mesh/Rust kernels are already resident
+    const selectKernel = (value: string) => {
+      if (value === "brep") {
+        activateBrepKernel();
         return;
       }
       activeKernel = kernels[value] ?? meshKernel;

@@ -13,6 +13,50 @@
  * triple ODK emits inline, kept for the authoring API and callers.
  */
 
+import type { OpNode } from "./opgraph.gen";
+
 export type { OpNode } from "./opgraph.gen";
 
 export type Vec3 = [number, number, number];
+
+/**
+ * Whether the graph contains a B-rep-only op (fillet/chamfer/shell), which only
+ * the B-rep (OCCT) kernel can evaluate. The mesh and Rust kernels reject these,
+ * so the Studio uses this to load and switch to the B-rep kernel on demand.
+ * Walks the whole tree, recursing through single-child transforms and the
+ * children arrays of boolean ops.
+ */
+export function requiresBrep(node: OpNode): boolean {
+  switch (node.op) {
+    case "fillet":
+    case "chamfer":
+    case "shell":
+      return true;
+    case "translate":
+    case "rotate":
+    case "scale":
+      return requiresBrep(node.child);
+    case "union":
+    case "difference":
+    case "intersect":
+      return node.children.some(requiresBrep);
+    case "cube":
+    case "sphere":
+    case "cylinder":
+      return false;
+  }
+}
+
+/**
+ * Whether the Studio should load and switch to the B-rep kernel before
+ * evaluating. True only when the graph needs B-rep ops and the active kernel is
+ * not already B-rep, so an explicit non-B-rep choice stays put for models that
+ * need no exact geometry, and the switch cannot re-trigger itself once "brep"
+ * is the active kernel.
+ */
+export function shouldAutoSwitchToBrep(
+  node: OpNode,
+  activeKernelKey: string,
+): boolean {
+  return activeKernelKey !== "brep" && requiresBrep(node);
+}

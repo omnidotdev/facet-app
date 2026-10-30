@@ -11,6 +11,7 @@ export {
 } from "./api";
 export { KernelError, meshBounds } from "./kernel";
 export { MeshKernel, meshKernel } from "./meshKernel";
+export { requiresBrep, shouldAutoSwitchToBrep } from "./opgraph";
 export { meshToStlBinary } from "./stl";
 
 export type { ExportFormat, Kernel, Mesh } from "./kernel";
