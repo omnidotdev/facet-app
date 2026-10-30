@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 
 import { evaluateOpGraph, exportOpGraphStep } from "./brepKernel";
 
@@ -15,10 +13,10 @@ import type { OpNode } from "./opgraph";
 async function loadReplicad(): Promise<typeof import("replicad") | null> {
   try {
     const ocInit = (await import("replicad-opencascadejs")).default;
-    const wasmPath = fileURLToPath(
+    const wasmPath = Bun.fileURLToPath(
       import.meta.resolve("replicad-opencascadejs/wasm"),
     );
-    const wasmBinary = await readFile(wasmPath);
+    const wasmBinary = await Bun.file(wasmPath).arrayBuffer();
     const oc = await ocInit({ wasmBinary, locateFile: () => wasmPath });
     const rc = await import("replicad");
     rc.setOC(oc);
