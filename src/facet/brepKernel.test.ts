@@ -78,6 +78,77 @@ describe("OCCT B-rep kernel", () => {
     expect(zMax).toBeCloseTo(6.25, 3);
   });
 
+  test.skipIf(!rc)("rounds every edge of a box with a fillet", () => {
+    const node: OpNode = {
+      op: "fillet",
+      radius: 1,
+      child: { op: "cube", size: [10, 10, 10], center: true },
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    // Rounding the 12 edges replaces each with a curved strip, so the result
+    // has far more than the bare box's 12 triangles
+    expect(mesh.triangleCount).toBeGreaterThan(12);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+    expect(mesh.normals.length).toBe(mesh.triangleCount * 9);
+  });
+
+  test.skipIf(!rc)("chamfers every edge of a box", () => {
+    const node: OpNode = {
+      op: "chamfer",
+      size: 1,
+      child: { op: "cube", size: [10, 10, 10], center: true },
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(12);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+  });
+
+  test.skipIf(!rc)("hollows a box into an open-topped shell", () => {
+    const solid: OpNode = { op: "cube", size: [20, 20, 20], center: true };
+    const shelled: OpNode = { op: "shell", thickness: 2, child: solid };
+    const solidMesh = evaluateOpGraph(rc!, solid);
+    const shelledMesh = evaluateOpGraph(rc!, shelled);
+    // The hollow walls plus the opening add surface area, so the shell
+    // tessellates to more triangles than the solid box it came from
+    expect(shelledMesh.triangleCount).toBeGreaterThan(solidMesh.triangleCount);
+    expect(shelledMesh.positions.length).toBe(shelledMesh.triangleCount * 9);
+  });
+
+  test.skipIf(!rc)("builds a filleted, shelled enclosure", () => {
+    // The combined enclosure case, in the engineering-correct order: round the
+    // solid box's edges, then hollow it open-topped. (Rounding AFTER shelling a
+    // 2 mm wall by a radius that fills the wall is physically impossible and
+    // OCCT correctly refuses it, so the fillet wraps the solid, not the shell)
+    const node: OpNode = {
+      op: "shell",
+      thickness: 2,
+      child: {
+        op: "fillet",
+        radius: 1,
+        child: { op: "cube", size: [40, 30, 20], center: true },
+      },
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(12);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+    expect(mesh.normals.length).toBe(mesh.triangleCount * 9);
+  });
+
+  test.skipIf(!rc)("refuses a B-rep op on a non-uniformly scaled child", () => {
+    // A non-uniform scale drops to a tessellated mesh, which fillet/chamfer/
+    // shell cannot operate on, so the kernel must reject it, not crash
+    const node: OpNode = {
+      op: "fillet",
+      radius: 1,
+      child: {
+        op: "scale",
+        v: [1, 1, 1.5],
+        child: { op: "cube", size: [10, 10, 10], center: true },
+      },
+    };
+    expect(() => evaluateOpGraph(rc!, node)).toThrow(/B-rep/);
+  });
+
   test.skipIf(!rc)("sweeps OCCT handles across repeated evaluations", () => {
     const node: OpNode = {
       op: "difference",

@@ -70,6 +70,30 @@ export class Shape {
       children: [this.node, ...others.map((s) => s.node)],
     });
   }
+
+  /**
+   * Round every edge of this solid by `radius`. Exact geometry, so it needs the
+   * B-rep kernel.
+   */
+  fillet(radius: number): Shape {
+    return this.wrap({ op: "fillet", radius, child: this.node });
+  }
+
+  /**
+   * Bevel every edge of this solid by `size`. Exact geometry, so it needs the
+   * B-rep kernel.
+   */
+  chamfer(size: number): Shape {
+    return this.wrap({ op: "chamfer", size, child: this.node });
+  }
+
+  /**
+   * Hollow this solid to a wall of `thickness`, opening its topmost +Z face.
+   * Exact geometry, so it needs the B-rep kernel.
+   */
+  shell(thickness: number): Shape {
+    return this.wrap({ op: "shell", thickness, child: this.node });
+  }
 }
 
 // --- Primitives -------------------------------------------------------------

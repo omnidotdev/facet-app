@@ -16,42 +16,53 @@ fn segment_count(n: i32) -> u32 {
     n.max(1) as u32
 }
 
-pub fn eval_node(node: &OpNode) -> Csg {
+pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
     match node {
         OpNode::Cube { size, center } => {
             let radius = [size[0] / 2.0, size[1] / 2.0, size[2] / 2.0];
             let c = if *center { [0.0, 0.0, 0.0] } else { radius };
-            csg_cube(c, radius)
+            Ok(csg_cube(c, radius))
         }
         OpNode::Sphere { r, segments } => {
             let slices = segment_count(*segments);
             let stacks = ((slices as f64 / 2.0).round() as u32).max(2);
-            csg_sphere(*r, slices, stacks)
+            Ok(csg_sphere(*r, slices, stacks))
         }
         OpNode::Cylinder { r, h, segments, center } => {
-            csg_cylinder(*r, *h, *center, segment_count(*segments))
+            Ok(csg_cylinder(*r, *h, *center, segment_count(*segments)))
         }
         OpNode::Translate { v, child } => {
-            map_verts(&eval_node(child), |p| p.plus(Vec3::new(v[0], v[1], v[2])))
+            Ok(map_verts(&eval_node(child)?, |p| p.plus(Vec3::new(v[0], v[1], v[2]))))
         }
         OpNode::Scale { v, child } => {
-            map_verts(&eval_node(child), |p| Vec3::new(p.x * v[0], p.y * v[1], p.z * v[2]))
+            Ok(map_verts(&eval_node(child)?, |p| Vec3::new(p.x * v[0], p.y * v[1], p.z * v[2])))
         }
-        OpNode::Rotate { deg, child } => map_verts(&eval_node(child), |p| rotate_point(p, *deg)),
+        OpNode::Rotate { deg, child } => Ok(map_verts(&eval_node(child)?, |p| rotate_point(p, *deg))),
+        // Fillet, chamfer, and shell are exact-geometry ops the mesh/CSG kernel
+        // cannot do; direct the user to the B-rep kernel instead of approximating
+        OpNode::Fillet { .. } => {
+            Err("Fillet needs the B-rep kernel. Switch the kernel to B-rep (OCCT).".to_string())
+        }
+        OpNode::Chamfer { .. } => {
+            Err("Chamfer needs the B-rep kernel. Switch the kernel to B-rep (OCCT).".to_string())
+        }
+        OpNode::Shell { .. } => {
+            Err("Shell needs the B-rep kernel. Switch the kernel to B-rep (OCCT).".to_string())
+        }
         OpNode::Union { children } => reduce_bool(children, |a, b| a.union(b)),
         OpNode::Difference { children } => reduce_bool(children, |a, b| a.subtract(b)),
         OpNode::Intersect { children } => reduce_bool(children, |a, b| a.intersect(b)),
     }
 }
 
-fn reduce_bool(children: &[OpNode], f: impl Fn(&Csg, &Csg) -> Csg) -> Csg {
+fn reduce_bool(children: &[OpNode], f: impl Fn(&Csg, &Csg) -> Csg) -> Result<Csg, String> {
     let mut iter = children.iter();
-    let first = iter.next().expect("boolean op needs at least one child");
-    let mut acc = eval_node(first);
+    let first = iter.next().ok_or("boolean op needs at least one child")?;
+    let mut acc = eval_node(first)?;
     for child in iter {
-        acc = f(&acc, &eval_node(child));
+        acc = f(&acc, &eval_node(child)?);
     }
-    acc
+    Ok(acc)
 }
 
 fn map_verts(csg: &Csg, f: impl Fn(Vec3) -> Vec3) -> Csg {
@@ -190,8 +201,25 @@ mod tests {
         let node: OpNode = serde_json::from_str(json).expect("parse op-graph");
         let wire = serde_json::to_string(&node).expect("serialize op-graph");
         let reparsed: OpNode = serde_json::from_str(&wire).expect("reparse op-graph");
-        let mesh = eval_node(&reparsed);
+        let mesh = eval_node(&reparsed).expect("evaluate op-graph");
         assert!(!mesh.polygons.is_empty());
+    }
+
+    /// The exact-geometry ops have no mesh/CSG equivalent, so this kernel must
+    /// reject them with a message pointing at the B-rep kernel, never panic
+    #[test]
+    fn rejects_brep_only_ops_with_a_clear_message() {
+        for json in [
+            r#"{"op":"fillet","radius":2,"child":{"op":"cube","size":[10,10,10],"center":true}}"#,
+            r#"{"op":"chamfer","size":1,"child":{"op":"cube","size":[10,10,10],"center":true}}"#,
+            r#"{"op":"shell","thickness":2,"child":{"op":"cube","size":[10,10,10],"center":true}}"#,
+        ] {
+            let node: OpNode = serde_json::from_str(json).expect("parse op-graph");
+            let err = eval_node(&node)
+                .err()
+                .expect("B-rep-only op must be rejected");
+            assert!(err.contains("B-rep kernel"), "unexpected message: {err}");
+        }
     }
 
     /// A negative or zero segments count from arbitrary JSON must floor to a

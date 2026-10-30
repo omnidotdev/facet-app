@@ -244,6 +244,26 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       // the mesh instead
       return { kind: "mesh", mesh: scaleMesh(toMesh(child), node.v) };
     }
+    case "fillet": {
+      const shape = requireBrep(evalNode(rc, keep, node.child), "Fillet");
+      // A bare radius rounds every edge; OCCT refuses (StdFail_NotDone) if the
+      // radius cannot fit the geometry, which surfaces as the generic B-rep error
+      return { kind: "brep", shape: keep(shape.fillet(node.radius)) };
+    }
+    case "chamfer": {
+      const shape = requireBrep(evalNode(rc, keep, node.child), "Chamfer");
+      // A bare size bevels every edge, mirroring fillet
+      return { kind: "brep", shape: keep(shape.chamfer(node.size)) };
+    }
+    case "shell": {
+      const shape = requireBrep(evalNode(rc, keep, node.child), "Shell");
+      // Facet's positive thickness hollows inward, so negate for replicad's
+      // sign convention; open the topmost +Z face, the common enclosure case
+      const shelled = shape.shell(-node.thickness, (finder, s) =>
+        finder.when(rc.topMost(s)).parallelTo("XY"),
+      );
+      return { kind: "brep", shape: keep(shelled) };
+    }
     case "union":
       return booleanOp(rc, keep, node.children, (a, b) => a.fuse(b));
     case "difference":
@@ -251,6 +271,19 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
     case "intersect":
       return booleanOp(rc, keep, node.children, (a, b) => a.intersect(b));
   }
+}
+
+/**
+ * Unwrap a child that must be an exact B-rep solid. Fillet, chamfer, and shell
+ * work on exact topology, so a child that dropped to a tessellated mesh (an
+ * earlier uneven scale) cannot carry them and the user is told why.
+ */
+function requireBrep(geom: Geom, op: string): Shape3D {
+  if (geom.kind !== "brep")
+    throw new BrepModelingError(
+      `${op} needs an exact B-rep solid, but an earlier uneven scale turned this shape into a mesh.`,
+    );
+  return geom.shape;
 }
 
 function booleanOp(

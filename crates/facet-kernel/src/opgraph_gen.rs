@@ -7,39 +7,51 @@
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
 pub enum OpNode {
-    Scale {
-        v: [f64; 3],
-        child: Box<OpNode>,
-    },
-    Translate {
-        child: Box<OpNode>,
-        v: [f64; 3],
-    },
-    Rotate {
-        deg: [f64; 3],
-        child: Box<OpNode>,
-    },
-    Intersect {
-        children: Vec<OpNode>,
-    },
-    Cylinder {
-        center: bool,
-        h: f64,
-        segments: i32,
-        r: f64,
-    },
     Cube {
-        center: bool,
         size: [f64; 3],
+        center: bool,
     },
     Sphere {
         r: f64,
         segments: i32,
     },
+    Cylinder {
+        r: f64,
+        h: f64,
+        segments: i32,
+        center: bool,
+    },
+    Translate {
+        v: [f64; 3],
+        child: Box<OpNode>,
+    },
+    Rotate {
+        deg: [f64; 3],
+        child: Box<OpNode>,
+    },
+    Scale {
+        v: [f64; 3],
+        child: Box<OpNode>,
+    },
+    Fillet {
+        radius: f64,
+        child: Box<OpNode>,
+    },
+    Chamfer {
+        size: f64,
+        child: Box<OpNode>,
+    },
+    Shell {
+        thickness: f64,
+        child: Box<OpNode>,
+    },
     Union {
         children: Vec<OpNode>,
     },
     Difference {
+        children: Vec<OpNode>,
+    },
+    Intersect {
         children: Vec<OpNode>,
     },
 }

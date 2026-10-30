@@ -187,6 +187,20 @@ function evalNode(node: OpNode): CSG {
       return reduceBool(node.children, (a, b) => a.subtract(b));
     case "intersect":
       return reduceBool(node.children, (a, b) => a.intersect(b));
+    // Exact-geometry ops have no mesh/CSG equivalent, so point the user at the
+    // kernel that can do them rather than returning wrong geometry
+    case "fillet":
+      throw new Error(
+        "Fillet needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+      );
+    case "chamfer":
+      throw new Error(
+        "Chamfer needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+      );
+    case "shell":
+      throw new Error(
+        "Shell needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+      );
   }
 }
 

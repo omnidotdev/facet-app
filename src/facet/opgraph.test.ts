@@ -59,4 +59,49 @@ describe("op-graph contract", () => {
     const v: Vec3 = [1, 2, 3];
     expect(v).toHaveLength(3);
   });
+
+  test("round-trips a graph nesting the B-rep-only ops through JSON", () => {
+    // fillet/chamfer/shell are single-child nodes like a transform, so a nested
+    // enclosure (shell a box, then round its edges) must survive the wire
+    const enclosure: OpNode = {
+      op: "fillet",
+      radius: 1,
+      child: {
+        op: "shell",
+        thickness: 2,
+        child: { op: "cube", size: [20, 20, 20], center: true },
+      },
+    };
+    const parsed = JSON.parse(JSON.stringify(enclosure)) as OpNode;
+    expect(parsed).toEqual(enclosure);
+    expect(parsed.op).toBe("fillet");
+    if (parsed.op === "fillet") {
+      expect(parsed.radius).toBe(1);
+      expect(parsed.child.op).toBe("shell");
+    }
+  });
+
+  test("the generated union carries the three B-rep-only ops", () => {
+    // Type-level: each new variant is assignable to the generated contract
+    const fillet: GeneratedOpNode = {
+      op: "fillet",
+      radius: 2,
+      child: { op: "cube", size: [1, 1, 1], center: true },
+    };
+    const chamfer: GeneratedOpNode = {
+      op: "chamfer",
+      size: 1,
+      child: { op: "cube", size: [1, 1, 1], center: true },
+    };
+    const shell: GeneratedOpNode = {
+      op: "shell",
+      thickness: 1,
+      child: { op: "cube", size: [1, 1, 1], center: true },
+    };
+    expect([fillet.op, chamfer.op, shell.op]).toEqual([
+      "fillet",
+      "chamfer",
+      "shell",
+    ]);
+  });
 });

@@ -48,4 +48,39 @@ describe("authoring API builds an op-graph without computing geometry", () => {
     const b = cube(1).union(sphere(1)).node;
     expect(a).toEqual(b);
   });
+
+  test("fillet wraps the shape in a fillet node", () => {
+    const node = cube(10).fillet(2).node;
+    expect(node).toEqual({
+      op: "fillet",
+      radius: 2,
+      child: { op: "cube", size: [10, 10, 10], center: true },
+    });
+  });
+
+  test("chamfer wraps the shape in a chamfer node", () => {
+    const node = cube(10).chamfer(1.5).node;
+    expect(node).toEqual({
+      op: "chamfer",
+      size: 1.5,
+      child: { op: "cube", size: [10, 10, 10], center: true },
+    });
+  });
+
+  test("shell wraps the shape in a shell node", () => {
+    const node = cube(10).shell(2).node;
+    expect(node).toEqual({
+      op: "shell",
+      thickness: 2,
+      child: { op: "cube", size: [10, 10, 10], center: true },
+    });
+  });
+
+  test("the new B-rep ops chain fluently onto transforms", () => {
+    const node = cube(10).shell(2).fillet(1).translate(0, 0, 5).node;
+    expect(node.op).toBe("translate");
+    if (node.op === "translate") {
+      expect(node.child.op).toBe("fillet");
+    }
+  });
 });

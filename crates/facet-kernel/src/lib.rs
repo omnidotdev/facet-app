@@ -47,7 +47,7 @@ pub fn name() -> String {
 pub fn evaluate(op_json: &str) -> Result<MeshResult, JsValue> {
     let node: opgraph::OpNode =
         serde_json::from_str(op_json).map_err(|e| JsValue::from_str(&format!("bad op-graph: {e}")))?;
-    let solid = opgraph::eval_node(&node);
+    let solid = opgraph::eval_node(&node).map_err(|e| JsValue::from_str(&e))?;
     let (positions, normals) = csg::to_mesh(&solid);
     Ok(MeshResult { positions, normals })
 }

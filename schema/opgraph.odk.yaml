@@ -37,6 +37,15 @@ unions:
       scale:
         v: number[3]
         child: OpNode
+      fillet:
+        radius: number
+        child: OpNode
+      chamfer:
+        size: number
+        child: OpNode
+      shell:
+        thickness: number
+        child: OpNode
       union:
         children: OpNode[]
       difference:

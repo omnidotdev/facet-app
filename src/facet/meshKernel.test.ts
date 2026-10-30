@@ -73,6 +73,26 @@ describe("mesh kernel evaluates the op-graph into geometry", () => {
   });
 });
 
+describe("B-rep-only ops are rejected by the mesh kernel", () => {
+  test("fillet asks the user to switch to the B-rep kernel", () => {
+    expect(() => meshKernel.evaluate(cube(10).fillet(2).node)).toThrow(
+      /B-rep kernel/,
+    );
+  });
+
+  test("chamfer asks the user to switch to the B-rep kernel", () => {
+    expect(() => meshKernel.evaluate(cube(10).chamfer(1).node)).toThrow(
+      /B-rep kernel/,
+    );
+  });
+
+  test("shell asks the user to switch to the B-rep kernel", () => {
+    expect(() => meshKernel.evaluate(cube(10).shell(2).node)).toThrow(
+      /B-rep kernel/,
+    );
+  });
+});
+
 describe("STL export", () => {
   test("binary STL is 84 + 50 bytes per triangle", () => {
     const mesh = meshKernel.evaluate(cube(10).node);
