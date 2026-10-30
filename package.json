@@ -21,6 +21,7 @@
   "scripts": {
     "dev": "vite",
     "routes:generate": "tsr generate",
+    "opgraph:generate": "bash scripts/opgraph-generate.sh",
     "build": "tsr generate && tsc && vite build",
     "preview": "vite preview",
     "wasm:build": "wasm-pack build crates/facet-kernel --target web --out-dir ../../src/wasm --release",

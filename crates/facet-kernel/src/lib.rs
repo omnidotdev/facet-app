@@ -7,6 +7,7 @@
 
 mod csg;
 mod opgraph;
+mod opgraph_gen;
 
 use wasm_bindgen::prelude::*;
 
