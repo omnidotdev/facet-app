@@ -13,6 +13,7 @@ import {
   sphere,
   union,
 } from "@/facet";
+import { loadBrepKernel } from "@/facet/brepKernel";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { ParamStore } from "@/params";
 import { loadProject, saveProject } from "@/storage";
@@ -60,6 +61,9 @@ export default function FacetStudio() {
     const viewport = new Viewport(viewportMount.current!, initialTheme);
     const kernels: Record<string, Kernel> = { ts: meshKernel };
     let activeKernel: Kernel = meshKernel;
+    let activeKernelKey = "ts";
+    // Guards a second click while the on-demand B-rep wasm is still fetching
+    let brepLoading = false;
     let currentNode: OpNode | null = null;
     let paramsSignature = " ";
 
@@ -207,10 +211,45 @@ export default function FacetStudio() {
       run(true);
     });
 
-    kernelRef.current!.addEventListener("change", () => {
-      activeKernel = kernels[kernelRef.current!.value] ?? meshKernel;
+    // Switch the active kernel. The B-rep (OCCT) kernel is a ~6.9 MB gzipped
+    // wasm, so it is never loaded at boot: the first time it is selected, load
+    // it on demand, keep the current kernel live while it fetches, and fall back
+    // if it fails
+    const selectKernel = (value: string) => {
+      const statusEl = statusRef.current!;
+      if (value === "brep" && !kernels.brep) {
+        if (brepLoading) return;
+        brepLoading = true;
+        statusEl.className = "status";
+        statusEl.textContent = "Loading B-rep kernel…";
+        loadBrepKernel().then((brep) => {
+          brepLoading = false;
+          if (!brep) {
+            // Keep running on the kernel that was active before the switch
+            statusEl.className = "status err";
+            statusEl.textContent = "✗ The B-rep kernel could not be loaded.";
+            if (kernelRef.current) kernelRef.current.value = activeKernelKey;
+            return;
+          }
+          // Cache it regardless, but only activate if the user has not switched
+          // the dropdown away while the wasm was loading
+          kernels.brep = brep;
+          if (kernelRef.current?.value !== "brep") return;
+          activeKernel = brep;
+          activeKernelKey = "brep";
+          run();
+          saveSoon();
+        });
+        return;
+      }
+      activeKernel = kernels[value] ?? meshKernel;
+      activeKernelKey = kernels[value] ? value : "ts";
       run();
       saveSoon();
+    };
+
+    kernelRef.current!.addEventListener("change", () => {
+      selectKernel(kernelRef.current!.value);
     });
 
     exportRef.current!.addEventListener("click", () => {
@@ -243,11 +282,18 @@ export default function FacetStudio() {
       if (saved?.kernel === "rust" && kernelRef.current) {
         kernelRef.current.value = "rust";
         activeKernel = rust;
+        activeKernelKey = "rust";
         run();
       }
     });
 
     run(true);
+
+    // Restore a saved B-rep selection by driving the same on-demand load path
+    if (saved?.kernel === "brep" && kernelRef.current) {
+      kernelRef.current.value = "brep";
+      selectKernel("brep");
+    }
 
     return () => unsubscribeTheme();
   }, []);
@@ -273,6 +319,7 @@ export default function FacetStudio() {
         </select>
         <select ref={kernelRef} title="Geometry kernel" defaultValue="ts">
           <option value="ts">Kernel: TS</option>
+          <option value="brep">Kernel: B-rep (OCCT)</option>
         </select>
         <button
           ref={themeBtnRef}

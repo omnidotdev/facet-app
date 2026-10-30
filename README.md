@@ -1,6 +1,6 @@
 # Facet
 
-Frontend application for Facet, code-first parametric CAD in the browser: write a model in code, a solid-geometry (CSG) kernel turns it into a mesh, a 3D viewport shows it live, and you export a print-ready STL or 3MF. Built on [TanStack Router](https://tanstack.com/router) and [Tauri](https://v2.tauri.app) (React), with a TypeScript CSG kernel and a Rust kernel compiled to [WebAssembly](https://webassembly.org), rendered with [Three.js](https://threejs.org).
+Frontend application for Facet, code-first parametric CAD in the browser: write a model in code, a solid-geometry (CSG) kernel turns it into a mesh, a 3D viewport shows it live, and you export a print-ready STL or 3MF. Built on [TanStack Router](https://tanstack.com/router) and [Tauri](https://v2.tauri.app) (React), with a TypeScript CSG kernel, a Rust kernel compiled to [WebAssembly](https://webassembly.org), and an OpenCascade (OCCT) B-rep kernel loaded via WebAssembly, rendered with [Three.js](https://threejs.org).
 
 Product documentation lives in [Fabric](https://docs.omni.dev/products/facet). This README only covers running the app locally.
 
