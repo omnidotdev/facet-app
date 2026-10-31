@@ -123,3 +123,12 @@ return die;`,
 };
 
 export const defaultExample = "Parametric plate";
+
+/**
+ * The example whose source is exactly `code`, or null when `code` is a
+ * custom/edited model no named example produces. Used on restore to decide
+ * whether the examples dropdown names an example or shows its neutral state.
+ */
+export function matchExample(code: string): string | null {
+  return Object.keys(examples).find((name) => examples[name] === code) ?? null;
+}

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 import { createEditor } from "@/editor";
-import { defaultExample, examples } from "@/examples";
+import { defaultExample, examples, matchExample } from "@/examples";
 import {
   KernelError,
   Shape,
@@ -27,6 +27,10 @@ import type { FacetEditor } from "@/editor";
 import type { ExportFormat, Kernel, OpNode } from "@/facet";
 import type { Theme } from "@/theme";
 import "@/facet.css";
+
+// Value of the examples-dropdown placeholder, selected when the restored model
+// is a custom edit that matches no named example
+const CUSTOM_OPTION = "";
 
 // The API surface injected into user model code.
 const api = {
@@ -75,6 +79,8 @@ export default function FacetStudio() {
 
     // Restore the last session (model + prefs) if one was saved.
     const saved = loadProject();
+    // The model the editor opens with: the saved code, else the default example.
+    const initialDoc = saved?.code ?? examples[defaultExample] ?? "";
 
     const build = (code: string): OpNode => {
       store.begin();
@@ -215,7 +221,7 @@ export default function FacetStudio() {
     };
 
     editor = createEditor(editorMount.current!, {
-      doc: saved?.code ?? examples[defaultExample] ?? "",
+      doc: initialDoc,
       onChange: () => {
         scheduleRun();
         saveSoon();
@@ -242,8 +248,19 @@ export default function FacetStudio() {
 
     themeBtnRef.current!.addEventListener("click", toggleTheme);
 
+    // The restored model is not necessarily a named example (it may be a custom
+    // edit, which storage keeps as code only). Point the dropdown at the example
+    // whose source matches, or at the neutral "Custom model" option otherwise,
+    // so a reload never falsely implies the first example is loaded.
+    if (exampleRef.current) {
+      exampleRef.current.value = matchExample(initialDoc) ?? CUSTOM_OPTION;
+    }
+
     exampleRef.current!.addEventListener("change", () => {
-      editor.setValue(examples[exampleRef.current!.value] ?? "");
+      const code = examples[exampleRef.current!.value];
+      // Ignore the neutral "Custom model" placeholder, which names no example
+      if (code === undefined) return;
+      editor.setValue(code);
       run(true);
     });
 
@@ -389,6 +406,7 @@ export default function FacetStudio() {
               {n}
             </option>
           ))}
+          <option value={CUSTOM_OPTION}>Custom model</option>
         </select>
         <select ref={kernelRef} title="Geometry kernel" defaultValue="ts">
           <option value="ts">Kernel: TS</option>

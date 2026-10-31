@@ -25,6 +25,12 @@
     "@tauri-apps/plugin-updater",
     // Runtime peer dependency of @omnidotdev/thornberry's shipped components
     // (its `cn` helper), resolved at runtime but not imported by app source.
-    "tailwind-merge"
+    "tailwind-merge",
+    // Peer dependencies of @omnidotdev/thornberry's code-editor component
+    // (basicSetup from `codemirror`, indentWithTab from `@codemirror/commands`).
+    // No longer imported directly by app source since the editor adopted the
+    // shared component, but still required to satisfy its peers.
+    "codemirror",
+    "@codemirror/commands"
   ]
 }
