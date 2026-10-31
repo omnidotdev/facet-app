@@ -1,4 +1,5 @@
 import { CSG, Polygon, Vector, Vertex } from "./csg";
+import { KernelError } from "./kernel";
 import { meshToStlBinary } from "./stl";
 import { meshTo3mf } from "./threeMf";
 
@@ -187,6 +188,20 @@ function evalNode(node: OpNode): CSG {
       return reduceBool(node.children, (a, b) => a.subtract(b));
     case "intersect":
       return reduceBool(node.children, (a, b) => a.intersect(b));
+    // Exact-geometry ops have no mesh/CSG equivalent, so point the user at the
+    // kernel that can do them rather than returning wrong geometry
+    case "fillet":
+      throw new KernelError(
+        "Fillet needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+      );
+    case "chamfer":
+      throw new KernelError(
+        "Chamfer needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+      );
+    case "shell":
+      throw new KernelError(
+        "Shell needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+      );
   }
 }
 
@@ -224,6 +239,12 @@ export class MeshKernel implements Kernel {
     return csgToMesh(evalNode(node));
   }
   export(node: OpNode, format: ExportFormat): Uint8Array {
+    // STEP is an exact-B-rep exchange format with no mesh equivalent, so point
+    // the user at the kernel that can produce it rather than dumping triangles
+    if (format === "step")
+      throw new KernelError(
+        "STEP export needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+      );
     const mesh = this.evaluate(node);
     if (format === "stl") return meshToStlBinary(mesh);
     if (format === "3mf") return meshTo3mf(mesh);

@@ -1,0 +1,54 @@
+version: "1.0"
+name: FacetOpGraph
+
+# Single source of truth for the Facet op-graph, the IR that crosses the
+# TS app <-> Rust/WASM kernel boundary. ODK generates the TypeScript
+# discriminated union (src/facet/opgraph.gen.ts) and the Rust serde
+# internally-tagged enum (crates/facet-kernel/src/opgraph_gen.rs) from this
+# file. Regenerate with `bun opgraph:generate`; never edit the outputs.
+#
+# `segments` uses `integer` so it stays an integer on both sides (i32 in Rust,
+# number in TS); `number` would emit f64. r/h are `number` (f64). Self-refs
+# (child / children) become Box<OpNode> / Vec<OpNode> in Rust and OpNode /
+# OpNode[] in TS.
+
+unions:
+  OpNode:
+    discriminator: op
+    rename: lowercase
+    variants:
+      cube:
+        size: number[3]
+        center: boolean
+      sphere:
+        r: number
+        segments: integer
+      cylinder:
+        r: number
+        h: number
+        segments: integer
+        center: boolean
+      translate:
+        v: number[3]
+        child: OpNode
+      rotate:
+        deg: number[3]
+        child: OpNode
+      scale:
+        v: number[3]
+        child: OpNode
+      fillet:
+        radius: number
+        child: OpNode
+      chamfer:
+        size: number
+        child: OpNode
+      shell:
+        thickness: number
+        child: OpNode
+      union:
+        children: OpNode[]
+      difference:
+        children: OpNode[]
+      intersect:
+        children: OpNode[]

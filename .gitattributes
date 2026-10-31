@@ -1,0 +1,6 @@
+# Generated artifacts: collapse in review and keep regens/rebuilds out of diffs.
+# The op-graph TS + Rust types come from schema/opgraph.odk.yaml via ODK
+# (bun opgraph:generate); the wasm bundle comes from wasm-pack (bun wasm:build).
+src/facet/opgraph.gen.ts                linguist-generated
+crates/facet-kernel/src/opgraph_gen.rs  linguist-generated
+src/wasm/*                              linguist-generated
