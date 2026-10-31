@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import GeneratePanel from "@/components/ai/GeneratePanel";
 import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
 import {
@@ -32,6 +33,25 @@ import "@/facet.css";
 // is a custom edit that matches no named example
 const CUSTOM_OPTION = "";
 
+/**
+ * Terminal outcome of a run, reported to a caller that drives the editor (the
+ * AI repair loop) so it can react to a kernel error without parsing the status
+ * line. Mirrors the real build + evaluate path, including the async B-rep
+ * auto-switch.
+ */
+export type RunOutcome = { ok: true } | { ok: false; error: string };
+
+/**
+ * Imperative handle the Studio exposes so the AI panel can drive the SAME
+ * editor + run path the rest of the Studio uses, rather than a parallel one.
+ */
+export interface StudioHandle {
+  /** The code currently in the editor. */
+  getCode: () => string;
+  /** Replace the editor contents, run, and resolve with the run outcome. */
+  loadCode: (code: string) => Promise<RunOutcome>;
+}
+
 // The API surface injected into user model code.
 const api = {
   cube,
@@ -55,6 +75,9 @@ export default function FacetStudio() {
   const exportRef = useRef<HTMLButtonElement>(null);
   const formatRef = useRef<HTMLSelectElement>(null);
   const inited = useRef(false);
+  // Populated once the editor + run loop are wired, so the AI panel can drive
+  // them. Null until the setup effect runs (the panel only reads it on click)
+  const studioHandle = useRef<StudioHandle | null>(null);
 
   useEffect(() => {
     if (inited.current) return; // guard StrictMode double-invoke
@@ -137,7 +160,7 @@ export default function FacetStudio() {
       }
     };
 
-    const run = (reframe = false) => {
+    const run = (reframe = false, onResult?: (outcome: RunOutcome) => void) => {
       const t0 = performance.now();
       const statusEl = statusRef.current!;
       let node: OpNode;
@@ -145,18 +168,21 @@ export default function FacetStudio() {
         node = build(editor.getValue());
       } catch (err) {
         currentNode = null;
+        const message = err instanceof Error ? err.message : String(err);
         statusEl.className = "status err";
-        statusEl.textContent = `✗ ${err instanceof Error ? err.message : String(err)}`;
+        statusEl.textContent = `✗ ${message}`;
+        onResult?.({ ok: false, error: message });
         return;
       }
 
       // Fillet/chamfer/shell exist only on the B-rep (OCCT) kernel, so load and
       // switch to it on demand rather than erroring on the mesh/Rust kernel.
       // activateBrepKernel flips activeKernelKey to "brep" before it re-runs, so
-      // this branch cannot re-trigger itself and cause a switch loop
+      // this branch cannot re-trigger itself and cause a switch loop. Thread
+      // onResult through so a caller sees the outcome of the post-switch run
       if (shouldAutoSwitchToBrep(node, activeKernelKey)) {
         announceAutoSwitch = true;
-        activateBrepKernel(reframe);
+        activateBrepKernel(reframe, onResult);
         return;
       }
 
@@ -179,10 +205,13 @@ export default function FacetStudio() {
           statusEl.className = "status ok";
           statusEl.textContent = `✓ ${mesh.triangleCount.toLocaleString()} triangles · ${ms} ms · ${activeKernel.name}`;
         }
+        onResult?.({ ok: true });
       } catch (err) {
         currentNode = null;
+        const message = err instanceof Error ? err.message : String(err);
         statusEl.className = "status err";
-        statusEl.textContent = `✗ ${err instanceof Error ? err.message : String(err)}`;
+        statusEl.textContent = `✗ ${message}`;
+        onResult?.({ ok: false, error: message });
       }
     };
 
@@ -271,17 +300,28 @@ export default function FacetStudio() {
     // fetches, and fall back if it fails. The dropdown is moved to "brep" up
     // front so a switch away during the load is respected (manual path) and the
     // pending switch is visible (auto path)
-    const activateBrepKernel = (reframe = false) => {
+    const activateBrepKernel = (
+      reframe = false,
+      onResult?: (outcome: RunOutcome) => void,
+    ) => {
       const statusEl = statusRef.current!;
       if (kernelRef.current) kernelRef.current.value = "brep";
       if (kernels.brep) {
         activeKernel = kernels.brep;
         activeKernelKey = "brep";
-        run(reframe);
+        run(reframe, onResult);
         saveSoon();
         return;
       }
-      if (brepLoading) return; // a fetch is already in flight; it will re-run
+      if (brepLoading) {
+        // A fetch is already in flight and will re-run, but it does not carry
+        // this caller's onResult, so settle it to avoid a hung repair loop
+        onResult?.({
+          ok: false,
+          error: "The B-rep kernel is still loading. Try again in a moment.",
+        });
+        return;
+      }
       brepLoading = true;
       statusEl.className = "status";
       statusEl.textContent = "Loading B-rep kernel…";
@@ -290,18 +330,26 @@ export default function FacetStudio() {
         if (!brep) {
           // Keep running on the kernel that was active before the switch
           announceAutoSwitch = false;
+          const message = "The B-rep kernel could not be loaded.";
           statusEl.className = "status err";
-          statusEl.textContent = "✗ The B-rep kernel could not be loaded.";
+          statusEl.textContent = `✗ ${message}`;
           if (kernelRef.current) kernelRef.current.value = activeKernelKey;
+          onResult?.({ ok: false, error: message });
           return;
         }
         // Cache it regardless, but only activate if the dropdown has not been
         // switched away while the wasm was loading
         kernels.brep = brep;
-        if (kernelRef.current?.value !== "brep") return;
+        if (kernelRef.current?.value !== "brep") {
+          onResult?.({
+            ok: false,
+            error: "The kernel was switched before the model could render.",
+          });
+          return;
+        }
         activeKernel = brep;
         activeKernelKey = "brep";
-        run(reframe);
+        run(reframe, onResult);
         saveSoon();
       });
     };
@@ -377,6 +425,22 @@ export default function FacetStudio() {
       }
     });
 
+    // Expose the editor + run loop so the AI panel drives the same path. Load
+    // generated code exactly as the examples dropdown does (set, point the
+    // dropdown at its matching example or the neutral "Custom model" state,
+    // then run), and resolve with the run outcome for the repair loop
+    studioHandle.current = {
+      getCode: () => editor.getValue(),
+      loadCode: (code) =>
+        new Promise<RunOutcome>((resolve) => {
+          editor.setValue(code);
+          if (exampleRef.current) {
+            exampleRef.current.value = matchExample(code) ?? CUSTOM_OPTION;
+          }
+          run(true, resolve);
+        }),
+    };
+
     run(true);
 
     // Restore a saved B-rep selection by driving the same on-demand load path
@@ -439,6 +503,7 @@ export default function FacetStudio() {
         <section className="editor-pane">
           <div className="code" ref={editorMount} />
           <div className="status" ref={statusRef} />
+          <GeneratePanel handle={studioHandle} />
         </section>
         <section className="viewport">
           <div className="viewport-canvas" ref={viewportMount} />
