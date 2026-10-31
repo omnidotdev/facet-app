@@ -1,6 +1,6 @@
 # Facet
 
-Frontend application for Facet, code-first parametric CAD in the browser: write a model in code, a solid-geometry (CSG) kernel turns it into a mesh, a 3D viewport shows it live, and you export a print-ready STL or 3MF. Built on [TanStack Router](https://tanstack.com/router) and [Tauri](https://v2.tauri.app) (React), with a TypeScript CSG kernel, a Rust kernel compiled to [WebAssembly](https://webassembly.org), and an OpenCascade (OCCT) B-rep kernel loaded via WebAssembly, rendered with [Three.js](https://threejs.org).
+Frontend application for Facet, code-first parametric CAD in the browser: write a model in code, a solid-geometry (CSG) kernel turns it into a mesh, a 3D viewport shows it live, and you export a print-ready STL, 3MF, or STEP file. An optional AI panel turns a plain-English prompt into Facet code when a generation gateway is configured. Built on [TanStack Router](https://tanstack.com/router) and [Tauri](https://v2.tauri.app) (React), with a TypeScript CSG kernel, a Rust kernel compiled to [WebAssembly](https://webassembly.org), and an OpenCascade (OCCT) B-rep kernel loaded via WebAssembly, rendered with [Three.js](https://threejs.org).
 
 Product documentation lives in [Fabric](https://docs.omni.dev/products/facet). This README only covers running the app locally.
 
@@ -11,11 +11,16 @@ Product documentation lives in [Fabric](https://docs.omni.dev/products/facet). T
 
 ## Setup
 
-Facet is a client-side app with no secrets or backend, so there is nothing to configure:
+Facet runs fully client-side with no secrets, so local modeling and export need no configuration:
 
 ```sh
 bun install
 ```
+
+AI generation is optional and off by default. To enable the "Describe a part" panel, set two build-time variables (both read by Vite, so they are baked at build):
+
+- `VITE_FACET_API_URL`: the Facet AI gateway base URL. When unset, the panel is hidden and the app stays a pure local CAD tool.
+- `VITE_AUTH_BASE_URL`: the Omni identity base URL, used to sign in for managed (metered) generation. Bring-your-own-key generation needs no sign-in.
 
 ## Run
 
