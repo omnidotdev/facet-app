@@ -38,7 +38,7 @@ export interface GenerateAndRunOptions {
 
 export type GenerateAndRunResult =
   | { status: "ok"; usage: GenerateResult["usage"] }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; httpStatus?: number };
 
 /**
  * Generate code for `prompt`, run it, and repair on a kernel error up to
@@ -91,6 +91,9 @@ export async function generateAndRun(
     }
     const message =
       err instanceof GenerateError ? err.message : GENERIC_FAILURE;
-    return { status: "error", message };
+    // Carry the gateway status (401/402) so the caller can prompt sign-in or an
+    // upgrade; a non-GenerateError throw has no status and stays generic
+    const httpStatus = err instanceof GenerateError ? err.status : undefined;
+    return { status: "error", message, httpStatus };
   }
 }

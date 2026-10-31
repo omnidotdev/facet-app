@@ -36,6 +36,14 @@ const err = (status: number, payload: unknown) =>
 
 const originalFetch = globalThis.fetch;
 
+// A managed call needs a bearer token. Inject a stub so these tests exercise
+// the request instead of short-circuiting on a missing identity
+const TOKEN = "omni-access-token";
+const managed = { getAccessToken: async () => TOKEN };
+
+const authHeader = (call: FetchCall): string | undefined =>
+  (call.init.headers as Record<string, string>).authorization;
+
 describe("generateModel", () => {
   beforeEach(() => {
     process.env.VITE_FACET_API_URL = API_URL;
@@ -51,7 +59,7 @@ describe("generateModel", () => {
       ok({ code: "return cube(10);", usage: { credits: 2, costCents: 1.3 } }),
     );
 
-    const result = await generateModel("a 10mm cube");
+    const result = await generateModel("a 10mm cube", managed);
 
     const call = lastCall();
     expect(call.url).toBe(`${API_URL}/generate`);
@@ -65,13 +73,60 @@ describe("generateModel", () => {
     expect(result.usage).toEqual({ credits: 2, costCents: 1.3 });
   });
 
+  test("attaches a Bearer token on the managed path", async () => {
+    const lastCall = stubFetch(
+      ok({ code: "x", usage: { credits: 1, costCents: 1 } }),
+    );
+
+    await generateModel("a part", managed);
+
+    expect(authHeader(lastCall())).toBe(`Bearer ${TOKEN}`);
+  });
+
+  test("does not call the gateway without a token, signalling sign-in", async () => {
+    let called = false;
+    globalThis.fetch = (() => {
+      called = true;
+      return Promise.resolve(
+        ok({ code: "x", usage: { credits: 0, costCents: 0 } }),
+      );
+    }) as unknown as typeof fetch;
+
+    try {
+      await generateModel("a part", { getAccessToken: async () => null });
+      throw new Error("expected generateModel to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(GenerateError);
+      expect((e as GenerateError).status).toBe(401);
+    }
+    expect(called).toBe(false);
+  });
+
+  test("a BYOK call sends no Authorization header and stays anonymous", async () => {
+    const lastCall = stubFetch(
+      ok({ code: "x", usage: { credits: 0, costCents: 0 } }),
+    );
+
+    // A token getter that would throw if consulted proves BYOK never resolves one
+    await generateModel("a gear", {
+      byokKey: "sk-user-key",
+      getAccessToken: async () => {
+        throw new Error("BYOK must not resolve a token");
+      },
+    });
+
+    const call = lastCall();
+    expect(authHeader(call)).toBeUndefined();
+    expect(JSON.parse(call.init.body as string).byokKey).toBe("sk-user-key");
+  });
+
   test("strips a trailing slash from the base URL", async () => {
     process.env.VITE_FACET_API_URL = `${API_URL}/`;
     const lastCall = stubFetch(
       ok({ code: "x", usage: { credits: 1, costCents: 1 } }),
     );
 
-    await generateModel("hi");
+    await generateModel("hi", managed);
 
     expect(lastCall().url).toBe(`${API_URL}/generate`);
   });
@@ -82,6 +137,7 @@ describe("generateModel", () => {
     );
 
     await generateModel("a bracket", {
+      ...managed,
       previous: { code: "broken", error: "boom" },
       attempt: 1,
     });
@@ -92,17 +148,6 @@ describe("generateModel", () => {
       previous: { code: "broken", error: "boom" },
       attempt: 1,
     });
-  });
-
-  test("forwards byokKey when given", async () => {
-    const lastCall = stubFetch(
-      ok({ code: "x", usage: { credits: 0, costCents: 0 } }),
-    );
-
-    await generateModel("a gear", { byokKey: "sk-user-key" });
-
-    const body = JSON.parse(lastCall().init.body as string);
-    expect(body.byokKey).toBe("sk-user-key");
   });
 
   test("throws a clear error when the gateway URL is unset", async () => {
@@ -125,7 +170,7 @@ describe("generateModel", () => {
       stubFetch(err(status, { error: message }));
 
       try {
-        await generateModel("a part");
+        await generateModel("a part", managed);
         throw new Error("expected generateModel to throw");
       } catch (e) {
         expect(e).toBeInstanceOf(GenerateError);
@@ -140,7 +185,7 @@ describe("generateModel", () => {
     stubFetch(err(500, {}));
 
     try {
-      await generateModel("a part");
+      await generateModel("a part", managed);
       throw new Error("expected generateModel to throw");
     } catch (e) {
       expect(e).toBeInstanceOf(GenerateError);
@@ -156,7 +201,7 @@ describe("generateModel", () => {
       )) as unknown as typeof fetch;
 
     try {
-      await generateModel("a part");
+      await generateModel("a part", managed);
       throw new Error("expected generateModel to throw");
     } catch (e) {
       expect(e).toBeInstanceOf(GenerateError);

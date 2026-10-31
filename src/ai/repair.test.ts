@@ -118,6 +118,21 @@ describe("generateAndRun", () => {
     expect(result).toEqual({
       status: "error",
       message: "Too many requests. Please slow down and try again.",
+      httpStatus: 429,
+    });
+  });
+
+  test("propagates the gateway status so the caller can react to 401/402", async () => {
+    const runner = fakeRunner([{ ok: true }]);
+    const generate = () =>
+      Promise.reject(new GenerateError("Sign in to generate.", 401));
+
+    const result = await generateAndRun("a cube", runner, { generate });
+
+    expect(result).toEqual({
+      status: "error",
+      message: "Sign in to generate.",
+      httpStatus: 401,
     });
   });
 

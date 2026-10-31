@@ -32,6 +32,12 @@ export interface GenerateOptions {
   previous?: GeneratePrevious;
   /** Repair attempt counter (0 for the first generation). */
   attempt?: number;
+  /**
+   * Resolve the managed-path bearer token, or null when signed out. Injectable
+   * for tests; defaults to the Omni session getter. Never called for a BYOK
+   * request, which stays anonymous.
+   */
+  getAccessToken?: () => Promise<string | null>;
 }
 
 /** A typed error carrying the gateway's generic message and HTTP status. */
@@ -49,6 +55,16 @@ export class GenerateError extends Error {
 // expose a transport error, provider detail, or stack to the user
 const NOT_CONFIGURED = "AI generation is not configured.";
 const GENERIC_FAILURE = "AI generation failed. Please try again.";
+// A managed call with no identity. Carries status 401 so the panel surfaces it
+// as a sign-in prompt, the same as the gateway's own 401, without ever calling
+// the gateway blindly
+const SIGN_IN_REQUIRED = "Sign in to generate, or add your own key.";
+
+/** Lazily resolve the Omni access token, keeping the auth client out of tests. */
+const defaultGetAccessToken = async (): Promise<string | null> => {
+  const { getAccessToken } = await import("@/lib/auth/session");
+  return getAccessToken();
+};
 
 /** Read the gateway's generic `error` string, or a safe fallback. */
 async function readErrorMessage(response: Response): Promise<string> {
@@ -85,11 +101,27 @@ export async function generateModel(
 
   const endpoint = `${baseUrl.replace(/\/$/, "")}/generate`;
 
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+
+  // The managed path (no BYOK key) spends our key, so it must carry an Omni
+  // identity. A BYOK call stays anonymous and sends no token. With no token
+  // available, do not call the gateway blindly: signal sign-in required
+  if (!opts.byokKey) {
+    const getToken = opts.getAccessToken ?? defaultGetAccessToken;
+    const token = await getToken();
+    if (!token) {
+      throw new GenerateError(SIGN_IN_REQUIRED, 401);
+    }
+    headers.authorization = `Bearer ${token}`;
+  }
+
   let response: Response;
   try {
     response = await fetch(endpoint, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(body),
     });
   } catch {

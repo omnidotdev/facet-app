@@ -180,6 +180,18 @@ body,
   color: var(--accent-ink);
   background: var(--accent);
 }
+.facet-app button.ai-signout {
+  margin-left: auto;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.facet-app button.ai-signout:hover {
+  color: var(--accent);
+}
 .ai-form {
   display: grid;
   gap: 8px;
