@@ -1,17 +1,19 @@
-import { indentWithTab } from "@codemirror/commands";
 import { javascript } from "@codemirror/lang-javascript";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { Compartment, EditorState } from "@codemirror/state";
-import { keymap } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import { EditorView, basicSetup } from "codemirror";
+import { createCodeEditor } from "@omnidotdev/thornberry/code-editor";
+
+import { facetApiCompletions } from "./editorCompletions";
 
 import type { Extension } from "@codemirror/state";
 import type { Theme } from "./theme";
 
-// basicSetup wires line numbers, history, bracket matching, autocomplete, and
-// the default keymap - which binds Mod-/ to toggle line comments, so ctrl+/
-// (cmd+/ on macOS) comments and uncomments.
+// The shared component wraps basicSetup (line numbers, history, bracket
+// matching, autocomplete, the default keymap with Mod-/ to toggle line
+// comments, and indent-with-tab) plus the double-click guard and the
+// language/theme/completion compartments. Facet injects its own JS language,
+// rust-palette theme, and API completions.
 
 const MONO = 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace';
 
@@ -145,35 +147,19 @@ export function createEditor(
   parent: HTMLElement,
   opts: { doc: string; onChange: () => void; theme: Theme },
 ): FacetEditor {
-  const themeCompartment = new Compartment();
-  const view = new EditorView({
-    parent,
-    state: EditorState.create({
-      doc: opts.doc,
-      extensions: [
-        basicSetup,
-        javascript(),
-        themeCompartment.of(themeExtension(opts.theme)),
-        keymap.of([indentWithTab]),
-        EditorView.updateListener.of((u) => {
-          if (u.docChanged) opts.onChange();
-        }),
-      ],
-    }),
+  const handle = createCodeEditor(parent, {
+    doc: opts.doc,
+    onChange: () => opts.onChange(),
+    language: javascript(),
+    theme: themeExtension(opts.theme),
+    completionSources: [facetApiCompletions],
+    guardDoubleClick: "swallow-dblclick",
   });
 
   return {
-    getValue: () => view.state.doc.toString(),
-    setValue: (text: string) => {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: text },
-      });
-    },
-    setTheme: (theme: Theme) => {
-      view.dispatch({
-        effects: themeCompartment.reconfigure(themeExtension(theme)),
-      });
-    },
-    focus: () => view.focus(),
+    getValue: () => handle.getValue(),
+    setValue: (text: string) => handle.setValue(text),
+    setTheme: (theme: Theme) => handle.setTheme(themeExtension(theme)),
+    focus: () => handle.focus(),
   };
 }
