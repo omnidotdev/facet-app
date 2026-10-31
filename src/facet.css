@@ -118,7 +118,7 @@ body,
 
 .editor-pane {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: 1fr auto auto;
   border-right: 1px solid var(--line);
   min-height: 0;
 }
@@ -148,6 +148,116 @@ body,
 }
 .status.err {
   color: var(--err);
+}
+
+/* "Describe a part" AI panel, pinned under the editor + status */
+.ai-panel {
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  display: grid;
+  gap: 8px;
+}
+.ai-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.ai-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+.ai-form {
+  display: grid;
+  gap: 8px;
+}
+.facet-app .ai-textarea {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+  min-height: 48px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.facet-app .ai-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ai-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.facet-app button.primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ai-usage {
+  font-size: 12px;
+  color: var(--muted);
+}
+.ai-error {
+  font-size: 12px;
+  color: var(--err);
+}
+.ai-byok {
+  display: grid;
+  gap: 6px;
+}
+.facet-app button.ai-byok-toggle {
+  justify-self: start;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.facet-app button.ai-byok-toggle:hover {
+  color: var(--accent);
+}
+.ai-byok-body {
+  display: grid;
+  gap: 6px;
+}
+.facet-app .ai-byok-input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.facet-app .ai-byok-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.ai-help {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 .viewport {
