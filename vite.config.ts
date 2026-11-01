@@ -26,6 +26,11 @@ export default defineConfig(({ command }) => ({
     // B-rep wasm is runtime-cached on first use instead of bloating the
     // precache, and the AI gateway and identity endpoints are never cached
     VitePWA({
+      // Disable the service worker in Tauri (desktop) builds. The native app is
+      // already offline, and a service worker under Tauri's custom app:// scheme
+      // breaks the WebKitGTK webview (blank screen). TAURI_ENV_PLATFORM is set
+      // by the Tauri CLI while it runs the frontend build
+      disable: Boolean(process.env.TAURI_ENV_PLATFORM),
       // Seamless updates: a new build is swapped in on the next navigation
       // without leaving a stale shell behind
       registerType: "autoUpdate",
