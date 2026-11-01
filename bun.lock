@@ -13,7 +13,7 @@
         "@codemirror/state": "^6.7.6",
         "@codemirror/view": "^6.43.13",
         "@lezer/highlight": "^1.2.3",
-        "@omnidotdev/thornberry": "github:omnidotdev/thornberry#d3aad59e1b41a85c0e44cec74af06af5d1c1b0b5",
+        "@omnidotdev/thornberry": "github:omnidotdev/thornberry#a93c95f59c5d323ded3b61456cc1b01749ce144f",
         "@tanstack/react-router": "^1.170.38",
         "@tauri-apps/api": "^2.11.1",
         "@tauri-apps/plugin-deep-link": "^2.4.10",
@@ -373,7 +373,7 @@
 
     "@nodelib/fs.walk": ["@nodelib/fs.walk@1.2.8", "", { "dependencies": { "@nodelib/fs.scandir": "2.1.5", "fastq": "^1.6.0" } }, "sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg=="],
 
-    "@omnidotdev/thornberry": ["@omnidotdev/thornberry@github:omnidotdev/thornberry#d3aad59", { "dependencies": { "react-easy-crop": "^6.2.3", "react-qr-code": "^2.2.0" }, "peerDependencies": { "@ark-ui/react": ">=5.0.0", "@codemirror/autocomplete": "^6.18.0", "@codemirror/commands": "^6.11.1", "@codemirror/language": "^6.12.4", "@codemirror/state": "^6.7.6", "@codemirror/view": "^6.43.13", "@lexical/html": ">=0.39.0", "@lexical/link": ">=0.39.0", "@lexical/list": ">=0.39.0", "@lexical/markdown": ">=0.39.0", "@lexical/react": ">=0.39.0", "@lexical/rich-text": ">=0.39.0", "@tanstack/form-core": ">=1.0.0", "@tanstack/react-form": ">=1.0.0", "@tanstack/react-table": ">=8.0.0", "@unpic/react": ">=1.0.0", "@xyflow/react": ">=12.0.0", "cmdk": ">=1.0.0", "codemirror": "^6.0.2", "isomorphic-dompurify": ">=3.0.0", "lexical": ">=0.39.0", "lucide-react": ">=0.500.0", "react": ">=19.0.0", "react-dom": ">=19.0.0", "react-hotkeys-hook": ">=5.0.0" }, "hasInstallScript": true }, "omnidotdev-thornberry-d3aad59", "sha512-vao/MFuwHzaYAljZ/28Ls4/362vLYZ6Oh8smzNN2WO+ehS7MjQEBXZuPVBF9DgKyiHTOpgRTuIsInbFTmRepEw=="],
+    "@omnidotdev/thornberry": ["@omnidotdev/thornberry@github:omnidotdev/thornberry#a93c95f", { "dependencies": { "react-easy-crop": "^6.2.3", "react-qr-code": "^2.2.0" }, "peerDependencies": { "@ark-ui/react": ">=5.0.0", "@codemirror/autocomplete": "^6.18.0", "@codemirror/commands": "^6.11.1", "@codemirror/language": "^6.12.4", "@codemirror/state": "^6.7.6", "@codemirror/view": "^6.43.13", "@lexical/html": ">=0.39.0", "@lexical/link": ">=0.39.0", "@lexical/list": ">=0.39.0", "@lexical/markdown": ">=0.39.0", "@lexical/react": ">=0.39.0", "@lexical/rich-text": ">=0.39.0", "@tanstack/form-core": ">=1.0.0", "@tanstack/react-form": ">=1.0.0", "@tanstack/react-table": ">=8.0.0", "@unpic/react": ">=1.0.0", "@xyflow/react": ">=12.0.0", "cmdk": ">=1.0.0", "codemirror": "^6.0.2", "isomorphic-dompurify": ">=3.0.0", "lexical": ">=0.39.0", "lucide-react": ">=0.500.0", "react": ">=19.0.0", "react-dom": ">=19.0.0", "react-hotkeys-hook": ">=5.0.0" }, "hasInstallScript": true }, "omnidotdev-thornberry-a93c95f", "sha512-aD75GxoJDGZVEfKUGOkJxPUBIBeV8mB8AXBgjtFODLH1Fs5jycVK/qtgSAZDste0dC69Vc6t7B/bbQAIc8LTag=="],
 
     "@opentelemetry/semantic-conventions": ["@opentelemetry/semantic-conventions@1.44.0", "", {}, "sha512-E3JkOlMBi3N8OGGkbl7tFyqk2MAS6/lySRZBK3Mu7AzjF1fT8oIChH9ChE48SUWzDn9Kdwta+G/p5LJ4xW4CLQ=="],
 

@@ -49,7 +49,7 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.13",
     "@lezer/highlight": "^1.2.3",
-    "@omnidotdev/thornberry": "github:omnidotdev/thornberry#d3aad59e1b41a85c0e44cec74af06af5d1c1b0b5",
+    "@omnidotdev/thornberry": "github:omnidotdev/thornberry#a93c95f59c5d323ded3b61456cc1b01749ce144f",
     "@tanstack/react-router": "^1.170.38",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-deep-link": "^2.4.10",
