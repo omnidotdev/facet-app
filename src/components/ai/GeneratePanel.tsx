@@ -1,6 +1,10 @@
 import { useState } from "react";
 
-import { classifyGenerateError, resolvePanelMode } from "@/ai/panelState";
+import {
+  billingHubUrl,
+  classifyGenerateError,
+  resolvePanelMode,
+} from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
 import authClient from "@/lib/auth/authClient";
 import { isAuthConfigured, signIn, signOut } from "@/lib/auth/session";
@@ -17,6 +21,10 @@ const SIGN_IN_PROMPT =
   "Sign in to use managed generation, or add your own key below.";
 const OUT_OF_CREDITS =
   "You are out of AI credits for this month. Upgrade your workspace plan for more, or add your own key below.";
+
+// Funnel out-of-credits users to the shared Omni billing hub for Facet Pro.
+// Null when VITE_ACCOUNT_URL is unset, so the CTA is simply omitted
+const UPGRADE_URL = billingHubUrl(import.meta.env.VITE_ACCOUNT_URL);
 
 interface GeneratePanelProps {
   /** The Studio's editor + run handle, populated after its setup effect runs. */
@@ -70,6 +78,8 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // Set when a managed call comes back 401, to surface sign-in even if the
   // session looked valid (an expired or revoked token)
   const [needSignIn, setNeedSignIn] = useState(false);
+  // Set when a managed call comes back 402, to surface the upgrade funnel
+  const [outOfCredits, setOutOfCredits] = useState(false);
 
   const { data: session } = authClient.useSession();
 
@@ -87,6 +97,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     setBusy(true);
     setError(null);
     setUsage(null);
+    setOutOfCredits(false);
 
     const result = await generateAndRun(
       trimmed,
@@ -98,6 +109,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       const n = result.usage.credits;
       setUsage(`~${n} credit${n === 1 ? "" : "s"}`);
       setNeedSignIn(false);
+      setOutOfCredits(false);
     } else {
       switch (classifyGenerateError(result.httpStatus)) {
         case "signIn":
@@ -106,6 +118,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
           break;
         case "outOfCredits":
           setError(OUT_OF_CREDITS);
+          setOutOfCredits(true);
           break;
         default:
           setError(result.message);
@@ -181,6 +194,17 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         <div className="ai-error" role="alert">
           {error}
         </div>
+      ) : null}
+
+      {outOfCredits && UPGRADE_URL ? (
+        <a
+          className="ai-upgrade"
+          href={UPGRADE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Upgrade workspace
+        </a>
       ) : null}
 
       <div className="ai-byok">
