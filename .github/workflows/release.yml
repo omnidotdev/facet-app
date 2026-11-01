@@ -82,20 +82,6 @@ jobs:
         shell: bash
         run: echo "version=$(bun --print "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # The src-tauri crate still ships template placeholders ({{project-name}},
-      # {{description}}) in Cargo.toml and src/main.rs, so substitute a valid crate
-      # name before the native build (the installers are still named from
-      # tauri.conf.json productName "Facet"). Guarded on the placeholder so once the
-      # crate is personalized this becomes a no-op. perl keeps it portable across
-      # the Linux/macOS/Windows runners (BSD sed -i differs from GNU sed -i).
-      - name: Personalize Tauri crate (template placeholders)
-        shell: bash
-        run: |
-          if grep -q '{{' src-tauri/Cargo.toml; then
-            perl -pi -e 's/\Q{{project-name-snake}}\E/facet/g; s/\Q{{project-name}}\E/facet/g; s/\Q{{description}}\E/Facet, code-first parametric CAD/g' \
-              src-tauri/Cargo.toml src-tauri/src/main.rs
-          fi
-
       # No separate route-generation step: tauri-action runs tauri.conf.json's
       # beforeBuildCommand (bun run build = tsr generate && tsc && vite build), so
       # the gitignored route tree (src/routeTree.gen.ts) is generated inside the build.
