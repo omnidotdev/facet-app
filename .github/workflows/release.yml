@@ -24,6 +24,12 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      # The route tree (src/routeTree.gen.ts) is gitignored, so generate it before
+      # Changesets commits "Version Packages" - the pre-commit hook runs tsc, which
+      # fails on the missing module without it
+      - name: Generate route tree
+        run: bun routes:generate
+
       # Opens/updates the "Version Packages" PR; on its merge, applies the bump
       # via `bun run version` (changeset version + sync the version into the
       # src-tauri crate). privatePackages.tag is on, so the release is tagged
