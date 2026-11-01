@@ -1,13 +1,44 @@
 name: Release 🚀
 
+# Changesets-driven, matching the fleet convention (no manual tags): a push to
+# master runs the Changesets action, which opens/updates the "Version Packages"
+# PR from pending changesets. Merging that PR bumps the version and lands a
+# commit titled "Version Packages", which gates the build job below so the
+# desktop installers are cut automatically on each release.
 on:
   push:
-    tags: ["v*"]
+    branches: [master]
   workflow_dispatch:
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   release:
+    name: Version 🦋
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      # Opens/updates the "Version Packages" PR; on its merge, applies the bump
+      # via `bun run version` (changeset version + sync the version into the
+      # src-tauri crate). privatePackages.tag is on, so the release is tagged
+      - name: Create release pull request
+        uses: changesets/action@v1
+        with:
+          version: bun run version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
     name: Build ${{ matrix.platform }} 🛠️
+    needs: release
+    # Only build installers on the commit that merges the Version Packages PR
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, 'Version Packages')
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -38,6 +69,12 @@ jobs:
 
       - name: Install dependencies
         run: bun install
+
+      # The release version, already bumped by the merged Version Packages PR
+      - name: Read version
+        id: version
+        shell: bash
+        run: echo "version=$(bun --print "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       # The src-tauri crate still ships template placeholders ({{project-name}},
       # {{description}}) in Cargo.toml and src/main.rs, so substitute a valid crate
@@ -81,6 +118,6 @@ jobs:
           # tauri.conf.json bundle.windows.certificateThumbprint (or an external
           # signing command). No certs or keys are committed to this repo.
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Facet ${{ github.ref_name }}
+          tagName: v${{ steps.version.outputs.version }}
+          releaseName: Facet v${{ steps.version.outputs.version }}
           releaseDraft: true
