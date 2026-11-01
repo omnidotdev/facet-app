@@ -53,6 +53,16 @@ bun run tauri:ios:dev        # iOS (after tauri:ios:init)
 bun run tauri:android:dev    # Android (after tauri:android:init)
 ```
 
+## Releases
+
+Desktop installers are cut by the `Release` GitHub Actions workflow. Pushing a `vX.Y.Z` tag (or running the workflow manually) builds native installers on each OS and opens a draft GitHub release with them attached:
+
+- macOS: `.dmg`
+- Windows: `.msi`
+- Linux: AppImage and `.deb`
+
+The installers are currently unsigned and the in-app auto-updater is off. Code signing (Apple Developer ID plus notarization, Windows signing certificate) and a signed auto-updater are follow-ups pending the signing certificates and keypair; the workflow leaves commented hooks showing where those secrets plug in.
+
 ## Diagnostics
 
 - **Serving**: the production image serves the static SPA on `8080`, with nginx falling back to `index.html` for client-side routes. A plain `GET /` returning 200 is a sufficient liveness probe.
