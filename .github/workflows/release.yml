@@ -113,3 +113,83 @@ jobs:
           tagName: v${{ steps.version.outputs.version }}
           releaseName: Facet v${{ steps.version.outputs.version }}
           releaseDraft: true
+
+      # Publish the prebuilt GUI package (facet-bin) to the AUR. Linux only, and
+      # a no-op until AUR_SSH_PRIVATE_KEY is set, so the macOS/Windows matrix legs
+      # skip it and nothing runs before Brian registers the package + adds the key.
+      # Runs after tauri-action so the release assets (Facet_<version>_amd64.deb)
+      # exist. NOTE: the release is created as a draft above; the public asset URL
+      # that the checksum step curls only resolves once the release is published,
+      # so publish the release (or flip releaseDraft to false) for this to succeed.
+      - name: Publish to AUR
+        if: matrix.platform == 'ubuntu-latest' && env.AUR_SSH_PRIVATE_KEY != ''
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          mkdir -p ~/.ssh
+          echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          cat >> ~/.ssh/config <<SSH
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur
+            User aur
+          SSH
+          ssh-keyscan aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+
+          pkg="facet-bin"
+          git clone "ssh://aur@aur.archlinux.org/${pkg}.git" "${pkg}" 2>/dev/null || {
+            mkdir "${pkg}" && cd "${pkg}" && git init && git remote add origin "ssh://aur@aur.archlinux.org/${pkg}.git" && cd ..
+          }
+          cd "${pkg}"
+          cp "../misc/packaging/aur/${pkg}/PKGBUILD" .
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" PKGBUILD
+
+          # Compute checksums for the source URLs (replaces updpkgsums)
+          checksums=()
+          while IFS= read -r src; do
+            url="${src#*::}"
+            checksums+=("$(curl -fsSL "$url" | sha256sum | awk '{print $1}')")
+          done < <(bash -c "source PKGBUILD 2>/dev/null; printf '%s\n' \"\${source[@]}\"")
+
+          # Replace the sha256sums placeholder with the computed values
+          perl -i -0777 -pe 's/^sha256sums=\(.*?\)\n//ms' PKGBUILD
+          {
+            printf "sha256sums=("
+            for i in "${!checksums[@]}"; do
+              [[ $i -gt 0 ]] && printf "\n            "
+              printf "'%s'" "${checksums[$i]}"
+            done
+            printf ")\n"
+          } >> PKGBUILD
+
+          # Generate .SRCINFO (replaces makepkg --printsrcinfo)
+          (
+            source PKGBUILD 2>/dev/null
+            printf "pkgbase = %s\n" "$pkgname"
+            printf "\tpkgdesc = %s\n" "$pkgdesc"
+            printf "\tpkgver = %s\n" "$pkgver"
+            printf "\tpkgrel = %s\n" "$pkgrel"
+            printf "\turl = %s\n" "$url"
+            for v in "${arch[@]}"; do printf "\tarch = %s\n" "$v"; done
+            for v in "${license[@]}"; do printf "\tlicense = %s\n" "$v"; done
+            for v in "${makedepends[@]}"; do printf "\tmakedepends = %s\n" "$v"; done
+            for v in "${depends[@]}"; do printf "\tdepends = %s\n" "$v"; done
+            [[ -v provides ]] && for v in "${provides[@]}"; do printf "\tprovides = %s\n" "$v"; done
+            [[ -v conflicts ]] && for v in "${conflicts[@]}"; do printf "\tconflicts = %s\n" "$v"; done
+            [[ -v noextract ]] && for v in "${noextract[@]}"; do printf "\tnoextract = %s\n" "$v"; done
+            for v in "${source[@]}"; do printf "\tsource = %s\n" "$v"; done
+            for v in "${sha256sums[@]}"; do printf "\tsha256sums = %s\n" "$v"; done
+            printf "\n"
+            printf "pkgname = %s\n" "$pkgname"
+          ) > .SRCINFO
+
+          git config user.name "Omni"
+          git config user.email "team@omni.dev"
+          git add PKGBUILD .SRCINFO
+          git diff --cached --quiet || git commit -m "Update to v${VERSION}"
+          git push origin master
+
+          rm -f ~/.ssh/aur
