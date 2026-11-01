@@ -21,6 +21,7 @@ AI generation is optional and off by default. To enable the "Describe a part" pa
 
 - `VITE_FACET_API_URL`: the Facet AI gateway base URL. When unset, the panel is hidden and the app stays a pure local CAD tool.
 - `VITE_AUTH_BASE_URL`: the Omni identity base URL, used to sign in for managed (metered) generation. Bring-your-own-key generation needs no sign-in.
+- `VITE_ACCOUNT_URL`: the shared Omni account hub base URL. When set, an out-of-credits user sees an "Upgrade workspace" CTA that links to the hub's Facet billing page. When unset, the CTA is hidden.
 
 ## Run
 

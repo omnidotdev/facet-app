@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { classifyGenerateError, resolvePanelMode } from "./panelState";
+import {
+  billingHubUrl,
+  classifyGenerateError,
+  resolvePanelMode,
+} from "./panelState";
 
 describe("resolvePanelMode", () => {
   test("signed in generates regardless of key or auth config", () => {
@@ -71,5 +75,27 @@ describe("classifyGenerateError", () => {
     for (const status of [undefined, 400, 422, 429, 500, 502, 503]) {
       expect(classifyGenerateError(status)).toBe("generic");
     }
+  });
+});
+
+describe("billingHubUrl", () => {
+  test("a 402 funnels to the account hub's Facet billing page", () => {
+    // 402 is the out-of-credits status the panel surfaces the upgrade CTA for
+    expect(classifyGenerateError(402)).toBe("outOfCredits");
+    expect(billingHubUrl("https://account.omni.dev")).toBe(
+      "https://account.omni.dev/billing?product=facet",
+    );
+  });
+
+  test("trims a trailing slash before appending the billing path", () => {
+    expect(billingHubUrl("https://account.omni.dev/")).toBe(
+      "https://account.omni.dev/billing?product=facet",
+    );
+  });
+
+  test("returns null when no account hub is configured", () => {
+    expect(billingHubUrl(undefined)).toBeNull();
+    expect(billingHubUrl("")).toBeNull();
+    expect(billingHubUrl("   ")).toBeNull();
   });
 });

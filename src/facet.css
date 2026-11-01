@@ -230,6 +230,20 @@ body,
   font-size: 12px;
   color: var(--err);
 }
+.facet-app a.ai-upgrade {
+  justify-self: start;
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+.facet-app a.ai-upgrade:hover {
+  opacity: 0.9;
+}
 .ai-byok {
   display: grid;
   gap: 6px;

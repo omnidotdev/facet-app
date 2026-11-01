@@ -50,3 +50,24 @@ export const classifyGenerateError = (
   if (status === 402) return "outOfCredits";
   return "generic";
 };
+
+/** Catalog product id used to deep-link the billing hub to Facet's plans. */
+const FACET_PRODUCT_ID = "facet";
+
+/**
+ * Resolve the shared Omni billing hub URL that funnels an out-of-credits user
+ * to Facet Pro, or null when no account hub is configured.
+ *
+ * Facet dogfoods the fleet's billing: the account hub (account.omni.dev) owns
+ * billing across every Omni product, so an upgrade is a link out to it rather
+ * than a bespoke in-app checkout. Returns null when `VITE_ACCOUNT_URL` is unset
+ * so the caller simply omits the CTA and the panel still works
+ */
+export const billingHubUrl = (
+  accountBaseUrl: string | undefined,
+): string | null => {
+  const base = accountBaseUrl?.trim().replace(/\/+$/, "");
+  if (!base) return null;
+
+  return `${base}/billing?product=${FACET_PRODUCT_ID}`;
+};
