@@ -63,6 +63,16 @@ Desktop installers are cut by the `Release` GitHub Actions workflow. Pushing a `
 
 The installers are currently unsigned and the in-app auto-updater is off. Code signing (Apple Developer ID plus notarization, Windows signing certificate) and a signed auto-updater are follow-ups pending the signing certificates and keypair; the workflow leaves commented hooks showing where those secrets plug in.
 
+### Arch Linux (AUR)
+
+On release, the workflow also publishes `facet-bin` to the AUR, a prebuilt package that unpacks the Linux `.deb`. Install it with any AUR helper:
+
+```sh
+yay -S facet-bin
+```
+
+`facet-bin` is a no-op in CI until a maintainer sets it up once: register the `facet-bin` package on the AUR and add an `AUR_SSH_PRIVATE_KEY` repository secret (the AUR account's SSH key). The checked-in `PKGBUILD` lives in `misc/packaging/aur/facet-bin/`; CI fills in `pkgver` and the `sha256sums` from the release assets.
+
 ## Diagnostics
 
 - **Serving**: the production image serves the static SPA on `8080`, with nginx falling back to `index.html` for client-side routes. A plain `GET /` returning 200 is a sufficient liveness probe.

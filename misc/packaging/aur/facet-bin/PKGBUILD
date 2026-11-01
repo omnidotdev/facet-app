@@ -1,0 +1,30 @@
+# Maintainer: Omni <team@omni.dev>
+pkgname=facet-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Code-first parametric CAD (pre-built)"
+arch=('x86_64')
+url="https://facet.omni.dev"
+license=('Apache-2.0')
+# Tauri (webkit2gtk 4.1) GUI runtime dependencies on Arch
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'hicolor-icon-theme')
+provides=('facet')
+conflicts=('facet')
+# tauri-action names the Linux bundles "<productName>_<version>_<arch>", so the
+# .deb is Facet_<pkgver>_amd64.deb. The .deb already lays the app out under /usr
+# (binary, .desktop entry, hicolor icons), so unpack it rather than rebuilding
+source=("$pkgname-$pkgver.deb::https://github.com/omnidotdev/facet-app/releases/download/v$pkgver/Facet_${pkgver}_amd64.deb"
+        "$pkgname-$pkgver-LICENSE::https://raw.githubusercontent.com/omnidotdev/facet-app/v$pkgver/LICENSE.md")
+# The .deb is an ar archive handled in package(); keep makepkg from unpacking it
+noextract=("$pkgname-$pkgver.deb")
+sha256sums=('SKIP'
+            'SKIP')
+
+package() {
+  # Extract the .deb's data tarball straight into the package root. The ar
+  # archive holds control.tar.* + data.tar.*; the data tarball is the /usr tree
+  bsdtar -xf "$srcdir/$pkgname-$pkgver.deb" -C "$srcdir"
+  bsdtar -xf "$srcdir"/data.tar.* -C "$pkgdir"
+
+  install -Dm644 "$srcdir/$pkgname-$pkgver-LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
