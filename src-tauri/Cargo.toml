@@ -1,15 +1,15 @@
 [package]
-name = "{{project-name}}"
+name = "facet-app"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 authors = ["Omni <team@omni.dev>"]
-description = "{{description}}"
+description = "Facet, code-first parametric CAD"
 license = "Apache-2.0"
-repository = "https://github.com/omnidotdev/{{project-name}}"
+repository = "https://github.com/omnidotdev/facet-app"
 
 [lib]
-name = "{{project-name-snake}}_lib"
+name = "facet_app_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
