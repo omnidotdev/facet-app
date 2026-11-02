@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 import {
+  PANEL_COPY,
+  SYNAPSE_KEY_URL,
   billingHubUrl,
   classifyGenerateError,
   resolvePanelMode,
@@ -14,19 +16,6 @@ import type { StudioHandle } from "@/FacetStudio";
 
 // Kept out of our servers: the Synapse key lives only in this browser
 const BYOK_STORAGE_KEY = "facet:ai-byok-key:v1";
-
-// Where a user mints their own Synapse key. BYOK runs generation through the
-// same Synapse AI router as the managed path, just billed to the caller's own
-// Synapse account instead of Facet's credits
-const SYNAPSE_KEY_URL = "https://synapse.omni.dev";
-
-// Generic, user-safe copy. The managed path spends Facet's Synapse key, so it
-// needs an Omni identity; BYOK uses the caller's own Synapse key and needs no
-// account. Terminology is "workspace", never "organization"
-const SIGN_IN_PROMPT =
-  "Sign in to use managed generation, or add your own Synapse key below.";
-const OUT_OF_CREDITS =
-  "You are out of AI credits for this month. Upgrade your workspace plan for more, or add your own Synapse key below.";
 
 // Funnel out-of-credits users to the shared Omni billing hub for Facet Pro.
 // Null when VITE_ACCOUNT_URL is unset, so the CTA is simply omitted
@@ -122,10 +111,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       switch (classifyGenerateError(result.httpStatus)) {
         case "signIn":
           setNeedSignIn(true);
-          setError(SIGN_IN_PROMPT);
+          setError(PANEL_COPY.signInPrompt);
           break;
         case "outOfCredits":
-          setError(OUT_OF_CREDITS);
+          setError(PANEL_COPY.outOfCredits);
           setOutOfCredits(true);
           break;
         default:
@@ -223,14 +212,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
           onClick={() => setByokOpen((open) => !open)}
           aria-expanded={byokOpen}
         >
-          {byokOpen ? "▾" : "▸"} Use your own Synapse key
+          {byokOpen ? "▾" : "▸"} {PANEL_COPY.byokToggle}
         </button>
         {byokOpen ? (
           <div className="ai-byok-body">
             <input
               type="password"
               className="ai-byok-input"
-              placeholder="Synapse API key"
+              placeholder={PANEL_COPY.byokPlaceholder}
               value={byokKey}
               onChange={(e) => {
                 setByokKey(e.target.value);

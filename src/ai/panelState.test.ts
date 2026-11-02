@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  PANEL_COPY,
+  SYNAPSE_KEY_URL,
   billingHubUrl,
   classifyGenerateError,
   resolvePanelMode,
@@ -97,5 +99,30 @@ describe("billingHubUrl", () => {
     expect(billingHubUrl(undefined)).toBeNull();
     expect(billingHubUrl("")).toBeNull();
     expect(billingHubUrl("   ")).toBeNull();
+  });
+});
+
+describe("BYOK is framed as a Synapse key", () => {
+  // The gateway forwards the BYOK key to the Synapse router with a
+  // provider-prefixed model id, so a raw provider key cannot work. These lock
+  // the correct framing and guard against regressing to "provider key"
+
+  test("the key-minting link points at the Synapse dashboard", () => {
+    expect(SYNAPSE_KEY_URL).toBe("https://synapse.omni.dev");
+  });
+
+  test("every BYOK-facing string says Synapse, never 'provider'", () => {
+    const strings = Object.values(PANEL_COPY);
+    expect(strings.length).toBeGreaterThan(0);
+    for (const copy of strings) {
+      expect(copy.toLowerCase()).not.toContain("provider");
+    }
+    expect(PANEL_COPY.byokToggle).toContain("Synapse");
+    expect(PANEL_COPY.byokPlaceholder).toContain("Synapse");
+  });
+
+  test("the credit-path prompts offer BYOK as the escape hatch", () => {
+    expect(PANEL_COPY.signInPrompt).toContain("Synapse key");
+    expect(PANEL_COPY.outOfCredits).toContain("Synapse key");
   });
 });

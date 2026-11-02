@@ -51,6 +51,35 @@ export const classifyGenerateError = (
   return "generic";
 };
 
+/**
+ * Where a user mints their own Synapse key for BYOK generation.
+ *
+ * Both generation paths run through the Synapse AI router: managed uses Facet's
+ * server-side Synapse key (metered against Facet credits), BYOK uses the
+ * caller's own Synapse key (billed to them, no meter, no sign-in). The key is
+ * NOT a raw provider key: the gateway forwards it to Synapse with Synapse's
+ * provider-prefixed model id, so only a Synapse key resolves
+ */
+export const SYNAPSE_KEY_URL = "https://synapse.omni.dev";
+
+/**
+ * User-facing panel copy, kept here so it is covered by tests and cannot
+ * silently regress to the old (wrong) "provider key" framing. Generic and
+ * user-safe; terminology is "workspace", never "organization"
+ */
+export const PANEL_COPY = {
+  /** Shown on a 401: the managed path needs an Omni identity. */
+  signInPrompt:
+    "Sign in to use managed generation, or add your own Synapse key below.",
+  /** Shown on a 402: the monthly managed credit cap is reached. */
+  outOfCredits:
+    "You are out of AI credits for this month. Upgrade your workspace plan for more, or add your own Synapse key below.",
+  /** The collapsible BYOK section toggle. */
+  byokToggle: "Use your own Synapse key",
+  /** The BYOK key input placeholder. */
+  byokPlaceholder: "Synapse API key",
+} as const;
+
 /** Catalog product id used to deep-link the billing hub to Facet's plans. */
 const FACET_PRODUCT_ID = "facet";
 
