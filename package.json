@@ -1,6 +1,6 @@
 {
   "name": "@omnidotdev/facet",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Facet - code-first parametric CAD. Write TypeScript, get geometry.",
   "type": "module",
