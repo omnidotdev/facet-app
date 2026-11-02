@@ -8,8 +8,8 @@ import {
   resolvePanelMode,
 } from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
-import authClient from "@/lib/auth/authClient";
 import { isAuthConfigured, signIn, signOut } from "@/lib/auth/session";
+import { useAuthSession } from "@/lib/auth/useAuthSession";
 
 import type { RefObject } from "react";
 import type { StudioHandle } from "@/FacetStudio";
@@ -78,10 +78,9 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // Set when a managed call comes back 402, to surface the upgrade funnel
   const [outOfCredits, setOutOfCredits] = useState(false);
 
-  const { data: session } = authClient.useSession();
+  const { signedIn } = useAuthSession();
 
   const authConfigured = isAuthConfigured();
-  const signedIn = Boolean(session?.session);
   const hasByok = byokKey.trim().length > 0;
   const baseMode = resolvePanelMode({ authConfigured, signedIn, hasByok });
   const mode = needSignIn && authConfigured ? "signIn" : baseMode;
