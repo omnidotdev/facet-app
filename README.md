@@ -23,6 +23,11 @@ AI generation is optional and off by default. To enable the "Describe a part" pa
 - `VITE_AUTH_BASE_URL`: the Omni identity base URL, used to sign in for managed (metered) generation. Bring-your-own-key generation needs no sign-in.
 - `VITE_ACCOUNT_URL`: the shared Omni account hub base URL. When set, an out-of-credits user sees an "Upgrade workspace" CTA that links to the hub's Facet billing page. When unset, the CTA is hidden.
 
+Both generation paths run through the [Synapse](https://synapse.omni.dev) AI router:
+
+- **Managed** (signed in): uses Facet's Synapse key and is metered against your monthly Facet credits.
+- **Bring your own key** (no account): paste your own [Synapse key](https://synapse.omni.dev) in the panel. Generation is billed to your own Synapse account, bypasses the Facet credit meter, and needs no sign-in. The key is kept only in your browser and sent over TLS to the gateway per request, never stored on Facet's servers.
+
 ## Run
 
 Development (HTTPS via mkcert):

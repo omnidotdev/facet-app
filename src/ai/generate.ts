@@ -1,7 +1,8 @@
 /**
- * Client for the Facet AI gateway (`facet-api`). The browser never holds the
- * provider key: it calls the gateway, which owns the managed key and all cost
- * controls. BYOK keys are passed through per-request over TLS and never stored.
+ * Client for the Facet AI gateway (`facet-api`). The browser never holds
+ * Facet's managed Synapse key: it calls the gateway, which owns that key and all
+ * cost controls. A caller's own Synapse key (BYOK) is passed through per-request
+ * over TLS and never stored.
  *
  * Every failure surfaces a generic, user-safe message. The gateway returns its
  * own generic `error` string; this client forwards that verbatim and never
@@ -26,7 +27,7 @@ export interface GeneratePrevious {
 }
 
 export interface GenerateOptions {
-  /** A user-supplied provider key. When set, the gateway bills the caller. */
+  /** A user-supplied Synapse key. When set, the gateway bills the caller. */
   byokKey?: string;
   /** Prior failed code plus its error, present only on a repair attempt. */
   previous?: GeneratePrevious;
@@ -58,7 +59,7 @@ const GENERIC_FAILURE = "AI generation failed. Please try again.";
 // A managed call with no identity. Carries status 401 so the panel surfaces it
 // as a sign-in prompt, the same as the gateway's own 401, without ever calling
 // the gateway blindly
-const SIGN_IN_REQUIRED = "Sign in to generate, or add your own key.";
+const SIGN_IN_REQUIRED = "Sign in to generate, or add your own Synapse key.";
 
 /** Lazily resolve the Omni access token, keeping the auth client out of tests. */
 const defaultGetAccessToken = async (): Promise<string | null> => {

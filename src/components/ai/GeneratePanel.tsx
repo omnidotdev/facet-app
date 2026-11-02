@@ -1,6 +1,8 @@
 import { useState } from "react";
 
 import {
+  PANEL_COPY,
+  SYNAPSE_KEY_URL,
   billingHubUrl,
   classifyGenerateError,
   resolvePanelMode,
@@ -12,15 +14,8 @@ import { isAuthConfigured, signIn, signOut } from "@/lib/auth/session";
 import type { RefObject } from "react";
 import type { StudioHandle } from "@/FacetStudio";
 
-// Kept out of our servers: the BYOK key lives only in this browser
+// Kept out of our servers: the Synapse key lives only in this browser
 const BYOK_STORAGE_KEY = "facet:ai-byok-key:v1";
-
-// Generic, user-safe copy. The managed path spends our key, so it needs an Omni
-// identity; BYOK needs none. Terminology is "workspace", never "organization"
-const SIGN_IN_PROMPT =
-  "Sign in to use managed generation, or add your own key below.";
-const OUT_OF_CREDITS =
-  "You are out of AI credits for this month. Upgrade your workspace plan for more, or add your own key below.";
 
 // Funnel out-of-credits users to the shared Omni billing hub for Facet Pro.
 // Null when VITE_ACCOUNT_URL is unset, so the CTA is simply omitted
@@ -53,9 +48,11 @@ function persistByokKey(value: string): void {
 /**
  * "Describe a part" panel. Turns a plain-English prompt into Facet code via the
  * gateway, loads it into the editor, runs it through the Studio's own run path,
- * and repairs on a kernel error. Managed generation needs an Omni identity and
- * is credit-metered (hence the Beta badge); BYOK is billed to the caller and
- * needs no account. Local modeling stays fully anonymous either way.
+ * and repairs on a kernel error. Both paths run through the Synapse AI router:
+ * managed generation uses Facet's Synapse key, so it needs an Omni identity and
+ * is credit-metered (hence the Beta badge); BYOK uses the caller's own Synapse
+ * key, billed to them, and needs no account. Local modeling stays fully
+ * anonymous either way.
  *
  * Renders nothing when no gateway is configured, so the static app still works.
  * The gateway check gates the inner component so that, with no gateway, nothing
@@ -114,10 +111,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       switch (classifyGenerateError(result.httpStatus)) {
         case "signIn":
           setNeedSignIn(true);
-          setError(SIGN_IN_PROMPT);
+          setError(PANEL_COPY.signInPrompt);
           break;
         case "outOfCredits":
-          setError(OUT_OF_CREDITS);
+          setError(PANEL_COPY.outOfCredits);
           setOutOfCredits(true);
           break;
         default:
@@ -183,11 +180,12 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
 
       {mode === "signIn" ? (
         <p className="ai-help">
-          No account? Use your own key below to generate without signing in.
+          No account? Add your own Synapse key below to generate without signing
+          in.
         </p>
       ) : null}
       {mode === "needsKey" ? (
-        <p className="ai-help">Add your own key below to generate.</p>
+        <p className="ai-help">Add your own Synapse key below to generate.</p>
       ) : null}
 
       {error ? (
@@ -214,14 +212,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
           onClick={() => setByokOpen((open) => !open)}
           aria-expanded={byokOpen}
         >
-          {byokOpen ? "▾" : "▸"} Use your own key
+          {byokOpen ? "▾" : "▸"} {PANEL_COPY.byokToggle}
         </button>
         {byokOpen ? (
           <div className="ai-byok-body">
             <input
               type="password"
               className="ai-byok-input"
-              placeholder="Provider API key"
+              placeholder={PANEL_COPY.byokPlaceholder}
               value={byokKey}
               onChange={(e) => {
                 setByokKey(e.target.value);
@@ -231,9 +229,18 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
               spellCheck={false}
             />
             <p className="ai-help">
-              A key entered here is sent to our gateway to call the provider on
-              your behalf and is not stored on our servers. It is kept only in
-              this browser.
+              Generation runs through the Synapse AI router. Add your own{" "}
+              <a
+                href={SYNAPSE_KEY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Synapse key
+              </a>{" "}
+              to bill your own Synapse account instead of your Facet credits,
+              and skip signing in. The key is kept only in this browser and sent
+              over TLS to our gateway for each request, never stored on our
+              servers.
             </p>
           </div>
         ) : null}
