@@ -21,6 +21,7 @@ AI generation is optional and off by default. To enable the "Describe a part" pa
 
 - `VITE_FACET_API_URL`: the Facet AI gateway base URL. When unset, the panel is hidden and the app stays a pure local CAD tool.
 - `VITE_AUTH_BASE_URL`: the Omni identity base URL, used to sign in for managed (metered) generation. Bring-your-own-key generation needs no sign-in.
+- `VITE_AUTH_CLIENT_ID`: optional override for Facet's public OAuth client id. The app defaults to the id registered with Gatekeeper (baked into the source like `aspen-editor`, since it is public and stable, not a secret), so production needs nothing. Managed sign-in runs Authorization Code + PKCE in the browser with redirect URI `<origin>/auth/callback`. Set this only to point a non-production build at a different client.
 - `VITE_ACCOUNT_URL`: the shared Omni account hub base URL. When set, an out-of-credits user sees an "Upgrade workspace" CTA that links to the hub's Facet billing page. When unset, the CTA is hidden.
 
 Both generation paths run through the [Synapse](https://synapse.omni.dev) AI router:
