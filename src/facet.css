@@ -134,6 +134,12 @@ body,
 .cm-editor .cm-scroller {
   padding: 8px 4px;
 }
+/* The line-number gutter is content-height by default, so on a short document
+   its background stops at the last line. Stretch it to fill the editor so it
+   meets the status bar below instead of leaving a bare strip */
+.cm-editor .cm-gutters {
+  min-height: 100%;
+}
 
 .status {
   padding: 8px 16px;
@@ -404,5 +410,30 @@ body,
   .editor-pane {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  /* The header is a single non-wrapping flex row on desktop; on a phone its
+     controls overflow the viewport (horizontal page scroll). Let it wrap, drop
+     the decorative tagline and the flex spacer (which would otherwise push the
+     controls off-screen), and tighten the controls so they fit */
+  .facet-app header {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 8px 12px;
+  }
+  .facet-app .tag,
+  .facet-app .spacer {
+    display: none;
+  }
+  .facet-app header select,
+  .facet-app header button {
+    padding: 5px 8px;
+    font-size: 12px;
+    max-width: 100%;
+  }
+
+  /* Keep the floating params card within the narrow viewport */
+  .params {
+    max-width: calc(100vw - 24px);
   }
 }
