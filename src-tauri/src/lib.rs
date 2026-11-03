@@ -4,6 +4,8 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 
+mod oauth;
+
 /// Greet command - example IPC from frontend to backend.
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -84,7 +86,11 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, get_system_info])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            get_system_info,
+            oauth::oauth_loopback
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
