@@ -31,6 +31,13 @@ const CLIENT_ID =
 // is derived from the live origin plus a fixed path (registered per deployment)
 const redirectUri = (): string => `${window.location.origin}/auth/callback`;
 
+// Desktop (Tauri) cannot receive a browser redirect under the tauri:// origin,
+// so native login uses a fixed loopback the Rust side listens on (RFC 8252).
+// Gatekeeper's facet-app client registers this redirect too
+const NATIVE_REDIRECT_URI = "http://127.0.0.1:8973/callback";
+const inTauri = (): boolean =>
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 // localStorage holds the access token across reloads; sessionStorage holds the
 // in-flight PKCE verifier/state only until the callback consumes them. A static
 // SPA has no server to hold an httpOnly cookie, so this mirrors aspen-editor
@@ -119,8 +126,53 @@ export const subscribeAuth = (listener: () => void): (() => void) => {
 };
 
 /**
- * Start the PKCE login: stash a fresh verifier/state, then redirect the page to
- * Gatekeeper's authorize endpoint. Returns to the current page after callback.
+ * Exchange an authorization code for an access token (public client, PKCE
+ * verifier, no secret) and store it. Returns whether it succeeded. Shared by the
+ * web callback route and the desktop loopback flow; never surfaces provider detail
+ */
+const exchangeAndStore = async (
+  code: string,
+  codeVerifier: string,
+  redirect: string,
+): Promise<boolean> => {
+  let parsed: ReturnType<typeof parseTokenResponse>;
+  try {
+    const response = await fetch(
+      `${(AUTH_BASE_URL as string).replace(/\/+$/, "")}/oauth2/token`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: buildTokenRequestBody({
+          clientId: CLIENT_ID,
+          redirectUri: redirect,
+          code,
+          codeVerifier,
+        }),
+      },
+    );
+    if (!response.ok) return false;
+    parsed = parseTokenResponse(await response.json());
+  } catch {
+    return false;
+  }
+  if (!parsed) return false;
+
+  const stored: StoredToken = {
+    accessToken: parsed.accessToken,
+    expiresAt:
+      parsed.expiresIn !== null ? Date.now() + parsed.expiresIn * 1_000 : null,
+  };
+  writeJson(localStorage, TOKEN_KEY, stored);
+  notify();
+  return true;
+};
+
+/**
+ * Start the PKCE login. On the web, stash a fresh verifier/state and redirect
+ * the page to Gatekeeper's authorize endpoint (completed by the callback route).
+ * On desktop (Tauri), open the system browser and catch the redirect on a
+ * loopback port via the Rust `oauth_loopback` command, then exchange in place;
+ * the verifier never leaves JS
  */
 export const signIn = async (): Promise<void> => {
   if (!isAuthConfigured()) return;
@@ -128,6 +180,29 @@ export const signIn = async (): Promise<void> => {
   const verifier = randomBase64Url(32);
   const state = randomBase64Url(16);
   const codeChallenge = await codeChallengeS256(verifier);
+
+  if (inTauri()) {
+    const authorizeUrl = buildAuthorizeUrl({
+      authBaseUrl: AUTH_BASE_URL as string,
+      clientId: CLIENT_ID,
+      redirectUri: NATIVE_REDIRECT_URI,
+      scope: OAUTH_SCOPE,
+      state,
+      codeChallenge,
+    });
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const query = await invoke<string>("oauth_loopback", { authorizeUrl });
+      const params = parseCallbackParams(query);
+      if (params.ok && params.state === state) {
+        await exchangeAndStore(params.code, verifier, NATIVE_REDIRECT_URI);
+      }
+    } catch {
+      // Login aborted, timed out, or the port was busy; stay signed out (BYOK
+      // and local modeling still work). The panel simply does not flip to signed-in
+    }
+    return;
+  }
 
   const flow: FlowState = { verifier, state, returnTo: window.location.href };
   writeJson(sessionStorage, FLOW_KEY, flow);
@@ -169,38 +244,10 @@ export const completeCallback = async (
     return { ok: false, error: "state_mismatch" };
   }
 
-  let parsed: ReturnType<typeof parseTokenResponse>;
-  try {
-    const response = await fetch(
-      `${(AUTH_BASE_URL as string).replace(/\/+$/, "")}/oauth2/token`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: buildTokenRequestBody({
-          clientId: CLIENT_ID,
-          redirectUri: redirectUri(),
-          code: params.code,
-          codeVerifier: flow.verifier,
-        }),
-      },
-    );
-    if (!response.ok) return { ok: false, error: "token_exchange_failed" };
-    parsed = parseTokenResponse(await response.json());
-  } catch {
-    return { ok: false, error: "token_exchange_failed" };
-  }
-
-  if (!parsed) return { ok: false, error: "token_exchange_failed" };
-
-  const stored: StoredToken = {
-    accessToken: parsed.accessToken,
-    expiresAt:
-      parsed.expiresIn !== null ? Date.now() + parsed.expiresIn * 1_000 : null,
-  };
-  writeJson(localStorage, TOKEN_KEY, stored);
-  notify();
-
-  return { ok: true, returnTo: flow.returnTo || "/" };
+  const ok = await exchangeAndStore(params.code, flow.verifier, redirectUri());
+  return ok
+    ? { ok: true, returnTo: flow.returnTo || "/" }
+    : { ok: false, error: "token_exchange_failed" };
 };
 
 /** Forget the stored token. */
