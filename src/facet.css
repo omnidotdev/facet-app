@@ -150,25 +150,51 @@ body,
   color: var(--err);
 }
 
-/* "Describe a part" AI panel, pinned under the editor + status */
+/* "Describe a part" AI panel, pinned under the editor + status. Collapsed to a
+   slim trigger by default (data-open="false"); expands to the full prompt UI */
 .ai-panel {
-  padding: 10px 16px 12px;
+  padding: 8px 16px;
   border-top: 1px solid var(--line);
   background: var(--panel);
   display: grid;
   gap: 8px;
+}
+.ai-panel[data-open="true"] {
+  padding: 10px 16px 12px;
 }
 .ai-panel-head {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.ai-title {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+/* The disclosure trigger: a full-width clickable row, no default button chrome */
+.facet-app button.ai-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+.ai-chevron {
+  font-size: 10px;
   color: var(--muted);
+  width: 10px;
+}
+.facet-app button.ai-toggle:hover .ai-title {
+  color: var(--accent);
+}
+.ai-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ai-router-note {
+  margin-top: -2px;
 }
 .ai-badge {
   font-size: 10px;
