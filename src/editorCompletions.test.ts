@@ -71,7 +71,7 @@ describe("facet API completions", () => {
 
   test("param member access offers only the param builder members", () => {
     const labels = completeAt("param.");
-    expect(labels).toEqual(["number"]);
+    expect(labels).toEqual(["number", "boolean", "enum", "select"]);
   });
 
   test("the completion start is placed after the dot for a member access", () => {

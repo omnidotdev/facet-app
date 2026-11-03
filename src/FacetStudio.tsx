@@ -141,21 +141,50 @@ export default function FacetStudio() {
         const name = document.createElement("span");
         name.className = "param-name";
         name.textContent = d.name;
-        const value = document.createElement("span");
-        value.className = "param-value";
-        value.textContent = String(d.value);
-        const input = document.createElement("input");
-        input.type = "range";
-        input.min = String(d.min);
-        input.max = String(d.max);
-        input.step = String(d.step);
-        input.value = String(d.value);
-        input.addEventListener("input", () => {
-          store.set(d.name, Number(input.value));
-          value.textContent = input.value;
-          scheduleLive();
-        });
-        row.append(name, value, input);
+
+        if (d.kind === "number") {
+          const value = document.createElement("span");
+          value.className = "param-value";
+          value.textContent = String(d.value);
+          const input = document.createElement("input");
+          input.type = "range";
+          input.min = String(d.min);
+          input.max = String(d.max);
+          input.step = String(d.step);
+          input.value = String(d.value);
+          input.addEventListener("input", () => {
+            store.set(d.name, Number(input.value));
+            value.textContent = input.value;
+            scheduleLive();
+          });
+          row.append(name, value, input);
+        } else if (d.kind === "boolean") {
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.className = "param-checkbox";
+          input.checked = d.value;
+          input.addEventListener("change", () => {
+            store.set(d.name, input.checked);
+            scheduleLive();
+          });
+          row.append(name, input);
+        } else {
+          const select = document.createElement("select");
+          select.className = "param-select";
+          for (const opt of d.options) {
+            const option = document.createElement("option");
+            option.value = opt;
+            option.textContent = opt;
+            if (opt === d.value) option.selected = true;
+            select.appendChild(option);
+          }
+          select.addEventListener("change", () => {
+            store.set(d.name, select.value);
+            scheduleLive();
+          });
+          row.append(name, select);
+        }
+
         paramsEl.appendChild(row);
       }
     };
@@ -289,6 +318,11 @@ export default function FacetStudio() {
       const code = examples[exampleRef.current!.value];
       // Ignore the neutral "Custom model" placeholder, which names no example
       if (code === undefined) return;
+      // Re-seed parameters from the new example's declared defaults instead of
+      // carrying over the previous example's tuned values by shared name, and
+      // force the control panel to rebuild even if the control shapes match
+      store.reset();
+      paramsSignature = " ";
       editor.setValue(code);
       run(true);
     });

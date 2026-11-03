@@ -15,7 +15,7 @@ import type {
  *   the `param` builder
  *
  * `param.` is a special member case: `param` is not a Shape, so after it the
- * only member is `number`.
+ * members are `number`, `boolean`, `enum`, and `select`.
  */
 
 /** Fluent methods on a Shape, offered after a `.` (member access). */
@@ -153,6 +153,24 @@ const PARAM_MEMBERS: Completion[] = [
     type: "method",
     detail: "param.number(name, { min, max, default, step })",
     info: "Declare a numeric parameter and return its current value",
+  },
+  {
+    label: "boolean",
+    type: "method",
+    detail: "param.boolean(name, { default })",
+    info: "Declare a boolean parameter (renders a checkbox) and return its value",
+  },
+  {
+    label: "enum",
+    type: "method",
+    detail: "param.enum(name, { options, default })",
+    info: "Declare a choice parameter (renders a dropdown) and return the selected option",
+  },
+  {
+    label: "select",
+    type: "method",
+    detail: "param.select(name, { options, default })",
+    info: "Alias for param.enum",
   },
 ];
 
