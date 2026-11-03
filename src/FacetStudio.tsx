@@ -10,8 +10,10 @@ import {
   cube,
   cylinder,
   difference,
+  grid,
   intersection,
   meshKernel,
+  rectTube,
   requiresBrep,
   shouldAutoSwitchToBrep,
   sphere,
@@ -61,6 +63,8 @@ const api = {
   union,
   difference,
   intersection,
+  grid,
+  rectTube,
 } as const;
 
 export default function FacetStudio() {

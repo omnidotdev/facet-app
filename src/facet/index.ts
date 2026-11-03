@@ -5,7 +5,9 @@ export {
   cube,
   cylinder,
   difference,
+  grid,
   intersection,
+  rectTube,
   sphere,
   union,
 } from "./api";

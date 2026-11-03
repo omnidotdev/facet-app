@@ -144,3 +144,48 @@ export function intersection(...shapes: Shape[]): Shape {
   const [first, ...rest] = shapes;
   return first.intersect(...rest);
 }
+
+/**
+ * Tile a shape into an `nx` by `ny` grid on the XY plane, each copy spaced by
+ * `spacing` (a single number for equal x/y, or `[sx, sy]`). The grid is centered
+ * on the origin. Returns their union. Useful for tessellations and baseplates
+ */
+export function grid(
+  shape: Shape,
+  nx: number,
+  ny: number,
+  spacing: number | [number, number],
+): Shape {
+  const [sx, sy] = typeof spacing === "number" ? [spacing, spacing] : spacing;
+  const cols = Math.max(1, Math.floor(nx));
+  const rows = Math.max(1, Math.floor(ny));
+  // Center the whole grid on the origin
+  const ox = ((cols - 1) * sx) / 2;
+  const oy = ((rows - 1) * sy) / 2;
+  const copies: Shape[] = [];
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      copies.push(shape.translate(i * sx - ox, j * sy - oy, 0));
+    }
+  }
+  return union(...copies);
+}
+
+/**
+ * A hollow rectangular tube/frame: an `[ox, oy]` outer footprint with
+ * `wall`-thick walls, `h` tall, centered. When the walls meet (wall too large
+ * for the footprint) it degrades to a solid block rather than inverting
+ */
+export function rectTube(
+  outer: [number, number],
+  wall: number,
+  h: number,
+): Shape {
+  const [ox, oy] = outer;
+  const base = cube([ox, oy, h]);
+  const iw = ox - 2 * wall;
+  const id = oy - 2 * wall;
+  if (iw <= 0 || id <= 0) return base;
+  // Inner cut is slightly taller so it punches cleanly through top and bottom
+  return base.subtract(cube([iw, id, h + 2]));
+}

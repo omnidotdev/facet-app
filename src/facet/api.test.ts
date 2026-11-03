@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import { cube, cylinder, difference, sphere, union } from "./api";
+import {
+  cube,
+  cylinder,
+  difference,
+  grid,
+  rectTube,
+  sphere,
+  union,
+} from "./api";
 
 describe("authoring API builds an op-graph without computing geometry", () => {
   test("cube is centered by default", () => {
@@ -82,5 +90,42 @@ describe("authoring API builds an op-graph without computing geometry", () => {
     if (node.op === "translate") {
       expect(node.child.op).toBe("fillet");
     }
+  });
+
+  test("grid tiles a shape into a centered union of translated copies", () => {
+    const node = grid(cube(1), 2, 1, 10).node;
+    expect(node.op).toBe("union");
+    if (node.op === "union") {
+      expect(node.children).toHaveLength(2);
+      // 2 columns spaced 10, centered -> x at -5 and +5
+      const xs = node.children.map((c) =>
+        c.op === "translate" ? c.v[0] : Number.NaN,
+      );
+      expect(xs).toEqual([-5, 5]);
+    }
+  });
+
+  test("grid floors counts and keeps at least one copy", () => {
+    const node = grid(cube(1), 0, 0, 5).node;
+    // Math.max(1, ...) keeps a single copy, so union has one child
+    expect(node.op).toBe("union");
+    if (node.op === "union") expect(node.children).toHaveLength(1);
+  });
+
+  test("rectTube subtracts an inner box from an outer box", () => {
+    const node = rectTube([20, 10], 2, 5).node;
+    expect(node).toEqual({
+      op: "difference",
+      children: [
+        { op: "cube", size: [20, 10, 5], center: true },
+        { op: "cube", size: [16, 6, 7], center: true },
+      ],
+    });
+  });
+
+  test("rectTube degrades to a solid block when the walls meet", () => {
+    const node = rectTube([8, 8], 4, 5).node;
+    // inner width = 8 - 2*4 = 0 -> no subtraction, just the outer box
+    expect(node).toEqual({ op: "cube", size: [8, 8, 5], center: true });
   });
 });
