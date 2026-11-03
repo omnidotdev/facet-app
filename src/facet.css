@@ -340,6 +340,18 @@ body,
   accent-color: var(--accent);
   cursor: pointer;
 }
+.param-row input[type="checkbox"].param-checkbox {
+  justify-self: end;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.param-row select.param-select {
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel, transparent);
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 
 .facet-app footer {
   padding: 7px 16px;
