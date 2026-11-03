@@ -139,6 +139,18 @@ const TOP_LEVEL: Completion[] = [
     info: "Keep only the overlap of shapes",
   },
   {
+    label: "grid",
+    type: "function",
+    detail: "grid(shape, nx, ny, spacing)",
+    info: "Tile a shape into a centered nx by ny grid (union of copies)",
+  },
+  {
+    label: "rectTube",
+    type: "function",
+    detail: "rectTube([ox, oy], wall, h)",
+    info: "A hollow rectangular tube/frame, centered",
+  },
+  {
     label: "param",
     type: "namespace",
     detail: "param.number(name, { min, max, default, step })",
