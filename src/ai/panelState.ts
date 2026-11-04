@@ -100,3 +100,35 @@ export const billingHubUrl = (
 
   return `${base}/billing?product=${FACET_PRODUCT_ID}`;
 };
+
+/** Pluralize a credit count for display, e.g. "1 credit", "3 credits". */
+const formatCredits = (credits: number): string =>
+  `${credits} credit${credits === 1 ? "" : "s"}`;
+
+/**
+ * Confirmation shown (as a toast) after a successful generation, once the
+ * dialog has closed so the user sees their new model.
+ *
+ * BYOK bills the caller's own Synapse account, not Facet credits, so it never
+ * shows a credit count. The managed path shows the TOTAL credits spent across
+ * the initial call plus any repairs, with the repair count so a larger-than-
+ * expected number is explained rather than surprising
+ */
+export const formatGeneratedToast = (
+  credits: number,
+  repairs: number,
+  byok: boolean,
+): string => {
+  if (byok) return "Generated with your Synapse key";
+  const base = `Generated · ${formatCredits(credits)}`;
+  if (repairs <= 0) return base;
+  return `${base} · ${repairs} repair${repairs === 1 ? "" : "s"}`;
+};
+
+/**
+ * Note shown in the dialog when a generation failed but still billed credits:
+ * the managed path is charged per attempt even when the model never renders,
+ * so the spend is surfaced rather than silent.
+ */
+export const formatSpentNote = (credits: number): string =>
+  `${formatCredits(credits)} spent.`;

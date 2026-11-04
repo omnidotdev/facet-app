@@ -298,13 +298,32 @@ body,
   opacity: 0.55;
   cursor: not-allowed;
 }
-.ai-usage {
-  font-size: 12px;
-  color: var(--muted);
-}
 .ai-error {
   font-size: 12px;
   color: var(--err);
+}
+.ai-spent {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* Transient confirmation after the dialog closes on a successful generation */
+.ai-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 110;
+  max-width: calc(100vw - 32px);
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  font-weight: 500;
 }
 .facet-app a.ai-upgrade {
   justify-self: start;
