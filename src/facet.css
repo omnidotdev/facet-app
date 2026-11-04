@@ -361,6 +361,17 @@ body,
   line-height: 1.45;
   color: var(--muted);
 }
+/* Links in help text (e.g. Synapse) must read clearly as links, not blend into
+   the muted copy around them */
+.facet-app .ai-help a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.facet-app .ai-help a:hover {
+  text-decoration: none;
+}
 
 .viewport {
   position: relative;
