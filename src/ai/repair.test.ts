@@ -56,6 +56,7 @@ describe("generateAndRun", () => {
     expect(result).toEqual({
       status: "ok",
       usage: { credits: 3, costCents: 2.5 },
+      repairs: 0,
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.opts.previous).toBeUndefined();
@@ -72,6 +73,11 @@ describe("generateAndRun", () => {
     const result = await generateAndRun("a bracket", runner, { generate: fn });
 
     expect(result.status).toBe("ok");
+    // Both the initial call and the one repair billed, so usage is the sum
+    expect(result).toMatchObject({
+      usage: { credits: 6, costCents: 5 },
+      repairs: 1,
+    });
     expect(calls).toHaveLength(2);
     expect(calls[1]?.opts.attempt).toBe(1);
     expect(calls[1]?.opts.previous).toEqual({
@@ -94,6 +100,9 @@ describe("generateAndRun", () => {
     expect(result.status).toBe("error");
     expect(result).toMatchObject({
       message: expect.stringMatching(/try rephrasing/i),
+      // All three attempts billed, so the failed run still reports its cost
+      usage: { credits: 9, costCents: 7.5 },
+      repairs: MAX_REPAIR_ATTEMPTS,
     });
     // Initial + 2 repairs = 3 generate calls, attempts 1 and 2
     expect(calls).toHaveLength(1 + MAX_REPAIR_ATTEMPTS);
