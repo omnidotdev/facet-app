@@ -1,9 +1,16 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 
 import "@/landing.css";
 
 /** @knipignore */
 export const Route = createFileRoute("/")({
+  // The desktop (Tauri) app is launched to model, not to read the marketing
+  // landing, so send it straight to the Studio. The web keeps the landing
+  beforeLoad: () => {
+    if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+      throw redirect({ to: "/studio" });
+    }
+  },
   component: Landing,
 });
 
