@@ -158,6 +158,7 @@ function Landing() {
       <nav className="fl-nav">
         <span className="fl-logo">
           <img src="/mark.svg" alt="" className="mark" /> Facet
+          <span className="fl-pill">Early access</span>
         </span>
         <span className="fl-nav-spacer" />
         <span className="fl-nav-links">
@@ -165,7 +166,6 @@ function Landing() {
             Omni
           </a>
           <Link to="/studio">Studio</Link>
-          <span className="fl-pill">Preview</span>
         </span>
       </nav>
 
