@@ -176,42 +176,66 @@ body,
   color: var(--err);
 }
 
-/* "Describe a part" AI panel, pinned under the editor + status. Collapsed to a
-   slim trigger by default (data-open="false"); expands to the full prompt UI */
-.ai-panel {
-  padding: 8px 16px;
-  border-top: 1px solid var(--line);
-  background: var(--panel);
+/* "Describe a part": a header trigger button opens a focused modal (a bottom
+   sheet on a phone), so the feature stays out of the editor layout until wanted */
+.facet-app button.ai-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.facet-app button.ai-trigger:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: var(--accent);
+}
+.facet-app button.ai-trigger .ai-title {
+  color: inherit;
+}
+
+.ai-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.ai-modal {
+  width: min(480px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
   display: grid;
-  gap: 8px;
+  gap: 10px;
+  padding: 16px 18px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
 }
-.ai-panel[data-open="true"] {
-  padding: 10px 16px 12px;
-}
-.ai-panel-head {
+.ai-modal-head {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-/* The disclosure trigger: a full-width clickable row, no default button chrome */
-.facet-app button.ai-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-  padding: 2px 0;
+.ai-modal-head .ai-title {
+  font-size: 15px;
+}
+.facet-app button.ai-modal-close {
+  margin-left: auto;
+  padding: 2px 6px;
   border: none;
   background: none;
-  cursor: pointer;
-  text-align: left;
-}
-.ai-chevron {
-  font-size: 10px;
   color: var(--muted);
-  width: 10px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
 }
-.facet-app button.ai-toggle:hover .ai-title {
+.facet-app button.ai-modal-close:hover {
   color: var(--accent);
 }
 .ai-title {
@@ -233,7 +257,7 @@ body,
   background: var(--accent);
 }
 .facet-app button.ai-signout {
-  margin-left: auto;
+  justify-self: start;
   padding: 2px 0;
   border: none;
   background: none;
@@ -475,5 +499,16 @@ body,
   /* Keep the floating params card within the narrow viewport */
   .params {
     max-width: calc(100vw - 24px);
+  }
+
+  /* The Describe-a-part modal becomes a bottom sheet on a phone */
+  .ai-modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .ai-modal {
+    width: 100%;
+    max-height: 88vh;
+    border-radius: 14px 14px 0 0;
   }
 }

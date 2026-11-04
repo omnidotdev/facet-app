@@ -502,6 +502,7 @@ export default function FacetStudio() {
         </span>
         <span className="tag">code CAD · write code, get geometry</span>
         <span className="spacer" />
+        <GeneratePanel handle={studioHandle} />
         <select
           ref={exampleRef}
           title="Load an example"
@@ -573,7 +574,6 @@ export default function FacetStudio() {
         <section className="editor-pane">
           <div className="code" ref={editorMount} />
           <div className="status" ref={statusRef} />
-          <GeneratePanel handle={studioHandle} />
         </section>
         <section className="viewport">
           <div className="viewport-canvas" ref={viewportMount} />
