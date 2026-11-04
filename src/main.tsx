@@ -9,10 +9,11 @@ import { initTheme } from "@/themeStore";
 import "@/styles.css";
 
 // Register the offline-first service worker on the web only. autoUpdate swaps in
-// a new build on the next navigation. The native Tauri app is already offline,
-// and a service worker breaks the WebKitGTK webview (blank screen), so under
-// Tauri skip registration and tear down any worker a prior build left behind.
-// Guard on support so this is a no-op where a service worker is unavailable
+// a new build on the next navigation. The native Tauri app already bundles its
+// assets and runs fully offline, so a service worker is redundant there and can
+// only serve a stale shell from the custom app scheme, so under Tauri skip
+// registration and tear down any worker a prior build left behind. Guard on
+// support so this is a no-op where a service worker is unavailable
 const inTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
