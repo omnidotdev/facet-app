@@ -110,6 +110,26 @@ body,
   color: var(--muted);
 }
 
+/* Phone-only tab bar: switch the editor and 3D viewport as full-screen panes.
+   Hidden on desktop, where both panes show side by side */
+.mobile-tabs {
+  display: none;
+}
+.facet-app .mobile-tab {
+  flex: 1;
+  border: none;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 600;
+  padding: 10px 0;
+}
+.facet-app .mobile-tab[data-active="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
 .facet-main {
   display: grid;
   grid-template-columns: minmax(280px, 40%) 1fr;
@@ -403,13 +423,30 @@ body,
 }
 
 @media (max-width: 760px) {
+  /* Header, tab bar, one full-screen pane, footer */
+  .facet-app {
+    grid-template-rows: auto auto 1fr auto;
+  }
+
+  .mobile-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+
+  /* One pane at a time, filling the whole area; the tab picks which */
   .facet-main {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
+    grid-template-rows: 1fr;
+  }
+  .facet-main[data-mobile-view="code"] .viewport {
+    display: none;
+  }
+  .facet-main[data-mobile-view="view"] .editor-pane {
+    display: none;
   }
   .editor-pane {
     border-right: 0;
-    border-bottom: 1px solid var(--line);
   }
 
   /* The header is a single non-wrapping flex row on desktop; on a phone its
@@ -422,7 +459,10 @@ body,
     padding: 8px 12px;
   }
   .facet-app .tag,
-  .facet-app .spacer {
+  .facet-app .spacer,
+  /* Advanced: the Studio auto-switches to B-rep for fillet/chamfer/shell, so the
+     manual kernel picker is rarely needed and is dropped on a phone to save a row */
+  .facet-app .kernel-select {
     display: none;
   }
   .facet-app header select,

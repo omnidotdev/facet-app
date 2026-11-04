@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import GeneratePanel from "@/components/ai/GeneratePanel";
 import { createEditor } from "@/editor";
@@ -68,6 +68,10 @@ const api = {
 } as const;
 
 export default function FacetStudio() {
+  // Which pane the phone layout shows. Desktop ignores this (both panes show
+  // side by side); on mobile the editor and the 3D viewport are full-screen tabs
+  // so neither is cramped and the params overlay stops covering a tiny viewport
+  const [mobileView, setMobileView] = useState<"code" | "view">("code");
   const editorMount = useRef<HTMLDivElement>(null);
   const viewportMount = useRef<HTMLDivElement>(null);
   const paramsMount = useRef<HTMLDivElement>(null);
@@ -510,7 +514,12 @@ export default function FacetStudio() {
           ))}
           <option value={CUSTOM_OPTION}>Custom model</option>
         </select>
-        <select ref={kernelRef} title="Geometry kernel" defaultValue="ts">
+        <select
+          ref={kernelRef}
+          className="kernel-select"
+          title="Geometry kernel"
+          defaultValue="ts"
+        >
           <option value="ts">Kernel: TS</option>
           <option value="brep">Kernel: B-rep (OCCT)</option>
         </select>
@@ -537,7 +546,30 @@ export default function FacetStudio() {
         </button>
       </header>
 
-      <main className="facet-main">
+      <div className="mobile-tabs" role="tablist" aria-label="View">
+        <button
+          type="button"
+          role="tab"
+          className="mobile-tab"
+          aria-selected={mobileView === "code"}
+          data-active={mobileView === "code"}
+          onClick={() => setMobileView("code")}
+        >
+          Code
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className="mobile-tab"
+          aria-selected={mobileView === "view"}
+          data-active={mobileView === "view"}
+          onClick={() => setMobileView("view")}
+        >
+          3D
+        </button>
+      </div>
+
+      <main className="facet-main" data-mobile-view={mobileView}>
         <section className="editor-pane">
           <div className="code" ref={editorMount} />
           <div className="status" ref={statusRef} />
