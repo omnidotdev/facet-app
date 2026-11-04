@@ -132,3 +132,18 @@ export const formatGeneratedToast = (
  */
 export const formatSpentNote = (credits: number): string =>
   `${formatCredits(credits)} spent.`;
+
+/**
+ * Starter prompts offered in an empty Describe-a-part dialog. Plain-English
+ * one-liners spanning the kernel's range (a primitive, a boolean cut, a
+ * threaded-looking part, a studded brick, a rounded shape) so a new user gets
+ * a working first generation in one click instead of facing a blank box. Kept
+ * here so the set is covered by a test
+ */
+export const PROMPT_SUGGESTIONS = [
+  "a 20mm cube with a 6mm hole through the middle",
+  "an L-bracket with two bolt holes",
+  "a hex nut for an M10 bolt",
+  "a 2x4 LEGO-style brick",
+  "a rounded desk phone stand",
+] as const;

@@ -272,6 +272,38 @@ body,
   display: grid;
   gap: 8px;
 }
+
+/* Starter prompts in an empty dialog: tappable chips that fill the textarea */
+.ai-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ai-suggestions-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.facet-app button.ai-suggestion {
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.facet-app button.ai-suggestion:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.facet-app button.ai-suggestion:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .facet-app .ai-textarea {
   font: inherit;
   font-size: 13px;

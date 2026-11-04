@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   PANEL_COPY,
+  PROMPT_SUGGESTIONS,
   SYNAPSE_KEY_URL,
   billingHubUrl,
   classifyGenerateError,
@@ -258,6 +259,26 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
                 ) : null}
               </div>
             </form>
+
+            {mode === "generate" && prompt.trim().length === 0 ? (
+              <div className="ai-suggestions">
+                <span className="ai-suggestions-label">Try</span>
+                {PROMPT_SUGGESTIONS.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    className="ai-suggestion"
+                    onClick={() => {
+                      setPrompt(suggestion);
+                      textareaRef.current?.focus();
+                    }}
+                    disabled={busy}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             {mode === "signIn" ? (
               <p className="ai-help">

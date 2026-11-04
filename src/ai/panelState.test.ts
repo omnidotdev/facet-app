@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   PANEL_COPY,
+  PROMPT_SUGGESTIONS,
   SYNAPSE_KEY_URL,
   billingHubUrl,
   classifyGenerateError,
@@ -135,6 +136,16 @@ describe("formatSpentNote", () => {
   test("reports the credits a failed attempt still cost", () => {
     expect(formatSpentNote(2)).toBe("2 credits spent.");
     expect(formatSpentNote(1)).toBe("1 credit spent.");
+  });
+});
+
+describe("PROMPT_SUGGESTIONS", () => {
+  test("offers a few non-empty, distinct starter prompts", () => {
+    expect(PROMPT_SUGGESTIONS.length).toBeGreaterThanOrEqual(3);
+    for (const suggestion of PROMPT_SUGGESTIONS) {
+      expect(suggestion.trim().length).toBeGreaterThan(0);
+    }
+    expect(new Set(PROMPT_SUGGESTIONS).size).toBe(PROMPT_SUGGESTIONS.length);
   });
 });
 
