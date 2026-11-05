@@ -188,6 +188,12 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     setBusy(false);
   };
 
+  // Private preview: keep AI generation out of the public UI entirely. When auth
+  // is configured (prod) show it only to signed-in users; with no auth configured
+  // (local/dev) keep it visible for BYOK. The managed path is still enforced
+  // server-side (the allowlist) regardless of what the UI shows
+  if (authConfigured && !signedIn) return null;
+
   return (
     <>
       <button
