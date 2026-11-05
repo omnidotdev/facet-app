@@ -8,10 +8,9 @@ import {
   classifyGenerateError,
   formatGeneratedToast,
   formatSpentNote,
-  resolvePanelMode,
 } from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
-import { isAuthConfigured, signIn, signOut } from "@/lib/auth/session";
+import { isAuthConfigured, signOut } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
 import { nameFromPrompt } from "@/tabs";
 
@@ -19,7 +18,8 @@ import type { RefObject } from "react";
 import type { ModelRunner } from "@/ai/repair";
 import type { StudioHandle } from "@/FacetStudio";
 
-// Kept out of our servers: the Synapse key lives only in this browser
+// Kept out of our servers: a BYOK Synapse key lives only in this browser. Used
+// only in the no-auth (local/dev) fallback; signed-in users never paste a key
 const BYOK_STORAGE_KEY = "facet:ai-byok-key:v1";
 
 // Funnel out-of-credits users to the shared Omni billing hub for Facet Pro.
@@ -54,17 +54,18 @@ function persistByokKey(value: string): void {
  * "Describe a part" generation. A toolbar button opens a focused modal (a bottom
  * sheet on a phone) that turns a plain-English prompt into Facet code via the
  * gateway, loads it into the editor, runs it through the Studio's own run path,
- * and repairs on a kernel error. A modal keeps the feature out of the editor
- * layout entirely until it is wanted. Both paths run through the Synapse AI
- * router: managed generation uses Facet's Synapse key, so it needs an Omni
- * identity and is credit-metered (hence the Beta badge); BYOK uses the caller's
- * own Synapse key, billed to them, and needs no account. Local modeling stays
- * fully anonymous either way.
+ * and repairs on a kernel error.
  *
- * Renders nothing when no gateway is configured, so the static app still works.
- * The gateway check gates the inner component so that, with no gateway, nothing
- * here reads the auth session or touches the network: local modeling is
- * untouched and fully anonymous.
+ * Sign-in-first: identity lives in the header account control, not here. When
+ * sign-in is configured (prod), this panel shows only to signed-in users, and a
+ * managed request reaches Synapse under the user's own identity (their keys,
+ * plan, and budget) with no key ever pasted. When sign-in is NOT configured
+ * (local/dev), the panel offers a BYOK Synapse key as the only path, so local
+ * modeling and offline testing still work. Local modeling stays anonymous either
+ * way.
+ *
+ * Renders nothing when no gateway is configured, so the static app still works,
+ * and nothing here reads the auth session or touches the network in that case.
  */
 const GeneratePanel = ({ handle }: GeneratePanelProps) => {
   // No gateway, no button, and no auth session read
@@ -83,9 +84,6 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const [toast, setToast] = useState<string | null>(null);
   const [byokOpen, setByokOpen] = useState(false);
   const [byokKey, setByokKey] = useState(loadByokKey);
-  // Set when a managed call comes back 401, to surface sign-in even if the
-  // session looked valid (an expired or revoked token)
-  const [needSignIn, setNeedSignIn] = useState(false);
   // Set when a managed call comes back 402, to surface the upgrade funnel
   const [outOfCredits, setOutOfCredits] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -93,9 +91,11 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const { signedIn } = useAuthSession();
 
   const authConfigured = isAuthConfigured();
-  const hasByok = byokKey.trim().length > 0;
-  const baseMode = resolvePanelMode({ authConfigured, signedIn, hasByok });
-  const mode = needSignIn && authConfigured ? "signIn" : baseMode;
+  // BYOK is the no-auth (local/dev) fallback only; signed-in prod users never
+  // paste a key (their Synapse identity drives generation)
+  const byokAllowed = !authConfigured;
+  const hasByok = byokAllowed && byokKey.trim().length > 0;
+  const canGenerate = authConfigured ? signedIn : hasByok;
 
   const close = () => setOpen(false);
 
@@ -120,7 +120,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const onGenerate = async () => {
     const studio = handle.current;
     const trimmed = prompt.trim();
-    if (!studio || busy || !trimmed || mode !== "generate") return;
+    if (!studio || busy || !trimmed || !canGenerate) return;
 
     setBusy(true);
     setError(null);
@@ -129,8 +129,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
 
     // Generate into a fresh tab so the current model is never overwritten. The
     // tab is created lazily on the first code that comes back, so a 401/402
-    // before any output leaves no empty tab behind. The prior model stays safe
-    // in its own tab, so a failed generation is not restored over it
+    // before any output leaves no empty tab behind
     let createdTab = false;
     const runner: ModelRunner = {
       getCode: () => studio.getCode(),
@@ -144,54 +143,53 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     };
 
     const result = await generateAndRun(trimmed, runner, {
-      ...(byokKey ? { byokKey } : {}),
+      ...(hasByok ? { byokKey } : {}),
       restorePriorOnFailure: false,
     });
 
     if (result.status === "ok") {
-      // The model is now in the viewport, so close the dialog and confirm the
-      // cost out of the way rather than leaving the dialog open over the result
-      setNeedSignIn(false);
       setOutOfCredits(false);
       setError(null);
       setSpent(null);
       setToast(
-        formatGeneratedToast(
-          result.usage.credits,
-          result.repairs,
-          Boolean(byokKey),
-        ),
+        formatGeneratedToast(result.usage.credits, result.repairs, hasByok),
       );
       setPrompt("");
       close();
-    } else {
-      // A failed managed attempt may still have billed; surface what it cost so
-      // the spend is never silent (BYOK reports zero, so nothing shows)
-      setSpent(
-        result.usage && result.usage.credits > 0
-          ? formatSpentNote(result.usage.credits)
-          : null,
-      );
-      switch (classifyGenerateError(result.httpStatus)) {
-        case "signIn":
-          setNeedSignIn(true);
-          setError(PANEL_COPY.signInPrompt);
-          break;
-        case "outOfCredits":
-          setError(PANEL_COPY.outOfCredits);
-          setOutOfCredits(true);
-          break;
-        default:
-          setError(result.message);
-      }
+      setBusy(false);
+      return;
+    }
+
+    // A failed managed attempt may still have billed; surface what it cost so
+    // the spend is never silent (BYOK reports zero, so nothing shows)
+    setSpent(
+      result.usage && result.usage.credits > 0
+        ? formatSpentNote(result.usage.credits)
+        : null,
+    );
+    switch (classifyGenerateError(result.httpStatus)) {
+      case "signIn":
+        // The session expired or was revoked mid-use. Clear it so the header
+        // account control flips back to "Sign in"; this panel then hides until
+        // the user signs in again (no in-panel sign-in anymore)
+        close();
+        void signOut();
+        break;
+      case "outOfCredits":
+        setError(PANEL_COPY.outOfCredits);
+        setOutOfCredits(true);
+        break;
+      default:
+        setError(result.message);
     }
     setBusy(false);
   };
 
-  // Private preview: keep AI generation out of the public UI entirely. When auth
-  // is configured (prod) show it only to signed-in users; with no auth configured
-  // (local/dev) keep it visible for BYOK. The managed path is still enforced
-  // server-side (the allowlist) regardless of what the UI shows
+  // Sign-in-first: when sign-in is configured (prod), keep AI out of the UI for
+  // signed-out users entirely. They sign in from the header account control,
+  // then the panel appears. With no auth configured (local/dev), BYOK is the
+  // path, so the panel stays available. The managed path is still enforced
+  // server-side (the preview allowlist) regardless of what the UI shows
   if (authConfigured && !signedIn) return null;
 
   return (
@@ -212,7 +210,6 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         <div
           className="ai-modal-backdrop"
           onClick={(e) => {
-            // only when the click lands on the backdrop itself, not inside the dialog
             if (e.target === e.currentTarget) close();
           }}
           role="dialog"
@@ -262,28 +259,17 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
                 disabled={busy}
               />
               <div className="ai-actions">
-                {mode === "generate" ? (
-                  <button
-                    type="submit"
-                    className="primary"
-                    disabled={busy || prompt.trim().length === 0}
-                  >
-                    {busy ? "Generating…" : "Generate"}
-                  </button>
-                ) : null}
-                {mode === "signIn" ? (
-                  <button
-                    type="button"
-                    className="primary"
-                    onClick={() => void signIn()}
-                  >
-                    Sign in to generate
-                  </button>
-                ) : null}
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={busy || !canGenerate || prompt.trim().length === 0}
+                >
+                  {busy ? "Generating…" : "Generate"}
+                </button>
               </div>
             </form>
 
-            {mode === "generate" && prompt.trim().length === 0 ? (
+            {prompt.trim().length === 0 ? (
               <div className="ai-suggestions">
                 <span className="ai-suggestions-label">Try</span>
                 {PROMPT_SUGGESTIONS.map((suggestion) => (
@@ -301,18 +287,6 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
                   </button>
                 ))}
               </div>
-            ) : null}
-
-            {mode === "signIn" ? (
-              <p className="ai-help">
-                No account? Add your own Synapse key below to generate without
-                signing in.
-              </p>
-            ) : null}
-            {mode === "needsKey" ? (
-              <p className="ai-help">
-                Add your own Synapse key below to generate.
-              </p>
             ) : null}
 
             {error ? (
@@ -334,55 +308,46 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
               </a>
             ) : null}
 
-            <div className="ai-byok">
-              <button
-                type="button"
-                className="ai-byok-toggle"
-                onClick={() => setByokOpen((isOpen) => !isOpen)}
-                aria-expanded={byokOpen}
-              >
-                {byokOpen ? "▾" : "▸"} {PANEL_COPY.byokToggle}
-              </button>
-              {byokOpen ? (
-                <div className="ai-byok-body">
-                  <input
-                    type="password"
-                    className="ai-byok-input"
-                    placeholder={PANEL_COPY.byokPlaceholder}
-                    value={byokKey}
-                    onChange={(e) => {
-                      setByokKey(e.target.value);
-                      persistByokKey(e.target.value);
-                    }}
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <p className="ai-help">
-                    Add your own{" "}
-                    <a
-                      href={SYNAPSE_KEY_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      Synapse key
-                    </a>{" "}
-                    to bill your own Synapse account instead of your Facet
-                    credits, and skip signing in. The key is kept only in this
-                    browser and sent over TLS to our gateway for each request,
-                    never stored on our servers.
-                  </p>
-                </div>
-              ) : null}
-            </div>
-
-            {signedIn && authConfigured ? (
-              <button
-                type="button"
-                className="ai-signout"
-                onClick={() => void signOut()}
-              >
-                Sign out
-              </button>
+            {byokAllowed ? (
+              <div className="ai-byok">
+                <button
+                  type="button"
+                  className="ai-byok-toggle"
+                  onClick={() => setByokOpen((isOpen) => !isOpen)}
+                  aria-expanded={byokOpen}
+                >
+                  {byokOpen ? "▾" : "▸"} {PANEL_COPY.byokToggle}
+                </button>
+                {byokOpen ? (
+                  <div className="ai-byok-body">
+                    <input
+                      type="password"
+                      className="ai-byok-input"
+                      placeholder={PANEL_COPY.byokPlaceholder}
+                      value={byokKey}
+                      onChange={(e) => {
+                        setByokKey(e.target.value);
+                        persistByokKey(e.target.value);
+                      }}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                    <p className="ai-help">
+                      Add your own{" "}
+                      <a
+                        href={SYNAPSE_KEY_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Synapse key
+                      </a>{" "}
+                      to generate. The key is kept only in this browser and sent
+                      over TLS to our gateway for each request, never stored on
+                      our servers.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </div>

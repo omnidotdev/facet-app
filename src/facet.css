@@ -683,3 +683,56 @@ body,
     border-radius: 14px 14px 0 0;
   }
 }
+
+/* Account control (header sign-in / signed-in menu). Sits at the right of the
+   header controls, the single identity entry point for the app */
+.facet-app button.account-signin {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  font-weight: 600;
+}
+.facet-app .account-menu {
+  position: relative;
+  display: inline-flex;
+}
+.facet-app button.account-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.account-avatar {
+  color: var(--accent);
+  font-size: 15px;
+  line-height: 1;
+}
+.facet-app .account-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+.facet-app .account-dropdown .account-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.facet-app .account-dropdown .account-item:hover {
+  background: var(--panel-2);
+  border-color: transparent;
+}
