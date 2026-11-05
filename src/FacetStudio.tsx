@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import GeneratePanel from "@/components/ai/GeneratePanel";
+import AccountControl from "@/components/auth/AccountControl";
 import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
 import {
@@ -762,6 +763,7 @@ export default function FacetStudio() {
           >
             Export
           </button>
+          <AccountControl />
         </div>
       </header>
 

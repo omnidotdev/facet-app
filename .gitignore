@@ -13,3 +13,6 @@ crates/**/target
 # Tauri build output and generated mobile projects
 src-tauri/target
 src-tauri/gen
+
+# Local env overrides (public URLs or local secrets); not committed
+.env.local
