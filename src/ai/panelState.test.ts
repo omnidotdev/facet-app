@@ -2,9 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import {
   PANEL_COPY,
+  PROMPT_SUGGESTIONS,
   SYNAPSE_KEY_URL,
   billingHubUrl,
   classifyGenerateError,
+  formatGeneratedToast,
+  formatSpentNote,
   resolvePanelMode,
 } from "./panelState";
 
@@ -99,6 +102,50 @@ describe("billingHubUrl", () => {
     expect(billingHubUrl(undefined)).toBeNull();
     expect(billingHubUrl("")).toBeNull();
     expect(billingHubUrl("   ")).toBeNull();
+  });
+});
+
+describe("formatGeneratedToast", () => {
+  test("managed shows the total credits spent", () => {
+    expect(formatGeneratedToast(3, 0, false)).toBe("Generated · 3 credits");
+  });
+
+  test("a single credit is not pluralized", () => {
+    expect(formatGeneratedToast(1, 0, false)).toBe("Generated · 1 credit");
+  });
+
+  test("repairs are named so a larger credit total is explained", () => {
+    expect(formatGeneratedToast(9, 2, false)).toBe(
+      "Generated · 9 credits · 2 repairs",
+    );
+    expect(formatGeneratedToast(6, 1, false)).toBe(
+      "Generated · 6 credits · 1 repair",
+    );
+  });
+
+  test("BYOK never shows a credit count (billed to the caller)", () => {
+    expect(formatGeneratedToast(0, 0, true)).toBe(
+      "Generated with your Synapse key",
+    );
+    // Even if a count were passed, BYOK copy wins and shows no number
+    expect(formatGeneratedToast(5, 1, true)).not.toContain("credit");
+  });
+});
+
+describe("formatSpentNote", () => {
+  test("reports the credits a failed attempt still cost", () => {
+    expect(formatSpentNote(2)).toBe("2 credits spent.");
+    expect(formatSpentNote(1)).toBe("1 credit spent.");
+  });
+});
+
+describe("PROMPT_SUGGESTIONS", () => {
+  test("offers a few non-empty, distinct starter prompts", () => {
+    expect(PROMPT_SUGGESTIONS.length).toBeGreaterThanOrEqual(3);
+    for (const suggestion of PROMPT_SUGGESTIONS) {
+      expect(suggestion.trim().length).toBeGreaterThan(0);
+    }
+    expect(new Set(PROMPT_SUGGESTIONS).size).toBe(PROMPT_SUGGESTIONS.length);
   });
 });
 

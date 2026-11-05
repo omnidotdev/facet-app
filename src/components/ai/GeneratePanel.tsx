@@ -2,16 +2,21 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   PANEL_COPY,
+  PROMPT_SUGGESTIONS,
   SYNAPSE_KEY_URL,
   billingHubUrl,
   classifyGenerateError,
+  formatGeneratedToast,
+  formatSpentNote,
   resolvePanelMode,
 } from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
 import { isAuthConfigured, signIn, signOut } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
+import { nameFromPrompt } from "@/tabs";
 
 import type { RefObject } from "react";
+import type { ModelRunner } from "@/ai/repair";
 import type { StudioHandle } from "@/FacetStudio";
 
 // Kept out of our servers: the Synapse key lives only in this browser
@@ -72,7 +77,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [usage, setUsage] = useState<string | null>(null);
+  // Credits billed by a failed-but-charged managed attempt, shown in the dialog
+  const [spent, setSpent] = useState<string | null>(null);
+  // A short confirmation shown after the dialog closes on a successful generate
+  const [toast, setToast] = useState<string | null>(null);
   const [byokOpen, setByokOpen] = useState(false);
   const [byokKey, setByokKey] = useState(loadByokKey);
   // Set when a managed call comes back 401, to surface sign-in even if the
@@ -102,28 +110,68 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  // The success confirmation is transient: clear it after a few seconds
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [toast]);
+
   const onGenerate = async () => {
-    const runner = handle.current;
+    const studio = handle.current;
     const trimmed = prompt.trim();
-    if (!runner || busy || !trimmed || mode !== "generate") return;
+    if (!studio || busy || !trimmed || mode !== "generate") return;
 
     setBusy(true);
     setError(null);
-    setUsage(null);
+    setSpent(null);
     setOutOfCredits(false);
 
-    const result = await generateAndRun(
-      trimmed,
-      runner,
-      byokKey ? { byokKey } : {},
-    );
+    // Generate into a fresh tab so the current model is never overwritten. The
+    // tab is created lazily on the first code that comes back, so a 401/402
+    // before any output leaves no empty tab behind. The prior model stays safe
+    // in its own tab, so a failed generation is not restored over it
+    let createdTab = false;
+    const runner: ModelRunner = {
+      getCode: () => studio.getCode(),
+      loadCode: (code) => {
+        if (!createdTab) {
+          createdTab = true;
+          studio.openGeneratedTab(nameFromPrompt(trimmed));
+        }
+        return studio.loadCode(code);
+      },
+    };
+
+    const result = await generateAndRun(trimmed, runner, {
+      ...(byokKey ? { byokKey } : {}),
+      restorePriorOnFailure: false,
+    });
 
     if (result.status === "ok") {
-      const n = result.usage.credits;
-      setUsage(`~${n} credit${n === 1 ? "" : "s"}`);
+      // The model is now in the viewport, so close the dialog and confirm the
+      // cost out of the way rather than leaving the dialog open over the result
       setNeedSignIn(false);
       setOutOfCredits(false);
+      setError(null);
+      setSpent(null);
+      setToast(
+        formatGeneratedToast(
+          result.usage.credits,
+          result.repairs,
+          Boolean(byokKey),
+        ),
+      );
+      setPrompt("");
+      close();
     } else {
+      // A failed managed attempt may still have billed; surface what it cost so
+      // the spend is never silent (BYOK reports zero, so nothing shows)
+      setSpent(
+        result.usage && result.usage.credits > 0
+          ? formatSpentNote(result.usage.credits)
+          : null,
+      );
       switch (classifyGenerateError(result.httpStatus)) {
         case "signIn":
           setNeedSignIn(true);
@@ -226,11 +274,28 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
                     Sign in to generate
                   </button>
                 ) : null}
-                {usage && !error ? (
-                  <span className="ai-usage">{usage}</span>
-                ) : null}
               </div>
             </form>
+
+            {mode === "generate" && prompt.trim().length === 0 ? (
+              <div className="ai-suggestions">
+                <span className="ai-suggestions-label">Try</span>
+                {PROMPT_SUGGESTIONS.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    className="ai-suggestion"
+                    onClick={() => {
+                      setPrompt(suggestion);
+                      textareaRef.current?.focus();
+                    }}
+                    disabled={busy}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             {mode === "signIn" ? (
               <p className="ai-help">
@@ -249,6 +314,8 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
                 {error}
               </div>
             ) : null}
+
+            {spent ? <p className="ai-spent">{spent}</p> : null}
 
             {outOfCredits && UPGRADE_URL ? (
               <a
@@ -313,6 +380,12 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
             ) : null}
           </div>
         </div>
+      ) : null}
+
+      {toast ? (
+        <output className="ai-toast" aria-live="polite">
+          {toast}
+        </output>
       ) : null}
     </>
   );

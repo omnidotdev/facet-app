@@ -40,7 +40,8 @@ body,
 .facet-app {
   height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /* header, document-tab bar, main, footer */
+  grid-template-rows: auto auto 1fr auto;
   background: var(--bg);
   color: var(--text);
   font-family:
@@ -50,16 +51,30 @@ body,
 .facet-app header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 10px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+
+/* The controls sit in one right-aligned cluster that wraps as a unit beneath
+   the brand on a narrow viewport, rather than the whole header breaking into a
+   ragged grid of half-rows */
+.facet-app .header-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .facet-app .brand {
   font-weight: 700;
   letter-spacing: 0.02em;
   font-size: 16px;
+  white-space: nowrap;
 }
 .facet-app .brand b {
   color: var(--accent);
@@ -67,9 +82,7 @@ body,
 .facet-app .tag {
   font-size: 12px;
   color: var(--muted);
-}
-.facet-app .spacer {
-  flex: 1;
+  white-space: nowrap;
 }
 
 .facet-app select,
@@ -83,11 +96,27 @@ body,
   padding: 6px 10px;
   cursor: pointer;
 }
+/* Keep each control on one line so a label never wraps to a second row */
+.facet-app header select,
+.facet-app header button {
+  white-space: nowrap;
+}
 .facet-app button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
   font-weight: 600;
+}
+/* Destructive confirm action (e.g. closing a model) */
+.facet-app button.danger {
+  background: var(--err);
+  border-color: var(--err);
+  color: #fff;
+  font-weight: 600;
+}
+.facet-app button.danger:hover {
+  border-color: var(--err);
+  filter: brightness(1.08);
 }
 .facet-app button:hover,
 .facet-app select:hover {
@@ -128,6 +157,72 @@ body,
 .facet-app .mobile-tab[data-active="true"] {
   color: var(--accent);
   border-bottom-color: var(--accent);
+}
+
+/* Document tabs: one per open model, horizontally scrollable, with a new-tab
+   button. A tab holds its own editor document, so a generation or example no
+   longer wipes the current work */
+.doc-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.doc-tab {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border-bottom: 2px solid transparent;
+}
+.doc-tab[data-active="true"] {
+  border-bottom-color: var(--accent);
+  background: var(--panel-2);
+}
+.facet-app button.doc-tab-label {
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 9px 2px 9px 10px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-tab[data-active="true"] .doc-tab-label {
+  color: var(--text);
+  font-weight: 600;
+}
+.facet-app button.doc-tab-close {
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 6px;
+  margin: 0 4px;
+}
+.facet-app button.doc-tab-close:hover {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+}
+.facet-app button.doc-tab-new {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 10px;
+  flex: 0 0 auto;
+}
+.facet-app button.doc-tab-new:hover {
+  color: var(--accent);
 }
 
 .facet-main {
@@ -272,6 +367,38 @@ body,
   display: grid;
   gap: 8px;
 }
+
+/* Starter prompts in an empty dialog: tappable chips that fill the textarea */
+.ai-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ai-suggestions-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.facet-app button.ai-suggestion {
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.facet-app button.ai-suggestion:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.facet-app button.ai-suggestion:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .facet-app .ai-textarea {
   font: inherit;
   font-size: 13px;
@@ -294,17 +421,40 @@ body,
   align-items: center;
   gap: 10px;
 }
+/* Close-model confirm: push the Cancel/Close buttons to the right */
+.confirm-actions {
+  justify-content: flex-end;
+}
 .facet-app button.primary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
-.ai-usage {
-  font-size: 12px;
-  color: var(--muted);
-}
 .ai-error {
   font-size: 12px;
   color: var(--err);
+}
+.ai-spent {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* Transient confirmation after the dialog closes on a successful generation */
+.ai-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 110;
+  max-width: calc(100vw - 32px);
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  font-weight: 500;
 }
 .facet-app a.ai-upgrade {
   justify-self: start;
@@ -458,9 +608,9 @@ body,
 }
 
 @media (max-width: 760px) {
-  /* Header, tab bar, one full-screen pane, footer */
+  /* Header, document-tab bar, view-tab bar, one full-screen pane, footer */
   .facet-app {
-    grid-template-rows: auto auto 1fr auto;
+    grid-template-rows: auto auto auto 1fr auto;
   }
 
   .mobile-tabs {
@@ -484,17 +634,13 @@ body,
     border-right: 0;
   }
 
-  /* The header is a single non-wrapping flex row on desktop; on a phone its
-     controls overflow the viewport (horizontal page scroll). Let it wrap, drop
-     the decorative tagline and the flex spacer (which would otherwise push the
-     controls off-screen), and tighten the controls so they fit */
+  /* On a phone, drop the decorative tagline and tighten the controls so the
+     header stays compact; it already wraps the control cluster at any width */
   .facet-app header {
-    flex-wrap: wrap;
     gap: 8px 10px;
     padding: 8px 12px;
   }
   .facet-app .tag,
-  .facet-app .spacer,
   /* Advanced: the Studio auto-switches to B-rep for fillet/chamfer/shell, so the
      manual kernel picker is rarely needed and is dropped on a phone to save a row */
   .facet-app .kernel-select {

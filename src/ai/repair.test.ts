@@ -56,6 +56,7 @@ describe("generateAndRun", () => {
     expect(result).toEqual({
       status: "ok",
       usage: { credits: 3, costCents: 2.5 },
+      repairs: 0,
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.opts.previous).toBeUndefined();
@@ -72,6 +73,11 @@ describe("generateAndRun", () => {
     const result = await generateAndRun("a bracket", runner, { generate: fn });
 
     expect(result.status).toBe("ok");
+    // Both the initial call and the one repair billed, so usage is the sum
+    expect(result).toMatchObject({
+      usage: { credits: 6, costCents: 5 },
+      repairs: 1,
+    });
     expect(calls).toHaveLength(2);
     expect(calls[1]?.opts.attempt).toBe(1);
     expect(calls[1]?.opts.previous).toEqual({
@@ -94,6 +100,9 @@ describe("generateAndRun", () => {
     expect(result.status).toBe("error");
     expect(result).toMatchObject({
       message: expect.stringMatching(/try rephrasing/i),
+      // All three attempts billed, so the failed run still reports its cost
+      usage: { credits: 9, costCents: 7.5 },
+      repairs: MAX_REPAIR_ATTEMPTS,
     });
     // Initial + 2 repairs = 3 generate calls, attempts 1 and 2
     expect(calls).toHaveLength(1 + MAX_REPAIR_ATTEMPTS);
@@ -101,6 +110,24 @@ describe("generateAndRun", () => {
     expect(calls[2]?.opts.attempt).toBe(2);
     // Last load restores the user's prior working code
     expect(runner.loaded[runner.loaded.length - 1]).toBe("return cube(1);");
+  });
+
+  test("does not restore prior code on failure when generating into a fresh tab", async () => {
+    const { fn } = fakeGenerate(["bad1", "bad2", "bad3"]);
+    const runner = fakeRunner([
+      { ok: false, error: "e1" },
+      { ok: false, error: "e2" },
+      { ok: false, error: "e3" },
+    ]);
+
+    const result = await generateAndRun("hard part", runner, {
+      generate: fn,
+      restorePriorOnFailure: false,
+    });
+
+    expect(result.status).toBe("error");
+    // The prior ("return cube(1);") is never loaded back; the last attempt stays
+    expect(runner.loaded).toEqual(["bad1", "bad2", "bad3"]);
   });
 
   test("surfaces the gateway's generic message when generate throws", async () => {
