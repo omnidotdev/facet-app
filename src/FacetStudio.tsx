@@ -501,50 +501,51 @@ export default function FacetStudio() {
           🔶 <b>Facet</b>
         </span>
         <span className="tag">code CAD · write code, get geometry</span>
-        <span className="spacer" />
-        <GeneratePanel handle={studioHandle} />
-        <select
-          ref={exampleRef}
-          title="Load an example"
-          defaultValue={defaultExample}
-        >
-          {Object.keys(examples).map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-          <option value={CUSTOM_OPTION}>Custom model</option>
-        </select>
-        <select
-          ref={kernelRef}
-          className="kernel-select"
-          title="Geometry kernel"
-          defaultValue="ts"
-        >
-          <option value="ts">Kernel: TS</option>
-          <option value="brep">Kernel: B-rep (OCCT)</option>
-        </select>
-        <button
-          ref={themeBtnRef}
-          type="button"
-          className="icon-btn"
-          title="Toggle light/dark"
-        >
-          <span ref={themeLabelRef}>Theme</span> <kbd className="kbd">T</kbd>
-        </button>
-        <select ref={formatRef} title="Export format" defaultValue="stl">
-          <option value="stl">STL</option>
-          <option value="3mf">3MF</option>
-          <option value="step">STEP</option>
-        </select>
-        <button
-          ref={exportRef}
-          type="button"
-          className="primary"
-          title="Download the model"
-        >
-          Export
-        </button>
+        <div className="header-controls">
+          <GeneratePanel handle={studioHandle} />
+          <select
+            ref={exampleRef}
+            title="Load an example"
+            defaultValue={defaultExample}
+          >
+            {Object.keys(examples).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+            <option value={CUSTOM_OPTION}>Custom model</option>
+          </select>
+          <select
+            ref={kernelRef}
+            className="kernel-select"
+            title="Geometry kernel"
+            defaultValue="ts"
+          >
+            <option value="ts">Kernel: TS</option>
+            <option value="brep">Kernel: B-rep (OCCT)</option>
+          </select>
+          <button
+            ref={themeBtnRef}
+            type="button"
+            className="icon-btn"
+            title="Toggle light/dark"
+          >
+            <span ref={themeLabelRef}>Theme</span> <kbd className="kbd">T</kbd>
+          </button>
+          <select ref={formatRef} title="Export format" defaultValue="stl">
+            <option value="stl">STL</option>
+            <option value="3mf">3MF</option>
+            <option value="step">STEP</option>
+          </select>
+          <button
+            ref={exportRef}
+            type="button"
+            className="primary"
+            title="Download the model"
+          >
+            Export
+          </button>
+        </div>
       </header>
 
       <div className="mobile-tabs" role="tablist" aria-label="View">

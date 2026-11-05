@@ -50,16 +50,30 @@ body,
 .facet-app header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 10px 16px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+
+/* The controls sit in one right-aligned cluster that wraps as a unit beneath
+   the brand on a narrow viewport, rather than the whole header breaking into a
+   ragged grid of half-rows */
+.facet-app .header-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-left: auto;
+  justify-content: flex-end;
 }
 
 .facet-app .brand {
   font-weight: 700;
   letter-spacing: 0.02em;
   font-size: 16px;
+  white-space: nowrap;
 }
 .facet-app .brand b {
   color: var(--accent);
@@ -67,9 +81,7 @@ body,
 .facet-app .tag {
   font-size: 12px;
   color: var(--muted);
-}
-.facet-app .spacer {
-  flex: 1;
+  white-space: nowrap;
 }
 
 .facet-app select,
@@ -82,6 +94,11 @@ body,
   border-radius: 6px;
   padding: 6px 10px;
   cursor: pointer;
+}
+/* Keep each control on one line so a label never wraps to a second row */
+.facet-app header select,
+.facet-app header button {
+  white-space: nowrap;
 }
 .facet-app button.primary {
   background: var(--accent);
@@ -535,17 +552,13 @@ body,
     border-right: 0;
   }
 
-  /* The header is a single non-wrapping flex row on desktop; on a phone its
-     controls overflow the viewport (horizontal page scroll). Let it wrap, drop
-     the decorative tagline and the flex spacer (which would otherwise push the
-     controls off-screen), and tighten the controls so they fit */
+  /* On a phone, drop the decorative tagline and tighten the controls so the
+     header stays compact; it already wraps the control cluster at any width */
   .facet-app header {
-    flex-wrap: wrap;
     gap: 8px 10px;
     padding: 8px 12px;
   }
   .facet-app .tag,
-  .facet-app .spacer,
   /* Advanced: the Studio auto-switches to B-rep for fillet/chamfer/shell, so the
      manual kernel picker is rarely needed and is dropped on a phone to save a row */
   .facet-app .kernel-select {
