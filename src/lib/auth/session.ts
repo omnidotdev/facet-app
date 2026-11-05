@@ -38,6 +38,14 @@ const NATIVE_REDIRECT_URI = "http://127.0.0.1:8973/callback";
 const inTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+// Force the Gatekeeper login screen on sign-in (prompt=login) instead of
+// silently reusing an existing fleet SSO session, so clicking "Sign in" always
+// shows the login screen and the user can sign in as (or switch to) the account
+// they want. Gatekeeper (Better Auth) does not implement prompt=select_account
+// (its discovery doc advertises it but the authorize endpoint rejects it), so
+// "login" is the supported way to let the user choose their account
+const OAUTH_PROMPT = "login";
+
 // localStorage holds the access token across reloads; sessionStorage holds the
 // in-flight PKCE verifier/state only until the callback consumes them. A static
 // SPA has no server to hold an httpOnly cookie, so this mirrors aspen-editor
@@ -189,6 +197,7 @@ export const signIn = async (): Promise<void> => {
       scope: OAUTH_SCOPE,
       state,
       codeChallenge,
+      prompt: OAUTH_PROMPT,
     });
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -216,6 +225,7 @@ export const signIn = async (): Promise<void> => {
       scope: OAUTH_SCOPE,
       state,
       codeChallenge,
+      prompt: OAUTH_PROMPT,
     }),
   );
 };
