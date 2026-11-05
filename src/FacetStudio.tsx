@@ -28,6 +28,7 @@ import {
   addTab,
   closeTab as closeTabState,
   createTabsState,
+  renameTab,
   setActive,
   setActiveCode,
 } from "@/tabs";
@@ -130,6 +131,11 @@ export default function FacetStudio() {
   const [closing, setClosing] = useState<{ id: string; name: string } | null>(
     null,
   );
+  // Id of the tab currently being renamed inline, or null
+  const [renaming, setRenaming] = useState<string | null>(null);
+  // Set when a rename is cancelled with Escape, so the input's blur does not
+  // then commit the edited value
+  const renameSkipBlur = useRef(false);
 
   const editorMount = useRef<HTMLDivElement>(null);
   const viewportMount = useRef<HTMLDivElement>(null);
@@ -215,6 +221,14 @@ export default function FacetStudio() {
     setClosing({ id, name: tab.name });
   };
 
+  // Commit an inline tab rename (empty/whitespace names are ignored by
+  // renameTab, so the old name is kept)
+  const commitRename = (id: string, name: string) => {
+    commitTabs(renameTab(tabsRef.current, id, name));
+    setRenaming(null);
+    coreRef.current?.save();
+  };
+
   // Open a named example in its own new tab, so it never overwrites the model
   // the user is already working on
   const loadExample = (name: string) => {
@@ -264,6 +278,19 @@ export default function FacetStudio() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [closing]);
+
+  // F2 renames the active tab (the common editor/file-tab shortcut). Ignored
+  // while already renaming, so the inline input keeps focus
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F2" && !renaming) {
+        e.preventDefault();
+        setRenaming(tabsRef.current.activeId);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [renaming]);
 
   useEffect(() => {
     if (inited.current) return; // guard StrictMode double-invoke
@@ -745,16 +772,47 @@ export default function FacetStudio() {
             className="doc-tab"
             data-active={tab.id === tabsState.activeId}
           >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab.id === tabsState.activeId}
-              className="doc-tab-label"
-              onClick={() => switchTab(tab.id)}
-              title={tab.name}
-            >
-              {tab.name}
-            </button>
+            {renaming === tab.id ? (
+              <input
+                className="doc-tab-rename"
+                defaultValue={tab.name}
+                aria-label={`Rename ${tab.name}`}
+                maxLength={60}
+                spellCheck={false}
+                // biome-ignore lint/a11y/noAutofocus: focus the rename field the instant it opens
+                autoFocus
+                onFocus={(e) => e.currentTarget.select()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitRename(tab.id, e.currentTarget.value);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    renameSkipBlur.current = true;
+                    setRenaming(null);
+                  }
+                }}
+                onBlur={(e) => {
+                  if (renameSkipBlur.current) {
+                    renameSkipBlur.current = false;
+                    return;
+                  }
+                  commitRename(tab.id, e.currentTarget.value);
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab.id === tabsState.activeId}
+                className="doc-tab-label"
+                onClick={() => switchTab(tab.id)}
+                onDoubleClick={() => setRenaming(tab.id)}
+                title={`${tab.name} (double-click or F2 to rename)`}
+              >
+                {tab.name}
+              </button>
+            )}
             <button
               type="button"
               className="doc-tab-close"

@@ -198,6 +198,20 @@ body,
   color: var(--text);
   font-weight: 600;
 }
+/* Inline rename field (double-click a tab, or F2 on the active one) */
+.facet-app input.doc-tab-rename {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin: 4px 2px 4px 8px;
+  max-width: 160px;
+  outline: none;
+}
 .facet-app button.doc-tab-close {
   border: none;
   border-radius: 4px;
