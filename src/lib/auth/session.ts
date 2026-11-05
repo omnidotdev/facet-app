@@ -1,275 +1,114 @@
-import {
-  OAUTH_SCOPE,
-  buildAuthorizeUrl,
-  buildTokenRequestBody,
-  codeChallengeS256,
-  parseCallbackParams,
-  parseTokenResponse,
-  randomBase64Url,
-} from "@/lib/auth/pkce";
+import { createManagedAiAuth } from "@omnidotdev/providers/ai-client";
+
+import type {
+  KeyValueStore,
+  NativeAuthAdapter,
+} from "@omnidotdev/providers/ai-client";
 
 /**
- * Managed AI-generation sign-in for the static SPA.
+ * Managed AI-generation sign-in for the Facet SPA.
  *
- * Facet has no server, so it authenticates to Omni's Gatekeeper as a public,
- * secretless OAuth client via in-browser Authorization Code + PKCE (the
- * aspen-editor pattern), stores the resulting access token, and sends it as a
- * bearer to facet-api, which resolves it against Gatekeeper's userinfo exactly
- * like the rest of the fleet. Only the managed path needs this; BYOK and all
- * local modeling stay fully anonymous and never touch anything here.
+ * Facet has no server for the AI path, so it authenticates to Omni's Gatekeeper
+ * as a public, secretless OAuth client via in-browser Authorization Code + PKCE,
+ * stores the access token, and sends it as a bearer to facet-api. The PKCE flow,
+ * session storage, and token exchange are the fleet-shared implementation in
+ * `@omnidotdev/providers/ai-client`; this module only wires Facet's config
+ * (Gatekeeper URL + client id, redirect, the desktop loopback) to it and keeps
+ * the same export surface the rest of the app already imports. Only the managed
+ * path needs this; BYOK and all local modeling stay anonymous and never touch it.
  */
 
 const AUTH_BASE_URL = import.meta.env.VITE_AUTH_BASE_URL;
 // Facet's public OAuth client id, registered with Gatekeeper as a secretless
-// SPA/PKCE client. It is public and stable (not a secret), so it is baked into
-// the source like aspen-editor's client id rather than injected per build; an
-// env override is honored for non-prod deployments
+// SPA/PKCE client. Public and stable (not a secret), baked into the source like
+// aspen-editor's; an env override is honored for non-prod deployments
 const CLIENT_ID =
   import.meta.env.VITE_AUTH_CLIENT_ID ?? "e5ae6c967aa2049e1fd7f905a7786244";
 
-// The redirect URI must match the Gatekeeper client registration EXACTLY, so it
-// is derived from the live origin plus a fixed path (registered per deployment)
-const redirectUri = (): string => `${window.location.origin}/auth/callback`;
-
 // Desktop (Tauri) cannot receive a browser redirect under the tauri:// origin,
-// so native login uses a fixed loopback the Rust side listens on (RFC 8252).
-// Gatekeeper's facet-app client registers this redirect too
+// so native login uses a fixed loopback the Rust side listens on (RFC 8252)
 const NATIVE_REDIRECT_URI = "http://127.0.0.1:8973/callback";
-const inTauri = (): boolean =>
-  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-
-// Force the Gatekeeper login screen on sign-in (prompt=login) instead of
-// silently reusing an existing fleet SSO session, so clicking "Sign in" always
-// shows the login screen and the user can sign in as (or switch to) the account
-// they want. Gatekeeper (Better Auth) does not implement prompt=select_account
-// (its discovery doc advertises it but the authorize endpoint rejects it), so
-// "login" is the supported way to let the user choose their account
-const OAUTH_PROMPT = "login";
 
 // localStorage holds the access token across reloads; sessionStorage holds the
-// in-flight PKCE verifier/state only until the callback consumes them. A static
-// SPA has no server to hold an httpOnly cookie, so this mirrors aspen-editor
+// in-flight PKCE verifier/state only until the callback consumes them. Keep the
+// existing keys so tokens issued before this refactor stay valid
 const TOKEN_KEY = "facet:auth-token:v1";
 const FLOW_KEY = "facet:auth-flow:v1";
-// Treat a token as expired this many ms early, so an in-flight request does not
-// race the real expiry
-const EXPIRY_SKEW_MS = 5_000;
 
-interface StoredToken {
-  accessToken: string;
-  /** Epoch ms, or null when the endpoint reported no lifetime. */
-  expiresAt: number | null;
-}
-
-interface FlowState {
-  verifier: string;
-  state: string;
-  /** Where to send the user back after a successful exchange. */
-  returnTo: string;
-}
-
-/** Read + parse a JSON value from a storage, tolerating private mode or bad data. */
-const readJson = <T>(storage: Storage, key: string): T | null => {
-  try {
-    const raw = storage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
+/** A no-op store so module load never throws off the browser (SSR/tests). */
+const NOOP_STORE: KeyValueStore = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
 };
 
-const writeJson = (storage: Storage, key: string, value: unknown): void => {
-  try {
-    storage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Private mode or storage disabled; the flow still works in-memory for this
-    // navigation on platforms that allow it, and simply cannot persist here
-  }
+const hasWindow = typeof window !== "undefined";
+const tokenStore: KeyValueStore =
+  typeof localStorage !== "undefined" ? localStorage : NOOP_STORE;
+const flowStore: KeyValueStore =
+  typeof sessionStorage !== "undefined" ? sessionStorage : NOOP_STORE;
+
+const inTauri = (): boolean => hasWindow && "__TAURI_INTERNALS__" in window;
+
+// Native (desktop) login: open the system browser and catch the redirect on a
+// loopback port via the Rust `oauth_loopback` command. The verifier never
+// leaves JS; the shared session exchanges in place
+const native: NativeAuthAdapter = {
+  isNative: inTauri,
+  redirectUri: NATIVE_REDIRECT_URI,
+  invokeLoopback: async (authorizeUrl) => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<string>("oauth_loopback", { authorizeUrl });
+  },
 };
 
-const remove = (storage: Storage, key: string): void => {
-  try {
-    storage.removeItem(key);
-  } catch {
-    // Nothing to do if storage is unavailable
-  }
-};
-
-// In-tab listeners for the auth state, so React re-renders on sign-in/out
-// without a reload. Cross-tab changes arrive via the storage event below
-const listeners = new Set<() => void>();
-const notify = (): void => {
-  for (const listener of listeners) listener();
-};
-
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (event) => {
-    if (event.key === TOKEN_KEY) notify();
-  });
-}
-
-const readToken = (): StoredToken | null => {
-  const token = readJson<StoredToken>(localStorage, TOKEN_KEY);
-  if (!token?.accessToken) return null;
-  if (
-    token.expiresAt !== null &&
-    Date.now() >= token.expiresAt - EXPIRY_SKEW_MS
-  ) {
-    remove(localStorage, TOKEN_KEY);
-    return null;
-  }
-  return token;
-};
+const auth = createManagedAiAuth({
+  authBaseUrl: AUTH_BASE_URL,
+  clientId: CLIENT_ID,
+  // The redirect URI must match the Gatekeeper client registration EXACTLY, so
+  // it is derived from the live origin plus a fixed path (registered per deploy)
+  resolveRedirectUri: () => `${window.location.origin}/auth/callback`,
+  resolveReturnTo: () => window.location.href,
+  navigate: (url) => window.location.assign(url),
+  tokenStore,
+  flowStore,
+  tokenKey: TOKEN_KEY,
+  flowKey: FLOW_KEY,
+  // Force the Gatekeeper login screen so the user can pick/switch accounts
+  // (Gatekeeper rejects prompt=select_account; "login" is the supported way)
+  prompt: "login",
+  native,
+});
 
 /** Whether Omni sign-in is configured for this deployment (base URL + client id). */
-export const isAuthConfigured = (): boolean => Boolean(AUTH_BASE_URL);
-
+export const isAuthConfigured = auth.isConfigured;
 /** Whether a valid (unexpired) access token is present. */
-export const isSignedIn = (): boolean => readToken() !== null;
-
-/** Subscribe to auth-state changes; returns an unsubscribe. For useSyncExternalStore. */
-export const subscribeAuth = (listener: () => void): (() => void) => {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
-};
-
-/**
- * Exchange an authorization code for an access token (public client, PKCE
- * verifier, no secret) and store it. Returns whether it succeeded. Shared by the
- * web callback route and the desktop loopback flow; never surfaces provider detail
- */
-const exchangeAndStore = async (
-  code: string,
-  codeVerifier: string,
-  redirect: string,
-): Promise<boolean> => {
-  let parsed: ReturnType<typeof parseTokenResponse>;
-  try {
-    const response = await fetch(
-      `${(AUTH_BASE_URL as string).replace(/\/+$/, "")}/oauth2/token`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: buildTokenRequestBody({
-          clientId: CLIENT_ID,
-          redirectUri: redirect,
-          code,
-          codeVerifier,
-        }),
-      },
-    );
-    if (!response.ok) return false;
-    parsed = parseTokenResponse(await response.json());
-  } catch {
-    return false;
-  }
-  if (!parsed) return false;
-
-  const stored: StoredToken = {
-    accessToken: parsed.accessToken,
-    expiresAt:
-      parsed.expiresIn !== null ? Date.now() + parsed.expiresIn * 1_000 : null,
-  };
-  writeJson(localStorage, TOKEN_KEY, stored);
-  notify();
-  return true;
-};
-
-/**
- * Start the PKCE login. On the web, stash a fresh verifier/state and redirect
- * the page to Gatekeeper's authorize endpoint (completed by the callback route).
- * On desktop (Tauri), open the system browser and catch the redirect on a
- * loopback port via the Rust `oauth_loopback` command, then exchange in place;
- * the verifier never leaves JS
- */
-export const signIn = async (): Promise<void> => {
-  if (!isAuthConfigured()) return;
-
-  const verifier = randomBase64Url(32);
-  const state = randomBase64Url(16);
-  const codeChallenge = await codeChallengeS256(verifier);
-
-  if (inTauri()) {
-    const authorizeUrl = buildAuthorizeUrl({
-      authBaseUrl: AUTH_BASE_URL as string,
-      clientId: CLIENT_ID,
-      redirectUri: NATIVE_REDIRECT_URI,
-      scope: OAUTH_SCOPE,
-      state,
-      codeChallenge,
-      prompt: OAUTH_PROMPT,
-    });
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const query = await invoke<string>("oauth_loopback", { authorizeUrl });
-      const params = parseCallbackParams(query);
-      if (params.ok && params.state === state) {
-        await exchangeAndStore(params.code, verifier, NATIVE_REDIRECT_URI);
-      }
-    } catch {
-      // Login aborted, timed out, or the port was busy; stay signed out (BYOK
-      // and local modeling still work). The panel simply does not flip to signed-in
-    }
-    return;
-  }
-
-  const flow: FlowState = { verifier, state, returnTo: window.location.href };
-  writeJson(sessionStorage, FLOW_KEY, flow);
-
-  window.location.assign(
-    buildAuthorizeUrl({
-      // isAuthConfigured guarantees these are set
-      authBaseUrl: AUTH_BASE_URL as string,
-      clientId: CLIENT_ID,
-      redirectUri: redirectUri(),
-      scope: OAUTH_SCOPE,
-      state,
-      codeChallenge,
-      prompt: OAUTH_PROMPT,
-    }),
-  );
-};
-
-/** The outcome of completing the OAuth redirect. */
-export type CallbackResult =
-  | { ok: true; returnTo: string }
-  | { ok: false; error: string };
-
-/**
- * Complete the OAuth redirect on the callback route: validate state, exchange
- * the code for an access token (public client, PKCE verifier, no secret), store
- * it, and report where to send the user back. Never surfaces provider detail.
- */
-export const completeCallback = async (
-  search: string,
-): Promise<CallbackResult> => {
-  if (!isAuthConfigured()) return { ok: false, error: "not_configured" };
-
-  const params = parseCallbackParams(search);
-  if (!params.ok) return { ok: false, error: params.error };
-
-  const flow = readJson<FlowState>(sessionStorage, FLOW_KEY);
-  remove(sessionStorage, FLOW_KEY);
-  if (!flow || flow.state !== params.state) {
-    return { ok: false, error: "state_mismatch" };
-  }
-
-  const ok = await exchangeAndStore(params.code, flow.verifier, redirectUri());
-  return ok
-    ? { ok: true, returnTo: flow.returnTo || "/" }
-    : { ok: false, error: "token_exchange_failed" };
-};
-
+export const isSignedIn = auth.isSignedIn;
+/** Start the PKCE login (web redirect, or the desktop loopback under Tauri). */
+export const signIn = auth.signIn;
+/** Complete the OAuth redirect on the callback route. */
+export const completeCallback = auth.completeCallback;
 /** Forget the stored token. */
-export const signOut = async (): Promise<void> => {
-  remove(localStorage, TOKEN_KEY);
-  notify();
-};
+export const signOut = auth.signOut;
+/** The current Omni access token for a managed call, or null when signed out/expired. */
+export const getAccessToken = auth.getAccessToken;
 
 /**
- * The current Omni access token for a managed gateway call, or null when signed
- * out or expired. facet-api resolves this bearer against Gatekeeper's userinfo.
- * Async to preserve the caller contract (and leave room for a future refresh).
+ * Subscribe to auth-state changes; returns an unsubscribe. For
+ * useSyncExternalStore. Re-renders on sign-in/out in this tab (via the shared
+ * session) and across tabs (via the storage event, so a sign-out in one tab
+ * propagates to the others)
  */
-export const getAccessToken = async (): Promise<string | null> =>
-  readToken()?.accessToken ?? null;
+export const subscribeAuth = (listener: () => void): (() => void) => {
+  const unsubscribe = auth.subscribe(listener);
+  if (!hasWindow) return unsubscribe;
+
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === TOKEN_KEY) listener();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    unsubscribe();
+    window.removeEventListener("storage", onStorage);
+  };
+};
