@@ -4,10 +4,20 @@
  * cost controls. A caller's own Synapse key (BYOK) is passed through per-request
  * over TLS and never stored.
  *
- * Every failure surfaces a generic, user-safe message. The gateway returns its
- * own generic `error` string; this client forwards that verbatim and never
- * invents or leaks transport/internal detail.
+ * The HTTP plumbing (bearer on the managed path, BYOK anonymous, generic
+ * user-safe errors) is the fleet-shared `createGatewayClient` from
+ * `@omnidotdev/providers/ai-client`; this module only shapes Facet's request
+ * body and result type. `GenerateError` is the shared `GatewayError` (same
+ * message + status surface), re-exported so existing consumers are unchanged.
  */
+
+import {
+  GatewayError,
+  createGatewayClient,
+} from "@omnidotdev/providers/ai-client";
+
+/** The shared gateway error, re-exported under Facet's historical name. */
+export { GatewayError as GenerateError };
 
 /** Metered cost for a managed generation. BYOK calls report zero. */
 export interface GenerateUsage {
@@ -41,44 +51,11 @@ export interface GenerateOptions {
   getAccessToken?: () => Promise<string | null>;
 }
 
-/** A typed error carrying the gateway's generic message and HTTP status. */
-export class GenerateError extends Error {
-  readonly status: number | undefined;
-
-  constructor(message: string, status?: number) {
-    super(message);
-    this.name = "GenerateError";
-    this.status = status;
-  }
-}
-
-// Shown only when the gateway is unreachable or returns no message. Never
-// expose a transport error, provider detail, or stack to the user
-const NOT_CONFIGURED = "AI generation is not configured.";
-const GENERIC_FAILURE = "AI generation failed. Please try again.";
-// A managed call with no identity. Carries status 401 so the panel surfaces it
-// as a sign-in prompt, the same as the gateway's own 401, without ever calling
-// the gateway blindly
-const SIGN_IN_REQUIRED = "Sign in to generate, or add your own Synapse key.";
-
 /** Lazily resolve the Omni access token, keeping the auth client out of tests. */
 const defaultGetAccessToken = async (): Promise<string | null> => {
   const { getAccessToken } = await import("@/lib/auth/session");
   return getAccessToken();
 };
-
-/** Read the gateway's generic `error` string, or a safe fallback. */
-async function readErrorMessage(response: Response): Promise<string> {
-  try {
-    const data = (await response.json()) as { error?: unknown };
-    if (typeof data.error === "string" && data.error.length > 0) {
-      return data.error;
-    }
-  } catch {
-    // A non-JSON or empty body carries no user-safe message, so fall through
-  }
-  return GENERIC_FAILURE;
-}
 
 /**
  * Generate Facet code from a plain-English prompt via the gateway. On a repair
@@ -90,49 +67,16 @@ export async function generateModel(
   prompt: string,
   opts: GenerateOptions = {},
 ): Promise<GenerateResult> {
-  const baseUrl = import.meta.env.VITE_FACET_API_URL;
-  if (!baseUrl) {
-    throw new GenerateError(NOT_CONFIGURED);
-  }
+  const client = createGatewayClient({
+    baseUrl: import.meta.env.VITE_FACET_API_URL,
+    getAccessToken: opts.getAccessToken ?? defaultGetAccessToken,
+  });
 
   const body: Record<string, unknown> = { prompt };
-  if (opts.byokKey) body.byokKey = opts.byokKey;
   if (opts.previous) body.previous = opts.previous;
   if (typeof opts.attempt === "number") body.attempt = opts.attempt;
 
-  const endpoint = `${baseUrl.replace(/\/$/, "")}/generate`;
-
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-
-  // The managed path (no BYOK key) spends our key, so it must carry an Omni
-  // identity. A BYOK call stays anonymous and sends no token. With no token
-  // available, do not call the gateway blindly: signal sign-in required
-  if (!opts.byokKey) {
-    const getToken = opts.getAccessToken ?? defaultGetAccessToken;
-    const token = await getToken();
-    if (!token) {
-      throw new GenerateError(SIGN_IN_REQUIRED, 401);
-    }
-    headers.authorization = `Bearer ${token}`;
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-  } catch {
-    // A transport failure detail is internal, so never surface it
-    throw new GenerateError(GENERIC_FAILURE);
-  }
-
-  if (!response.ok) {
-    throw new GenerateError(await readErrorMessage(response), response.status);
-  }
-
-  return (await response.json()) as GenerateResult;
+  return client.post<GenerateResult>("generate", body, {
+    byokKey: opts.byokKey,
+  });
 }
