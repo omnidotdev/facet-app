@@ -112,6 +112,24 @@ describe("generateAndRun", () => {
     expect(runner.loaded[runner.loaded.length - 1]).toBe("return cube(1);");
   });
 
+  test("does not restore prior code on failure when generating into a fresh tab", async () => {
+    const { fn } = fakeGenerate(["bad1", "bad2", "bad3"]);
+    const runner = fakeRunner([
+      { ok: false, error: "e1" },
+      { ok: false, error: "e2" },
+      { ok: false, error: "e3" },
+    ]);
+
+    const result = await generateAndRun("hard part", runner, {
+      generate: fn,
+      restorePriorOnFailure: false,
+    });
+
+    expect(result.status).toBe("error");
+    // The prior ("return cube(1);") is never loaded back; the last attempt stays
+    expect(runner.loaded).toEqual(["bad1", "bad2", "bad3"]);
+  });
+
   test("surfaces the gateway's generic message when generate throws", async () => {
     const runner = fakeRunner([{ ok: true }]);
     const generate = () =>

@@ -13,8 +13,10 @@ import {
 import { generateAndRun } from "@/ai/repair";
 import { isAuthConfigured, signIn, signOut } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
+import { nameFromPrompt } from "@/tabs";
 
 import type { RefObject } from "react";
+import type { ModelRunner } from "@/ai/repair";
 import type { StudioHandle } from "@/FacetStudio";
 
 // Kept out of our servers: the Synapse key lives only in this browser
@@ -116,20 +118,35 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   }, [toast]);
 
   const onGenerate = async () => {
-    const runner = handle.current;
+    const studio = handle.current;
     const trimmed = prompt.trim();
-    if (!runner || busy || !trimmed || mode !== "generate") return;
+    if (!studio || busy || !trimmed || mode !== "generate") return;
 
     setBusy(true);
     setError(null);
     setSpent(null);
     setOutOfCredits(false);
 
-    const result = await generateAndRun(
-      trimmed,
-      runner,
-      byokKey ? { byokKey } : {},
-    );
+    // Generate into a fresh tab so the current model is never overwritten. The
+    // tab is created lazily on the first code that comes back, so a 401/402
+    // before any output leaves no empty tab behind. The prior model stays safe
+    // in its own tab, so a failed generation is not restored over it
+    let createdTab = false;
+    const runner: ModelRunner = {
+      getCode: () => studio.getCode(),
+      loadCode: (code) => {
+        if (!createdTab) {
+          createdTab = true;
+          studio.openGeneratedTab(nameFromPrompt(trimmed));
+        }
+        return studio.loadCode(code);
+      },
+    };
+
+    const result = await generateAndRun(trimmed, runner, {
+      ...(byokKey ? { byokKey } : {}),
+      restorePriorOnFailure: false,
+    });
 
     if (result.status === "ok") {
       // The model is now in the viewport, so close the dialog and confirm the

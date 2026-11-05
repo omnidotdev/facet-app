@@ -22,18 +22,32 @@ import {
 import { loadBrepKernel } from "@/facet/brepKernel";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { ParamStore } from "@/params";
-import { loadProject, saveProject } from "@/storage";
+import { loadWorkspace, saveWorkspace } from "@/storage";
+import {
+  activeTab,
+  addTab,
+  closeTab as closeTabState,
+  createTabsState,
+  setActive,
+  setActiveCode,
+} from "@/tabs";
 import { getTheme, subscribe, toggleTheme } from "@/themeStore";
 import { Viewport } from "@/viewport";
 
 import type { FacetEditor } from "@/editor";
 import type { ExportFormat, Kernel, OpNode } from "@/facet";
+import type { SavedWorkspace } from "@/storage";
+import type { TabsState } from "@/tabs";
 import type { Theme } from "@/theme";
 import "@/facet.css";
 
 // Value of the examples-dropdown placeholder, selected when the restored model
 // is a custom edit that matches no named example
 const CUSTOM_OPTION = "";
+
+// Starter code for a brand-new tab, so it renders something immediately instead
+// of opening onto a "must return a shape" error
+const NEW_TAB_STARTER = "return cube(10);";
 
 /**
  * Terminal outcome of a run, reported to a caller that drives the editor (the
@@ -52,6 +66,27 @@ export interface StudioHandle {
   getCode: () => string;
   /** Replace the editor contents, run, and resolve with the run outcome. */
   loadCode: (code: string) => Promise<RunOutcome>;
+  /**
+   * Open a fresh, empty tab (named from the prompt) and make it active, so a
+   * generation lands in its own tab instead of overwriting the current model.
+   */
+  openGeneratedTab: (name: string) => void;
+}
+
+/**
+ * The imperative Studio core (editor + viewport + run loop), exposed to the
+ * React layer so tab switching and generation drive the one editor rather than
+ * a parallel copy. React owns the tab list; the core owns the live document.
+ */
+interface StudioCore {
+  /** The code currently in the editor (the live copy of the active tab). */
+  getCode: () => string;
+  /** Load a document into the editor, reset parameters, and run it. */
+  openDoc: (code: string) => void;
+  /** Replace the editor contents, run, and resolve with the run outcome. */
+  loadCode: (code: string) => Promise<RunOutcome>;
+  /** Persist the whole workspace (debounced). */
+  save: () => void;
 }
 
 // The API surface injected into user model code.
@@ -72,6 +107,30 @@ export default function FacetStudio() {
   // side by side); on mobile the editor and the 3D viewport are full-screen tabs
   // so neither is cramped and the params overlay stops covering a tiny viewport
   const [mobileView, setMobileView] = useState<"code" | "view">("code");
+
+  // The whole workspace (tabs + prefs) is restored once; the useState seed and
+  // the setup effect share this object so they never disagree on the first model
+  const initialWorkspaceRef = useRef<SavedWorkspace | null>(null);
+  if (initialWorkspaceRef.current === null) {
+    initialWorkspaceRef.current = loadWorkspace() ?? {
+      ...createTabsState(examples[defaultExample] ?? ""),
+      kernel: "ts",
+      format: "stl",
+    };
+  }
+  const initialWorkspace = initialWorkspaceRef.current;
+
+  // React owns the open tabs (their names + which is active); the editor holds
+  // the live code of the active tab, reconciled into state on any tab change
+  const [tabsState, setTabsState] = useState<TabsState>(() => ({
+    tabs: initialWorkspace.tabs,
+    activeId: initialWorkspace.activeId,
+  }));
+  // A tab awaiting close confirmation, or null when no confirm is open
+  const [closing, setClosing] = useState<{ id: string; name: string } | null>(
+    null,
+  );
+
   const editorMount = useRef<HTMLDivElement>(null);
   const viewportMount = useRef<HTMLDivElement>(null);
   const paramsMount = useRef<HTMLDivElement>(null);
@@ -86,6 +145,125 @@ export default function FacetStudio() {
   // Populated once the editor + run loop are wired, so the AI panel can drive
   // them. Null until the setup effect runs (the panel only reads it on click)
   const studioHandle = useRef<StudioHandle | null>(null);
+  // The imperative core, wired in the setup effect; null until then
+  const coreRef = useRef<StudioCore | null>(null);
+  // Mirror tab state into a ref so the core and handlers read the current value
+  const tabsRef = useRef(tabsState);
+  useEffect(() => {
+    tabsRef.current = tabsState;
+  }, [tabsState]);
+
+  // Commit a new tab state to both React and the mirror ref in one place
+  const commitTabs = (next: TabsState) => {
+    tabsRef.current = next;
+    setTabsState(next);
+  };
+
+  // Switch to another open tab: capture the active editor content first (the
+  // editor is the live copy), then load the target tab's code
+  const switchTab = (id: string) => {
+    const core = coreRef.current;
+    const current = tabsRef.current;
+    if (!core || id === current.activeId) return;
+    const saved = setActiveCode(current, core.getCode());
+    const target = saved.tabs.find((t) => t.id === id);
+    commitTabs(setActive(saved, id));
+    core.openDoc(target?.code ?? "");
+    core.save();
+  };
+
+  // Open a new tab after the active one, seeded with a starter model, and
+  // switch to it
+  const newTab = () => {
+    const core = coreRef.current;
+    if (!core) return;
+    const captured = setActiveCode(tabsRef.current, core.getCode());
+    const { state } = addTab(captured, NEW_TAB_STARTER);
+    commitTabs(state);
+    core.openDoc(NEW_TAB_STARTER);
+    core.save();
+  };
+
+  // Remove a tab, picking a neighbour active when it was the active one
+  const doCloseTab = (id: string) => {
+    const core = coreRef.current;
+    const current = core
+      ? setActiveCode(tabsRef.current, core.getCode())
+      : tabsRef.current;
+    const wasActive = current.activeId === id;
+    const next = closeTabState(current, id);
+    commitTabs(next);
+    setClosing(null);
+    if (wasActive) core?.openDoc(activeTab(next)?.code ?? "");
+    core?.save();
+  };
+
+  // Closing a model is irreversible, so confirm first, unless the tab is blank
+  // (nothing to lose)
+  const requestCloseTab = (id: string) => {
+    const current = tabsRef.current;
+    const tab = current.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    const code =
+      id === current.activeId && coreRef.current
+        ? coreRef.current.getCode()
+        : tab.code;
+    if (code.trim().length === 0) {
+      doCloseTab(id);
+      return;
+    }
+    setClosing({ id, name: tab.name });
+  };
+
+  // Open a named example in its own new tab, so it never overwrites the model
+  // the user is already working on
+  const loadExample = (name: string) => {
+    const code = examples[name];
+    const core = coreRef.current;
+    // Ignore the neutral "Custom model" placeholder, which names no example
+    if (code === undefined || !core) return;
+    const captured = setActiveCode(tabsRef.current, core.getCode());
+    const { state } = addTab(captured, code, name);
+    commitTabs(state);
+    core.openDoc(code);
+    core.save();
+  };
+
+  // Open a fresh tab for an AI generation to land in, non-destructively
+  const openGeneratedTab = (name: string) => {
+    const core = coreRef.current;
+    if (!core) return;
+    const captured = setActiveCode(tabsRef.current, core.getCode());
+    const { state } = addTab(captured, "", name.trim() || undefined);
+    commitTabs(state);
+    core.openDoc("");
+    core.save();
+  };
+
+  // Keep the AI panel's handle pointing at fresh closures every render; it is
+  // only read on a user click, long after the core is wired
+  useEffect(() => {
+    studioHandle.current = {
+      getCode: () => coreRef.current?.getCode() ?? "",
+      loadCode: (code) =>
+        coreRef.current?.loadCode(code) ??
+        Promise.resolve<RunOutcome>({
+          ok: false,
+          error: "The Studio is not ready yet.",
+        }),
+      openGeneratedTab,
+    };
+  });
+
+  // Let Escape dismiss the close-confirm dialog
+  useEffect(() => {
+    if (!closing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setClosing(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [closing]);
 
   useEffect(() => {
     if (inited.current) return; // guard StrictMode double-invoke
@@ -108,10 +286,11 @@ export default function FacetStudio() {
     let currentNode: OpNode | null = null;
     let paramsSignature = " ";
 
-    // Restore the last session (model + prefs) if one was saved.
-    const saved = loadProject();
-    // The model the editor opens with: the saved code, else the default example.
-    const initialDoc = saved?.code ?? examples[defaultExample] ?? "";
+    // The restored workspace (shared with the useState seed above).
+    const workspace = initialWorkspaceRef.current!;
+    // The model the editor opens with: the active tab's code.
+    const initialDoc =
+      workspace.tabs.find((t) => t.id === workspace.activeId)?.code ?? "";
 
     const build = (code: string): OpNode => {
       store.begin();
@@ -271,15 +450,22 @@ export default function FacetStudio() {
       });
     };
 
-    // Autosave the working model + prefs (debounced) so work survives a reload.
-    // Declared before the editor so the saver can read it.
+    // Autosave the whole workspace (all tabs + prefs), debounced, so work
+    // survives a reload. The editor holds the active tab's live code, so fold
+    // that into the stored tabs. Declared before the editor so it can read it.
     let editor: FacetEditor;
     let saveTimer: number | undefined;
     const saveSoon = () => {
       window.clearTimeout(saveTimer);
       saveTimer = window.setTimeout(() => {
-        saveProject({
-          code: editor.getValue(),
+        const ws = tabsRef.current;
+        const liveCode = editor.getValue();
+        const tabs = ws.tabs.map((t) =>
+          t.id === ws.activeId ? { ...t, code: liveCode } : t,
+        );
+        saveWorkspace({
+          tabs,
+          activeId: ws.activeId,
           kernel: kernelRef.current?.value ?? "ts",
           format: formatRef.current?.value ?? "stl",
         });
@@ -294,7 +480,7 @@ export default function FacetStudio() {
       },
       theme: initialTheme,
     });
-    if (formatRef.current) formatRef.current.value = saved?.format ?? "stl";
+    if (formatRef.current) formatRef.current.value = workspace.format;
     formatRef.current?.addEventListener("change", saveSoon);
 
     // The shared command palette owns the theme store and the `t` hotkey
@@ -322,18 +508,19 @@ export default function FacetStudio() {
       exampleRef.current.value = matchExample(initialDoc) ?? CUSTOM_OPTION;
     }
 
-    exampleRef.current!.addEventListener("change", () => {
-      const code = examples[exampleRef.current!.value];
-      // Ignore the neutral "Custom model" placeholder, which names no example
-      if (code === undefined) return;
-      // Re-seed parameters from the new example's declared defaults instead of
-      // carrying over the previous example's tuned values by shared name, and
-      // force the control panel to rebuild even if the control shapes match
+    // Load a document into the editor, re-seeding parameters from scratch (so a
+    // new model never carries over the previous model's tuned values by shared
+    // name), and point the examples dropdown at its match. Shared by tab
+    // switching, the examples dropdown, and opening a generated tab.
+    const openDoc = (code: string) => {
       store.reset();
       paramsSignature = " ";
       editor.setValue(code);
+      if (exampleRef.current) {
+        exampleRef.current.value = matchExample(code) ?? CUSTOM_OPTION;
+      }
       run(true);
-    });
+    };
 
     // Load (once, on demand) and activate the B-rep (OCCT) kernel, then re-run.
     // Shared by the manual dropdown and the automatic switch for B-rep-only ops.
@@ -459,7 +646,7 @@ export default function FacetStudio() {
       opt.textContent = "Kernel: Rust/WASM";
       kernelRef.current?.appendChild(opt);
       // Restore a saved Rust selection once the option exists.
-      if (saved?.kernel === "rust" && kernelRef.current) {
+      if (workspace.kernel === "rust" && kernelRef.current) {
         kernelRef.current.value = "rust";
         activeKernel = rust;
         activeKernelKey = "rust";
@@ -467,12 +654,13 @@ export default function FacetStudio() {
       }
     });
 
-    // Expose the editor + run loop so the AI panel drives the same path. Load
-    // generated code exactly as the examples dropdown does (set, point the
-    // dropdown at its matching example or the neutral "Custom model" state,
-    // then run), and resolve with the run outcome for the repair loop
-    studioHandle.current = {
+    // Expose the editor + run loop so React drives the same path. loadCode is
+    // the generation entry point (replace + run, resolving the outcome for the
+    // repair loop); openDoc is the tab/example entry point (replace + reset
+    // params + run)
+    coreRef.current = {
       getCode: () => editor.getValue(),
+      openDoc,
       loadCode: (code) =>
         new Promise<RunOutcome>((resolve) => {
           editor.setValue(code);
@@ -481,12 +669,13 @@ export default function FacetStudio() {
           }
           run(true, resolve);
         }),
+      save: saveSoon,
     };
 
     run(true);
 
     // Restore a saved B-rep selection by driving the same on-demand load path
-    if (saved?.kernel === "brep" && kernelRef.current) {
+    if (workspace.kernel === "brep" && kernelRef.current) {
       kernelRef.current.value = "brep";
       selectKernel("brep");
     }
@@ -507,6 +696,7 @@ export default function FacetStudio() {
             ref={exampleRef}
             title="Load an example"
             defaultValue={defaultExample}
+            onChange={(e) => loadExample(e.target.value)}
           >
             {Object.keys(examples).map((n) => (
               <option key={n} value={n}>
@@ -547,6 +737,44 @@ export default function FacetStudio() {
           </button>
         </div>
       </header>
+
+      <div className="doc-tabs" role="tablist" aria-label="Open models">
+        {tabsState.tabs.map((tab) => (
+          <span
+            key={tab.id}
+            className="doc-tab"
+            data-active={tab.id === tabsState.activeId}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab.id === tabsState.activeId}
+              className="doc-tab-label"
+              onClick={() => switchTab(tab.id)}
+              title={tab.name}
+            >
+              {tab.name}
+            </button>
+            <button
+              type="button"
+              className="doc-tab-close"
+              aria-label={`Close ${tab.name}`}
+              onClick={() => requestCloseTab(tab.id)}
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+        <button
+          type="button"
+          className="doc-tab-new"
+          aria-label="New model"
+          title="New model"
+          onClick={newTab}
+        >
+          ＋
+        </button>
+      </div>
 
       <div className="mobile-tabs" role="tablist" aria-label="View">
         <button
@@ -592,6 +820,37 @@ export default function FacetStudio() {
           MatterForge
         </a>
       </footer>
+
+      {closing ? (
+        <div
+          className="ai-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Close model"
+        >
+          <div className="ai-modal confirm-modal">
+            <div className="ai-modal-head">
+              <span className="ai-title">Close “{closing.name}”?</span>
+            </div>
+            <p className="ai-help">
+              This model will be removed from your workspace and cannot be
+              recovered.
+            </p>
+            <div className="ai-actions confirm-actions">
+              <button type="button" onClick={() => setClosing(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger"
+                onClick={() => doCloseTab(closing.id)}
+              >
+                Close model
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

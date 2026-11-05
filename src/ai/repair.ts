@@ -34,6 +34,14 @@ export interface GenerateAndRunOptions {
   generate?: typeof generateModel;
   /** Repair attempts after the first generation. */
   maxAttempts?: number;
+  /**
+   * Whether to restore the editor's prior code when every attempt fails.
+   * Default true, for generation that edits the current model in place. Set
+   * false when generating into a fresh tab, where the prior code is just an
+   * empty document: keeping the last (broken) attempt lets the user fix it,
+   * and the previous model is safe in its own tab regardless
+   */
+  restorePriorOnFailure?: boolean;
 }
 
 export type GenerateAndRunResult =
@@ -69,6 +77,7 @@ export async function generateAndRun(
 ): Promise<GenerateAndRunResult> {
   const generate = opts.generate ?? generateModel;
   const maxAttempts = opts.maxAttempts ?? MAX_REPAIR_ATTEMPTS;
+  const restorePrior = opts.restorePriorOnFailure ?? true;
   const byok = opts.byokKey ? { byokKey: opts.byokKey } : {};
   const priorCode = runner.getCode();
   let touched = false;
@@ -104,9 +113,11 @@ export async function generateAndRun(
 
     const usage = { credits, costCents };
     if (!outcome.ok) {
-      // Keep the user's working model rather than leaving broken code behind.
-      // The attempts still billed, so surface what they cost
-      await runner.loadCode(priorCode);
+      // Keep the user's working model rather than leaving broken code behind,
+      // unless the caller is generating into a fresh tab (where "prior" is an
+      // empty doc and the last attempt is more useful to keep). The attempts
+      // still billed, so surface what they cost
+      if (restorePrior) await runner.loadCode(priorCode);
       return {
         status: "error",
         message: COULD_NOT_GENERATE,
@@ -119,7 +130,7 @@ export async function generateAndRun(
   } catch (err) {
     // A thrown gateway error carries a generic, user-safe message; anything
     // else is internal and must never reach the user
-    if (touched) {
+    if (touched && restorePrior) {
       try {
         await runner.loadCode(priorCode);
       } catch {
