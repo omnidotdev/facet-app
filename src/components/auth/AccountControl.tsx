@@ -47,6 +47,7 @@ const AccountControl = () => {
         type="button"
         className="account-signin"
         onClick={() => void signIn()}
+        title="Sign in to generate parts with AI"
       >
         Sign in
       </button>
