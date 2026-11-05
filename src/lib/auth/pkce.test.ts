@@ -61,6 +61,21 @@ describe("buildAuthorizeUrl", () => {
     );
     expect(query.get("code_challenge_method")).toBe("S256");
     expect(query.get("state")).toBe("st@te");
+    // no prompt unless explicitly requested
+    expect(query.get("prompt")).toBeNull();
+  });
+
+  test("includes prompt=login when requested (forces the login screen)", () => {
+    const url = buildAuthorizeUrl({
+      authBaseUrl: "https://identity.omni.dev",
+      clientId: "abc123",
+      redirectUri: "https://facet.omni.dev/auth/callback",
+      scope: "openid profile email",
+      state: "st",
+      codeChallenge: "chal",
+      prompt: "login",
+    });
+    expect(new URL(url).searchParams.get("prompt")).toBe("login");
   });
 });
 

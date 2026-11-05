@@ -44,6 +44,12 @@ interface AuthorizeUrlInput {
   scope: string;
   state: string;
   codeChallenge: string;
+  /**
+   * Optional OIDC `prompt`. Facet passes "login" so Gatekeeper always shows the
+   * login screen instead of silently reusing an existing fleet SSO session,
+   * letting the user sign in as (or switch to) the account they want.
+   */
+  prompt?: string;
 }
 
 /** Build the Gatekeeper authorize-redirect URL for a login attempt. */
@@ -54,6 +60,7 @@ export const buildAuthorizeUrl = ({
   scope,
   state,
   codeChallenge,
+  prompt,
 }: AuthorizeUrlInput): string => {
   const params = new URLSearchParams({
     response_type: "code",
@@ -64,6 +71,7 @@ export const buildAuthorizeUrl = ({
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
+  if (prompt) params.set("prompt", prompt);
   return `${authBaseUrl.replace(/\/+$/, "")}/oauth2/authorize?${params.toString()}`;
 };
 
