@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { fetchCapabilities } from "@/ai/capabilities";
 import {
   PANEL_COPY,
   PROMPT_SUGGESTIONS,
@@ -86,11 +87,33 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const [byokKey, setByokKey] = useState(loadByokKey);
   // Set when a managed call comes back 402, to surface the upgrade funnel
   const [outOfCredits, setOutOfCredits] = useState(false);
+  // null while unknown; the gateway says whether this user may use managed
+  // generation (the server's env allowlist), so the panel is shown only to
+  // permitted users rather than to everyone with a 403 after the fact
+  const [managedAllowed, setManagedAllowed] = useState<boolean | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { signedIn } = useAuthSession();
 
   const authConfigured = isAuthConfigured();
+
+  // Probe the gateway's capability for the signed-in user; re-run on sign-in
+  // state changes. Signed out means no managed access
+  useEffect(() => {
+    if (!authConfigured) return;
+    if (!signedIn) {
+      setManagedAllowed(false);
+      return;
+    }
+    let active = true;
+    setManagedAllowed(null);
+    fetchCapabilities().then((caps) => {
+      if (active) setManagedAllowed(caps.managedGeneration);
+    });
+    return () => {
+      active = false;
+    };
+  }, [authConfigured, signedIn]);
   // BYOK is the no-auth (local/dev) fallback only; signed-in prod users never
   // paste a key (their Synapse identity drives generation)
   const byokAllowed = !authConfigured;
@@ -185,12 +208,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     setBusy(false);
   };
 
-  // Sign-in-first: when sign-in is configured (prod), keep AI out of the UI for
-  // signed-out users entirely. They sign in from the header account control,
-  // then the panel appears. With no auth configured (local/dev), BYOK is the
-  // path, so the panel stays available. The managed path is still enforced
-  // server-side (the preview allowlist) regardless of what the UI shows
-  if (authConfigured && !signedIn) return null;
+  // Sign-in-first and allowlist-gated: when sign-in is configured (prod), the
+  // panel appears only for a signed-in user the gateway says may use managed
+  // generation (its env allowlist), so the gated "describe a part" surface is
+  // not shown to everyone with a 403 after the fact. Signed-out and
+  // not-yet-known states hide it. With no auth configured (local/dev), BYOK is
+  // the path, so the panel stays available. The gate is still enforced
+  // server-side regardless of what the UI shows
+  if (authConfigured && !(signedIn && managedAllowed)) return null;
 
   return (
     <>
