@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { AiDescribePanel } from "@omnidotdev/thornberry/ai-describe-panel";
+import { useEffect, useState } from "react";
 
 import { fetchCapabilities } from "@/ai/capabilities";
 import {
@@ -52,10 +53,12 @@ function persistByokKey(value: string): void {
 }
 
 /**
- * "Describe a part" generation. A toolbar button opens a focused modal (a bottom
- * sheet on a phone) that turns a plain-English prompt into Facet code via the
- * gateway, loads it into the editor, runs it through the Studio's own run path,
- * and repairs on a kernel error.
+ * "Describe a part" generation. A toolbar button opens the shared fleet
+ * describe-to-draft panel (Thornberry's `AiDescribePanel`, the same surface
+ * Fractal and other products use), which turns a plain-English prompt into
+ * Facet code via the gateway, loads it into the editor, runs it through the
+ * Studio's own run path, and repairs on a kernel error. The panel is
+ * presentational; all generation, auth, and billing logic stays here.
  *
  * Sign-in-first: identity lives in the header account control, not here. When
  * sign-in is configured (prod), this panel shows only to signed-in users, and a
@@ -91,7 +94,6 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // generation (the server's env allowlist), so the panel is shown only to
   // permitted users rather than to everyone with a 403 after the fact
   const [managedAllowed, setManagedAllowed] = useState<boolean | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { signedIn } = useAuthSession();
 
@@ -120,18 +122,15 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const hasByok = byokAllowed && byokKey.trim().length > 0;
   const canGenerate = authConfigured ? signedIn : hasByok;
 
-  const close = () => setOpen(false);
-
-  // While open: focus the prompt and let Escape dismiss, like a native dialog
-  useEffect(() => {
-    if (!open) return;
-    textareaRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+  // Close and clear the transient per-attempt state so a reopen starts clean
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) {
+      setError(null);
+      setSpent(null);
+      setOutOfCredits(false);
+    }
+  };
 
   // The success confirmation is transient: clear it after a few seconds
   useEffect(() => {
@@ -143,7 +142,15 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const onGenerate = async () => {
     const studio = handle.current;
     const trimmed = prompt.trim();
-    if (!studio || busy || !trimmed || !canGenerate) return;
+    if (!studio || busy || !trimmed) return;
+    if (!canGenerate) {
+      // No-auth fallback: a key is the only path, so guide the user to it
+      if (byokAllowed && !hasByok) {
+        setByokOpen(true);
+        setError("Add your Synapse key below to generate.");
+      }
+      return;
+    }
 
     setBusy(true);
     setError(null);
@@ -178,7 +185,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         formatGeneratedToast(result.usage.credits, result.repairs, hasByok),
       );
       setPrompt("");
-      close();
+      handleOpenChange(false);
       setBusy(false);
       return;
     }
@@ -195,7 +202,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         // The session expired or was revoked mid-use. Clear it so the header
         // account control flips back to "Sign in"; this panel then hides until
         // the user signs in again (no in-panel sign-in anymore)
-        close();
+        handleOpenChange(false);
         void signOut();
         break;
       case "outOfCredits":
@@ -217,6 +224,26 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // server-side regardless of what the UI shows
   if (authConfigured && !(signedIn && managedAllowed)) return null;
 
+  // Error, any billed-but-failed spend, and the upgrade funnel share the panel's
+  // notice slot; the panel renders whatever node it is handed
+  const notice =
+    error || spent || (outOfCredits && UPGRADE_URL) ? (
+      <div className="ai-notice">
+        {error ? <p role="alert">{error}</p> : null}
+        {spent ? <p className="ai-spent">{spent}</p> : null}
+        {outOfCredits && UPGRADE_URL ? (
+          <a
+            className="ai-upgrade"
+            href={UPGRADE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Upgrade workspace
+          </a>
+        ) : null}
+      </div>
+    ) : undefined;
+
   return (
     <>
       <button
@@ -229,154 +256,47 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         <span className="ai-badge">Beta</span>
       </button>
 
-      {open ? (
-        // biome-ignore lint/a11y/noStaticElementInteractions: modal backdrop; dismissal also via the Escape key (global listener) and the close button
-        // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard dismissal is the global Escape listener plus the close button, not a handler on the backdrop
-        <div
-          className="ai-modal-backdrop"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) close();
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Describe a part"
-        >
-          <div className="ai-modal">
-            <div className="ai-modal-head">
-              <span className="ai-title">Describe a part</span>
-              <span className="ai-badge">Beta</span>
-              <button
-                type="button"
-                className="ai-modal-close"
-                onClick={close}
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-
-            <p className="ai-help ai-router-note">
-              Generation runs through{" "}
-              <a
-                href={SYNAPSE_KEY_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Synapse
-              </a>
-              , Omni's AI router.
-            </p>
-
-            <form
-              className="ai-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void onGenerate();
-              }}
-            >
-              <textarea
-                ref={textareaRef}
-                className="ai-textarea"
-                placeholder="e.g. a 20mm cube with a 6mm hole through the middle"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                rows={3}
-                disabled={busy}
-              />
-              <div className="ai-actions">
-                <button
-                  type="submit"
-                  className="primary"
-                  disabled={busy || !canGenerate || prompt.trim().length === 0}
-                >
-                  {busy ? "Generating…" : "Generate"}
-                </button>
-              </div>
-            </form>
-
-            {prompt.trim().length === 0 ? (
-              <div className="ai-suggestions">
-                <span className="ai-suggestions-label">Try</span>
-                {PROMPT_SUGGESTIONS.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    className="ai-suggestion"
-                    onClick={() => {
-                      setPrompt(suggestion);
-                      textareaRef.current?.focus();
-                    }}
-                    disabled={busy}
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            {error ? (
-              <div className="ai-error" role="alert">
-                {error}
-              </div>
-            ) : null}
-
-            {spent ? <p className="ai-spent">{spent}</p> : null}
-
-            {outOfCredits && UPGRADE_URL ? (
-              <a
-                className="ai-upgrade"
-                href={UPGRADE_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Upgrade workspace
-              </a>
-            ) : null}
-
-            {byokAllowed ? (
-              <div className="ai-byok">
-                <button
-                  type="button"
-                  className="ai-byok-toggle"
-                  onClick={() => setByokOpen((isOpen) => !isOpen)}
-                  aria-expanded={byokOpen}
-                >
-                  {byokOpen ? "▾" : "▸"} {PANEL_COPY.byokToggle}
-                </button>
-                {byokOpen ? (
-                  <div className="ai-byok-body">
-                    <input
-                      type="password"
-                      className="ai-byok-input"
-                      placeholder={PANEL_COPY.byokPlaceholder}
-                      value={byokKey}
-                      onChange={(e) => {
-                        setByokKey(e.target.value);
-                        persistByokKey(e.target.value);
-                      }}
-                      autoComplete="off"
-                      spellCheck={false}
-                    />
-                    <p className="ai-help">
-                      Add your own{" "}
-                      <a
-                        href={SYNAPSE_KEY_URL}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Synapse key
-                      </a>{" "}
-                      to generate. The key is kept only in this browser and sent
-                      over TLS to our gateway for each request, never stored on
-                      our servers.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
+      <AiDescribePanel
+        open={open}
+        onOpenChange={handleOpenChange}
+        // Sign-in-first: this panel only ever renders when generation is
+        // available (signed in, or local BYOK), so it always leads with Generate
+        mode="generate"
+        title="Describe a part"
+        description={
+          <>
+            Generation runs through{" "}
+            <a href={SYNAPSE_KEY_URL} target="_blank" rel="noopener noreferrer">
+              Synapse
+            </a>
+            , Omni's AI router.
+          </>
+        }
+        prompt={prompt}
+        onPromptChange={setPrompt}
+        placeholder="e.g. a 20mm cube with a 6mm hole through the middle"
+        suggestions={PROMPT_SUGGESTIONS}
+        onPickSuggestion={setPrompt}
+        onGenerate={() => void onGenerate()}
+        isPending={busy}
+        notice={notice}
+        byok={
+          byokAllowed
+            ? {
+                open: byokOpen,
+                onOpenChange: setByokOpen,
+                value: byokKey,
+                onValueChange: (value) => {
+                  setByokKey(value);
+                  persistByokKey(value);
+                },
+                keyUrl: SYNAPSE_KEY_URL,
+                label: PANEL_COPY.byokToggle,
+                placeholder: PANEL_COPY.byokPlaceholder,
+              }
+            : undefined
+        }
+      />
 
       {toast ? (
         <output className="ai-toast" aria-live="polite">
