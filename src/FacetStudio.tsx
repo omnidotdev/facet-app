@@ -763,7 +763,14 @@ export default function FacetStudio() {
     <div className="facet-app">
       <header>
         <span className="brand">
-          🔶 <b>Facet</b>
+          <img
+            className="brand-mark"
+            src="/mark.svg"
+            alt=""
+            width={20}
+            height={20}
+          />
+          <b>Facet</b>
         </span>
         <span className="tag">code CAD · write code, get geometry</span>
         <div className="header-controls">
