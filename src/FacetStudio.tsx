@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import GeneratePanel from "@/components/ai/GeneratePanel";
 import AccountControl from "@/components/auth/AccountControl";
+import ExamplesMenu from "@/components/ExamplesMenu";
 import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
 import {
@@ -109,6 +110,10 @@ export default function FacetStudio() {
   // side by side); on mobile the editor and the 3D viewport are full-screen tabs
   // so neither is cramped and the params overlay stops covering a tiny viewport
   const [mobileView, setMobileView] = useState<"code" | "view">("code");
+  // Which named example the active model matches (or CUSTOM_OPTION for a custom
+  // edit); drives the Examples menu's active marker. Kept in state (not a select
+  // ref) so the menu reflects tab switches, restores, and generated tabs
+  const [currentExample, setCurrentExample] = useState<string>(defaultExample);
 
   // The whole workspace (tabs + prefs) is restored once; the useState seed and
   // the setup effect share this object so they never disagree on the first model
@@ -142,7 +147,6 @@ export default function FacetStudio() {
   const viewportMount = useRef<HTMLDivElement>(null);
   const paramsMount = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
-  const exampleRef = useRef<HTMLSelectElement>(null);
   const kernelRef = useRef<HTMLSelectElement>(null);
   const themeBtnRef = useRef<HTMLButtonElement>(null);
   const themeLabelRef = useRef<HTMLSpanElement>(null);
@@ -532,9 +536,7 @@ export default function FacetStudio() {
     // edit, which storage keeps as code only). Point the dropdown at the example
     // whose source matches, or at the neutral "Custom model" option otherwise,
     // so a reload never falsely implies the first example is loaded.
-    if (exampleRef.current) {
-      exampleRef.current.value = matchExample(initialDoc) ?? CUSTOM_OPTION;
-    }
+    setCurrentExample(matchExample(initialDoc) ?? CUSTOM_OPTION);
 
     // Load a document into the editor, re-seeding parameters from scratch (so a
     // new model never carries over the previous model's tuned values by shared
@@ -544,9 +546,7 @@ export default function FacetStudio() {
       store.reset();
       paramsSignature = " ";
       editor.setValue(code);
-      if (exampleRef.current) {
-        exampleRef.current.value = matchExample(code) ?? CUSTOM_OPTION;
-      }
+      setCurrentExample(matchExample(code) ?? CUSTOM_OPTION);
       run(true);
     };
 
@@ -692,9 +692,7 @@ export default function FacetStudio() {
       loadCode: (code) =>
         new Promise<RunOutcome>((resolve) => {
           editor.setValue(code);
-          if (exampleRef.current) {
-            exampleRef.current.value = matchExample(code) ?? CUSTOM_OPTION;
-          }
+          setCurrentExample(matchExample(code) ?? CUSTOM_OPTION);
           run(true, resolve);
         }),
       save: saveSoon,
@@ -720,19 +718,11 @@ export default function FacetStudio() {
         <span className="tag">code CAD · write code, get geometry</span>
         <div className="header-controls">
           <GeneratePanel handle={studioHandle} />
-          <select
-            ref={exampleRef}
-            title="Load an example"
-            defaultValue={defaultExample}
-            onChange={(e) => loadExample(e.target.value)}
-          >
-            {Object.keys(examples).map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-            <option value={CUSTOM_OPTION}>Custom model</option>
-          </select>
+          <ExamplesMenu
+            names={Object.keys(examples)}
+            current={currentExample}
+            onSelect={loadExample}
+          />
           <select
             ref={kernelRef}
             className="kernel-select"
