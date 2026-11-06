@@ -115,6 +115,10 @@ export default function FacetStudio() {
   // edit); drives the Examples menu's active marker. Kept in state (not a select
   // ref) so the menu reflects tab switches, restores, and generated tabs
   const [currentExample, setCurrentExample] = useState<string>(defaultExample);
+  // The header's preference controls (kernel, theme, export format) live in a
+  // Settings dropdown so the top bar stays uncluttered on every width
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   // The whole workspace (tabs + prefs) is restored once; the useState seed and
   // the setup effect share this object so they never disagree on the first model
@@ -308,6 +312,21 @@ export default function FacetStudio() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  // Close the Settings dropdown on an outside click, like a native menu
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (
+        settingsRef.current &&
+        !settingsRef.current.contains(event.target as Node)
+      ) {
+        setSettingsOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    return () => window.removeEventListener("mousedown", onPointerDown);
+  }, [settingsOpen]);
 
   // Keep the AI panel's handle pointing at fresh closures every render; it is
   // only read on a user click, long after the core is wired
@@ -796,28 +815,6 @@ export default function FacetStudio() {
           >
             Save
           </button>
-          <select
-            ref={kernelRef}
-            className="kernel-select"
-            title="Geometry kernel"
-            defaultValue="ts"
-          >
-            <option value="ts">Kernel: TS</option>
-            <option value="brep">Kernel: B-rep (OCCT)</option>
-          </select>
-          <button
-            ref={themeBtnRef}
-            type="button"
-            className="icon-btn"
-            title="Toggle light/dark"
-          >
-            <span ref={themeLabelRef}>Theme</span> <kbd className="kbd">T</kbd>
-          </button>
-          <select ref={formatRef} title="Export format" defaultValue="stl">
-            <option value="stl">STL</option>
-            <option value="3mf">3MF</option>
-            <option value="step">STEP</option>
-          </select>
           <button
             ref={exportRef}
             type="button"
@@ -826,6 +823,74 @@ export default function FacetStudio() {
           >
             Export
           </button>
+          {/* Preferences (kernel, theme, export format) live here so they stay
+              out of the primary action row. The controls are always mounted
+              (the panel is hidden, not unmounted) so the Studio's imperative
+              wiring keeps its refs */}
+          <div className="settings-menu" ref={settingsRef}>
+            <button
+              type="button"
+              className="icon-btn settings-trigger"
+              onClick={() => setSettingsOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={settingsOpen}
+              aria-label="Settings"
+              title="Settings"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                role="img"
+                aria-label="Settings"
+              >
+                <title>Settings</title>
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </button>
+            <div
+              className="settings-dropdown"
+              role="menu"
+              hidden={!settingsOpen}
+            >
+              <label className="settings-row">
+                <span className="settings-label">Kernel</span>
+                <select
+                  ref={kernelRef}
+                  className="kernel-select"
+                  defaultValue="ts"
+                >
+                  <option value="ts">TS (mesh)</option>
+                  <option value="brep">B-rep (OCCT)</option>
+                </select>
+              </label>
+              <label className="settings-row">
+                <span className="settings-label">Export format</span>
+                <select ref={formatRef} defaultValue="stl">
+                  <option value="stl">STL</option>
+                  <option value="3mf">3MF</option>
+                  <option value="step">STEP</option>
+                </select>
+              </label>
+              <button
+                ref={themeBtnRef}
+                type="button"
+                className="settings-row settings-row-btn"
+                title="Toggle light/dark"
+              >
+                <span className="settings-label">
+                  Theme: <span ref={themeLabelRef}>Theme</span>
+                </span>
+                <kbd className="kbd">T</kbd>
+              </button>
+            </div>
+          </div>
           <AccountControl />
         </div>
       </header>
