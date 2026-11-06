@@ -1,4 +1,5 @@
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 
 import "@/landing.css";
 
@@ -160,26 +161,44 @@ const FEATURES = [
 ];
 
 function Landing() {
+  // Sticky nav: transparent over the hero, gaining a solid, blurred background
+  // once the page scrolls, like the rest of the Omni fleet
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
   return (
     <div className="facet-landing">
-      <nav className="fl-nav">
-        <span className="fl-logo">
-          <img src="/mark.svg" alt="" className="mark" /> Facet
-          <span className="fl-pill">Early access</span>
-        </span>
-        <span className="fl-nav-spacer" />
-        <span className="fl-nav-links">
-          <a href="https://omni.dev" target="_blank" rel="noreferrer">
-            Omni
-          </a>
-          <Link to="/studio">Studio</Link>
-        </span>
+      <nav className={`fl-nav${scrolled ? "fl-nav--scrolled" : ""}`}>
+        <div className="fl-nav-inner">
+          <span className="fl-logo">
+            <img src="/mark.svg" alt="" className="mark" /> Facet
+            <span className="fl-pill">Early access</span>
+          </span>
+          <span className="fl-nav-spacer" />
+          <span className="fl-nav-links">
+            <Link to="/studio" className="fl-btn fl-btn-primary fl-btn-sm">
+              Open Studio
+            </Link>
+            <a
+              className="fl-btn fl-btn-ghost fl-btn-sm"
+              href="https://omni.dev"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Explore Omni
+            </a>
+          </span>
+        </div>
       </nav>
 
       <div className="fl-wrap">
         <header className="fl-hero">
           <div>
-            <span className="fl-eyebrow">Code-first parametric CAD</span>
             <h1 className="fl-title">
               Write code.
               <br />
