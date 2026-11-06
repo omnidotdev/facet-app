@@ -47,6 +47,22 @@ describe("authoring API builds an op-graph without computing geometry", () => {
     expect(node).toMatchObject({ op: "scale", v: [3, 3, 3] });
   });
 
+  test("mirror records the plane normal and nests the child", () => {
+    const node = cube(10).translate(5, 0, 0).mirror([1, 0, 0]).node;
+    expect(node).toMatchObject({
+      op: "mirror",
+      normal: [1, 0, 0],
+      child: { op: "translate", v: [5, 0, 0] },
+    });
+  });
+
+  test("mirror accepts loose x/y/z arguments", () => {
+    expect(cube(1).mirror(0, 1, 0).node).toMatchObject({
+      op: "mirror",
+      normal: [0, 1, 0],
+    });
+  });
+
   test("subtract collects base + cutters into a difference node", () => {
     const node = difference(cube(10), cylinder(2, 20)).node;
     expect(node.op).toBe("difference");

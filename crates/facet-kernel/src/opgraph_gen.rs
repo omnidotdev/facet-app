@@ -89,5 +89,9 @@ pub enum OpNode {
         segments: i32,
         child: Box<OpNode>,
     },
+    Mirror {
+        normal: [f64; 3],
+        child: Box<OpNode>,
+    },
 }
 

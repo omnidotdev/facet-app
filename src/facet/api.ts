@@ -41,6 +41,18 @@ export class Shape {
     return this.wrap({ op: "scale", v, child: this.node });
   }
 
+  /**
+   * Mirror across the plane through the origin whose normal is (x, y, z), like
+   * OpenSCAD's mirror. `mirror([1, 0, 0])` flips X, `[0, 1, 0]` flips Y.
+   */
+  mirror(x: number | Vec3, y?: number, z?: number): Shape {
+    return this.wrap({
+      op: "mirror",
+      normal: asVec3(x, y, z),
+      child: this.node,
+    });
+  }
+
   /** Fuse this shape with others. */
   union(...others: Shape[]): Shape {
     return this.wrap({

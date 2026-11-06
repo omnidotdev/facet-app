@@ -357,4 +357,29 @@ describe("OCCT B-rep kernel", () => {
     };
     expect(() => evaluateOpGraph(rc!, node)).toThrow(/2D sketch/i);
   });
+
+  test.skipIf(!rc)("mirrors an exact solid across a plane", () => {
+    // A cube translated to +X, mirrored across the plane with normal [1,0,0],
+    // must stay an exact solid and land in -X (replicad's exact mirror)
+    const node: OpNode = {
+      op: "mirror",
+      normal: [1, 0, 0],
+      child: {
+        op: "translate",
+        v: [20, 0, 0],
+        child: { op: "cube", size: [10, 10, 10], center: true },
+      },
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      minX = Math.min(minX, mesh.positions[i]);
+      maxX = Math.max(maxX, mesh.positions[i]);
+    }
+    // It spanned 15..25 in X; after the flip it is entirely in -X
+    expect(maxX).toBeLessThan(0);
+    expect(minX).toBeGreaterThan(-30);
+  });
 });

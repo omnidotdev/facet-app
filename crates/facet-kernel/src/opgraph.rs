@@ -38,6 +38,7 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
             Ok(map_verts(&eval_node(child)?, |p| Vec3::new(p.x * v[0], p.y * v[1], p.z * v[2])))
         }
         OpNode::Rotate { deg, child } => Ok(map_verts(&eval_node(child)?, |p| rotate_point(p, *deg))),
+        OpNode::Mirror { normal, child } => Ok(mirror_csg(&eval_node(child)?, *normal)),
         // Fillet, chamfer, and shell are exact-geometry ops the mesh/CSG kernel
         // cannot do; direct the user to the B-rep kernel instead of approximating
         OpNode::Fillet { .. } => {
@@ -78,6 +79,36 @@ fn reduce_bool(children: &[OpNode], f: impl Fn(&Csg, &Csg) -> Csg) -> Result<Csg
         acc = f(&acc, &eval_node(child)?);
     }
     Ok(acc)
+}
+
+/// Reflect a point or direction across the plane through the origin with unit
+/// normal `n`: `v - 2(v·n)n`
+fn reflect(v: Vec3, n: Vec3) -> Vec3 {
+    v.minus(n.times(2.0 * v.dot(n)))
+}
+
+/// Mirror a solid across the plane through the origin whose normal is `normal`.
+/// Reflect every vertex position and normal, then reverse each polygon's winding
+/// (a reflection flips handedness, so the faces would otherwise point inward).
+/// `Polygon::new` recomputes each plane from the corrected winding.
+fn mirror_csg(csg: &Csg, normal: [f64; 3]) -> Csg {
+    let mag = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+    let mag = if mag == 0.0 { 1.0 } else { mag };
+    let n = Vec3::new(normal[0] / mag, normal[1] / mag, normal[2] / mag);
+    let polygons = csg
+        .polygons
+        .iter()
+        .map(|poly| {
+            let mut verts: Vec<Vertex> = poly
+                .vertices
+                .iter()
+                .map(|v| Vertex::new(reflect(v.pos, n), reflect(v.normal, n)))
+                .collect();
+            verts.reverse();
+            Polygon::new(verts)
+        })
+        .collect();
+    Csg::from_polygons(polygons)
 }
 
 fn map_verts(csg: &Csg, f: impl Fn(Vec3) -> Vec3) -> Csg {

@@ -43,6 +43,7 @@ export function requiresBrep(node: OpNode): boolean {
     case "rotate":
     case "scale":
     case "offset2d":
+    case "mirror":
       return requiresBrep(node.child);
     case "union":
     case "difference":

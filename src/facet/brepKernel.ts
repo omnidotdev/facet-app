@@ -183,6 +183,48 @@ function scaleMesh(mesh: Mesh, v: [number, number, number]): Mesh {
 }
 
 /**
+ * Mirror a mesh across the plane through the origin with normal `normal`, for a
+ * child that already dropped to a mesh. Reflect every position and normal, then
+ * reverse each triangle's winding (swap its 2nd and 3rd vertices): a reflection
+ * flips handedness, so without the swap every face would point inward.
+ */
+function mirrorMesh(mesh: Mesh, normal: [number, number, number]): Mesh {
+  const mlen = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+  const nx = normal[0] / mlen;
+  const ny = normal[1] / mlen;
+  const nz = normal[2] / mlen;
+  const reflect = (
+    x: number,
+    y: number,
+    z: number,
+  ): [number, number, number] => {
+    const d = 2 * (x * nx + y * ny + z * nz);
+    return [x - d * nx, y - d * ny, z - d * nz];
+  };
+  const src = mesh.positions;
+  const srcN = mesh.normals;
+  const positions = new Float32Array(src.length);
+  const normals = new Float32Array(srcN.length);
+  // Per triangle: reflect all three vertices, then emit them in reversed winding
+  for (let t = 0; t < src.length; t += 9) {
+    const order = [0, 2, 1]; // keep vertex 0, swap 1 and 2 to flip winding
+    for (let k = 0; k < 3; k++) {
+      const s = t + order[k] * 3;
+      const d = t + k * 3;
+      const [px, py, pz] = reflect(src[s], src[s + 1], src[s + 2]);
+      positions[d] = px;
+      positions[d + 1] = py;
+      positions[d + 2] = pz;
+      const [rx, ry, rz] = reflect(srcN[s], srcN[s + 1], srcN[s + 2]);
+      normals[d] = rx;
+      normals[d + 1] = ry;
+      normals[d + 2] = rz;
+    }
+  }
+  return { positions, normals, triangleCount: mesh.triangleCount };
+}
+
+/**
  * Translate the op-graph into replicad geometry. Primitives and booleans stay
  * exact; transforms stay exact where OCCT supports them, else drop to a mesh.
  * Factored out of the kernel so it is testable with an injected replicad module.
@@ -473,6 +515,22 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
         .sketchOnPlane("XZ")
         .revolve("Z", { angle: node.angle }) as Shape3D;
       return { kind: "brep", shape: keep(solid) };
+    }
+    case "mirror": {
+      const child = requireSolidGeom(evalNode(rc, keep, node.child), "Mirror");
+      if (child.kind === "mesh")
+        return { kind: "mesh", mesh: mirrorMesh(child.mesh, node.normal) };
+      // replicad mirrors a solid across the plane through the origin whose
+      // normal is the given point; stays exact B-rep
+      const normal: [number, number, number] = [
+        node.normal[0],
+        node.normal[1],
+        node.normal[2],
+      ];
+      return {
+        kind: "brep",
+        shape: keep(child.shape.mirror(normal) as Shape3D),
+      };
     }
   }
 }
