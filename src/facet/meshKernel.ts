@@ -202,6 +202,20 @@ function evalNode(node: OpNode): CSG {
       throw new KernelError(
         "Shell needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
       );
+    // The 2D sketch layer and its extrude/revolve sweeps exist only in the
+    // B-rep kernel; the mesh/CSG kernel has no planar-curve representation
+    case "circle2d":
+    case "rect2d":
+    case "polygon2d":
+    case "union2d":
+    case "difference2d":
+    case "intersect2d":
+    case "offset2d":
+    case "extrude":
+    case "revolve":
+      throw new KernelError(
+        "2D sketches and extrude/revolve need the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+      );
   }
 }
 

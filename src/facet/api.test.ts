@@ -1,12 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  circle,
   cube,
   cylinder,
   difference,
+  extrude,
   grid,
+  polygon,
+  rect,
   rectTube,
+  revolve,
   sphere,
+  square,
   union,
 } from "./api";
 
@@ -127,5 +133,84 @@ describe("authoring API builds an op-graph without computing geometry", () => {
     const node = rectTube([8, 8], 4, 5).node;
     // inner width = 8 - 2*4 = 0 -> no subtraction, just the outer box
     expect(node).toEqual({ op: "cube", size: [8, 8, 5], center: true });
+  });
+});
+
+describe("2D sketch and sweep API builds an op-graph", () => {
+  test("circle defaults to a smooth profile", () => {
+    expect(circle(5).node).toEqual({ op: "circle2d", r: 5, segments: 64 });
+  });
+
+  test("circle honors an explicit segment count (polygon profile)", () => {
+    expect(circle(5, { segments: 6 }).node).toEqual({
+      op: "circle2d",
+      r: 5,
+      segments: 6,
+    });
+  });
+
+  test("square is centered by default; rect is an alias", () => {
+    expect(square(10).node).toEqual({
+      op: "rect2d",
+      size: [10, 10],
+      center: true,
+    });
+    expect(rect([4, 8], { center: false }).node).toEqual({
+      op: "rect2d",
+      size: [4, 8],
+      center: false,
+    });
+  });
+
+  test("polygon accepts [x,y] pairs and flattens them", () => {
+    expect(
+      polygon([
+        [0, 0],
+        [10, 0],
+        [5, 8],
+      ]).node,
+    ).toEqual({ op: "polygon2d", points: [0, 0, 10, 0, 5, 8] });
+  });
+
+  test("polygon accepts an already-flat point list", () => {
+    expect(polygon([0, 0, 10, 0, 5, 8]).node).toEqual({
+      op: "polygon2d",
+      points: [0, 0, 10, 0, 5, 8],
+    });
+  });
+
+  test("extrude wraps a sketch with no-op twist/scale defaults", () => {
+    const node = extrude(square(6), 10).node;
+    expect(node).toEqual({
+      op: "extrude",
+      height: 10,
+      twist: 0,
+      scale: 1,
+      child: { op: "rect2d", size: [6, 6], center: true },
+    });
+  });
+
+  test("extrude carries twist and taper through", () => {
+    const node = circle(4).extrude(20, { twist: 90, scale: 0.5 }).node;
+    expect(node).toMatchObject({
+      op: "extrude",
+      height: 20,
+      twist: 90,
+      scale: 0.5,
+    });
+  });
+
+  test("revolve defaults to a full turn", () => {
+    const node = revolve(polygon([5, 0, 7, 0, 7, 10, 5, 10])).node;
+    expect(node).toMatchObject({ op: "revolve", angle: 360, segments: 64 });
+  });
+
+  test("2D booleans and offset nest as child sketches", () => {
+    const node = circle(10).subtract(circle(6)).offset(0.5).node;
+    expect(node.op).toBe("offset2d");
+    if (node.op === "offset2d") {
+      expect(node.distance).toBe(0.5);
+      expect(node.child.op).toBe("difference2d");
+    }
   });
 });

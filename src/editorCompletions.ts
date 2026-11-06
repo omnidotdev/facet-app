@@ -151,6 +151,42 @@ const TOP_LEVEL: Completion[] = [
     info: "A hollow rectangular tube/frame, centered",
   },
   {
+    label: "circle",
+    type: "function",
+    detail: "circle(r, { segments })",
+    info: "A 2D circle; a low segments count makes a regular polygon. Extrude or revolve it",
+  },
+  {
+    label: "square",
+    type: "function",
+    detail: "square(size, { center })",
+    info: "A 2D square/rectangle; square([w,h]) is rectangular. Centered by default",
+  },
+  {
+    label: "rect",
+    type: "function",
+    detail: "rect(size, { center })",
+    info: "Alias for square",
+  },
+  {
+    label: "polygon",
+    type: "function",
+    detail: "polygon(points)",
+    info: "A 2D polygon from [x,y] point pairs; the ring closes automatically",
+  },
+  {
+    label: "extrude",
+    type: "function",
+    detail: "extrude(sketch, height, { twist, scale })",
+    info: "Turn a 2D sketch into a solid by extruding it up. twist in degrees, scale tapers the top",
+  },
+  {
+    label: "revolve",
+    type: "function",
+    detail: "revolve(sketch, { angle, segments })",
+    info: "Turn a 2D sketch into a solid of revolution about the Z axis. angle in degrees (360 = full)",
+  },
+  {
     label: "param",
     type: "namespace",
     detail: "param.number(name, { min, max, default, step })",

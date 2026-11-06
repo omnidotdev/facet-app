@@ -52,3 +52,38 @@ unions:
         children: OpNode[]
       intersect:
         children: OpNode[]
+      # --- 2D profiles -------------------------------------------------------
+      # 2D ops evaluate to a planar drawing (on the XY plane), not a solid.
+      # extrude/revolve turn a drawing into a solid; the kernel enforces that an
+      # extrude/revolve/offset2d child is 2D and a boolean/transform child is 3D.
+      # These are B-rep-only for now (the mesh/WASM kernels report that), so they
+      # route through the same auto-switch-to-B-rep path as fillet/chamfer/shell.
+      circle2d:
+        r: number
+        segments: integer
+      rect2d:
+        size: number[2]
+        center: boolean
+      polygon2d:
+        # flat x,y pairs (p0x, p0y, p1x, p1y, ...); the ring closes implicitly
+        points: number[]
+      union2d:
+        children: OpNode[]
+      difference2d:
+        children: OpNode[]
+      intersect2d:
+        children: OpNode[]
+      offset2d:
+        # positive grows the outline outward, negative shrinks it inward
+        distance: number
+        child: OpNode
+      # --- 2D -> 3D ----------------------------------------------------------
+      extrude:
+        height: number
+        twist: number       # total twist in degrees over the height; 0 = none
+        scale: number       # uniform scale of the top face; 1 = straight walls
+        child: OpNode
+      revolve:
+        angle: number       # sweep in degrees about the Z axis; 360 = full
+        segments: integer
+        child: OpNode

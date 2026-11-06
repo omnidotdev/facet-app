@@ -96,6 +96,87 @@ export class Shape {
   }
 }
 
+/**
+ * A 2D sketch: a flat profile on the XY plane. Build one from `circle`,
+ * `square`, or `polygon`, combine sketches with 2D booleans, then turn it into
+ * a solid with `extrude` or `revolve`. Sketches only exist in the B-rep kernel,
+ * so any model that uses them runs there.
+ */
+export class Sketch {
+  constructor(readonly node: OpNode) {}
+
+  private wrap(node: OpNode): Sketch {
+    return new Sketch(node);
+  }
+
+  /** Grow (positive) or shrink (negative) this outline by `distance`. */
+  offset(distance: number): Sketch {
+    return this.wrap({ op: "offset2d", distance, child: this.node });
+  }
+
+  /** Fuse this sketch with others (2D union). */
+  union(...others: Sketch[]): Sketch {
+    return this.wrap({
+      op: "union2d",
+      children: [this.node, ...others.map((s) => s.node)],
+    });
+  }
+  add(...others: Sketch[]): Sketch {
+    return this.union(...others);
+  }
+
+  /** Cut others out of this sketch (2D difference). */
+  subtract(...others: Sketch[]): Sketch {
+    return this.wrap({
+      op: "difference2d",
+      children: [this.node, ...others.map((s) => s.node)],
+    });
+  }
+  sub(...others: Sketch[]): Sketch {
+    return this.subtract(...others);
+  }
+
+  /** Keep only the overlap of this sketch with others (2D intersection). */
+  intersect(...others: Sketch[]): Sketch {
+    return this.wrap({
+      op: "intersect2d",
+      children: [this.node, ...others.map((s) => s.node)],
+    });
+  }
+
+  /**
+   * Extrude this sketch straight up by `height` into a solid. `twist` turns the
+   * profile that many degrees over the height; `scale` tapers the top face
+   * (1 = straight walls, 0.5 = half-size top).
+   */
+  extrude(
+    height: number,
+    opts: { twist?: number; scale?: number } = {},
+  ): Shape {
+    return new Shape({
+      op: "extrude",
+      height,
+      twist: opts.twist ?? 0,
+      scale: opts.scale ?? 1,
+      child: this.node,
+    });
+  }
+
+  /**
+   * Revolve this sketch about the Z axis into a solid of revolution. The
+   * profile's X is the radius and its Y the height. `angle` is the sweep in
+   * degrees (360 = a full solid).
+   */
+  revolve(opts: { angle?: number; segments?: number } = {}): Shape {
+    return new Shape({
+      op: "revolve",
+      angle: opts.angle ?? 360,
+      segments: opts.segments ?? 64,
+      child: this.node,
+    });
+  }
+}
+
 // --- Primitives -------------------------------------------------------------
 
 /** A box. `cube(10)` is 10 on a side; `cube([w,d,h])` is rectangular. Centered by default. */
@@ -125,6 +206,56 @@ export function cylinder(
     segments: opts.segments ?? 32,
     center: opts.center ?? true,
   });
+}
+
+// --- 2D sketches ------------------------------------------------------------
+
+/** A 2D circle of radius `r`. A low `segments` count makes a regular polygon. */
+export function circle(r = 1, opts: { segments?: number } = {}): Sketch {
+  return new Sketch({ op: "circle2d", r, segments: opts.segments ?? 64 });
+}
+
+/**
+ * A 2D square/rectangle. `square(10)` is 10 on a side; `square([w, h])` is
+ * rectangular. Centered on the origin by default.
+ */
+export function square(
+  size: number | [number, number] = 1,
+  opts: { center?: boolean } = {},
+): Sketch {
+  const s: [number, number] = Array.isArray(size) ? size : [size, size];
+  return new Sketch({ op: "rect2d", size: s, center: opts.center ?? true });
+}
+/** Alias for square. */
+export const rect = square;
+
+/**
+ * A 2D polygon from a ring of points, given as `[x, y]` pairs (or a flat
+ * `[x0, y0, x1, y1, ...]` list). The ring closes back to the first point.
+ */
+export function polygon(points: [number, number][] | number[]): Sketch {
+  const flat =
+    points.length > 0 && Array.isArray(points[0])
+      ? (points as [number, number][]).flat()
+      : (points as number[]);
+  return new Sketch({ op: "polygon2d", points: flat });
+}
+
+/** Extrude a 2D sketch straight up by `height` into a solid. */
+export function extrude(
+  sketch: Sketch,
+  height: number,
+  opts: { twist?: number; scale?: number } = {},
+): Shape {
+  return sketch.extrude(height, opts);
+}
+
+/** Revolve a 2D sketch about the Z axis into a solid of revolution. */
+export function revolve(
+  sketch: Sketch,
+  opts: { angle?: number; segments?: number } = {},
+): Shape {
+  return sketch.revolve(opts);
 }
 
 // --- Free-function booleans (read nicely at the top level) ------------------

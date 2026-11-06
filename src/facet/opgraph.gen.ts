@@ -14,5 +14,14 @@ export type OpNode =
   | { op: "shell"; thickness: number; child: OpNode }
   | { op: "union"; children: OpNode[] }
   | { op: "difference"; children: OpNode[] }
-  | { op: "intersect"; children: OpNode[] };
+  | { op: "intersect"; children: OpNode[] }
+  | { op: "circle2d"; r: number; segments: number }
+  | { op: "rect2d"; size: [number, number]; center: boolean }
+  | { op: "polygon2d"; points: number[] }
+  | { op: "union2d"; children: OpNode[] }
+  | { op: "difference2d"; children: OpNode[] }
+  | { op: "intersect2d"; children: OpNode[] }
+  | { op: "offset2d"; distance: number; child: OpNode }
+  | { op: "extrude"; height: number; twist: number; scale: number; child: OpNode }
+  | { op: "revolve"; angle: number; segments: number; child: OpNode };
 

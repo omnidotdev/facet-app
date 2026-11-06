@@ -52,6 +52,21 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         OpNode::Union { children } => reduce_bool(children, |a, b| a.union(b)),
         OpNode::Difference { children } => reduce_bool(children, |a, b| a.subtract(b)),
         OpNode::Intersect { children } => reduce_bool(children, |a, b| a.intersect(b)),
+        // 2D sketch profiles and sweeps (extrude/revolve) build on exact planar
+        // curves the mesh/CSG kernel has no representation for; direct the user
+        // to the B-rep kernel, which the Studio auto-switches to
+        OpNode::Circle2d { .. }
+        | OpNode::Rect2d { .. }
+        | OpNode::Polygon2d { .. }
+        | OpNode::Union2d { .. }
+        | OpNode::Difference2d { .. }
+        | OpNode::Intersect2d { .. }
+        | OpNode::Offset2d { .. }
+        | OpNode::Extrude { .. }
+        | OpNode::Revolve { .. } => Err(
+            "2D sketches and extrude/revolve need the B-rep kernel. Switch the kernel to B-rep (OCCT)."
+                .to_string(),
+        ),
     }
 }
 

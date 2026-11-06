@@ -13,13 +13,19 @@
 import {
   Shape,
   box,
+  circle,
   cube,
   cylinder,
   difference,
+  extrude,
   grid,
   intersection,
+  polygon,
+  rect,
   rectTube,
+  revolve,
   sphere,
+  square,
   union,
 } from "@/facet/api";
 import { ParamStore } from "@/params";
@@ -38,6 +44,12 @@ const modelApi = {
   intersection,
   grid,
   rectTube,
+  circle,
+  square,
+  rect,
+  polygon,
+  extrude,
+  revolve,
 } as const;
 
 export type BuildResult =

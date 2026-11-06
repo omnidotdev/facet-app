@@ -7,7 +7,7 @@ import { KernelError } from "./kernel";
 import { meshToStlBinary } from "./stl";
 import { meshTo3mf } from "./threeMf";
 
-import type { Shape3D } from "replicad";
+import type { Drawing, Shape3D } from "replicad";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
 import type { ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode } from "./opgraph";
@@ -42,9 +42,15 @@ class BrepModelingError extends KernelError {
  * Intermediate geometry during evaluation. Most ops stay in the exact B-rep
  * world (`brep`). A non-uniform scale has no analytic B-rep representation in
  * this OCCT build (it lacks a `BRepBuilderAPI_GTransform` binding), so it drops
- * to an already-tessellated `mesh` and later ops operate on that.
+ * to an already-tessellated `mesh` and later ops operate on that. The 2D sketch
+ * layer evaluates to a planar `drawing` (replicad's parametric 2D geometry);
+ * `extrude`/`revolve` consume one and return a `brep` solid, so a `drawing` is
+ * never a final result (it has no mesh until it is swept into a solid).
  */
-type Geom = { kind: "brep"; shape: Shape3D } | { kind: "mesh"; mesh: Mesh };
+type Geom =
+  | { kind: "brep"; shape: Shape3D }
+  | { kind: "mesh"; mesh: Mesh }
+  | { kind: "drawing"; drawing: Drawing };
 
 /** Apply Facet's intrinsic XYZ Euler rotation to a single point or vector. */
 function rotatePoint(
@@ -101,6 +107,12 @@ function shapeToMesh(shape: Shape3D): Mesh {
 
 /** Collapse any geometry to a mesh, tessellating a B-rep solid if needed. */
 function toMesh(geom: Geom): Mesh {
+  // A bare 2D sketch is not a solid, so it cannot tessellate into a display
+  // mesh; the user must turn it into a 3D shape first
+  if (geom.kind === "drawing")
+    throw new BrepModelingError(
+      "A 2D sketch isn't a solid on its own. Extrude or revolve it into a 3D shape.",
+    );
   return geom.kind === "brep" ? shapeToMesh(geom.shape) : geom.mesh;
 }
 
@@ -330,7 +342,7 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       };
     }
     case "translate": {
-      const child = evalNode(rc, keep, node.child);
+      const child = requireSolidGeom(evalNode(rc, keep, node.child), "Move");
       if (child.kind === "mesh")
         return { kind: "mesh", mesh: translateMesh(child.mesh, node.v) };
       return {
@@ -339,7 +351,7 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       };
     }
     case "rotate": {
-      const child = evalNode(rc, keep, node.child);
+      const child = requireSolidGeom(evalNode(rc, keep, node.child), "Rotate");
       if (child.kind === "mesh")
         return { kind: "mesh", mesh: rotateMesh(child.mesh, node.deg) };
       // Compose X then Y then Z about the world origin to match the mesh kernel's
@@ -350,7 +362,7 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       return { kind: "brep", shape };
     }
     case "scale": {
-      const child = evalNode(rc, keep, node.child);
+      const child = requireSolidGeom(evalNode(rc, keep, node.child), "Scale");
       const [sx, sy, sz] = node.v;
       const uniform = sx === sy && sy === sz;
       if (child.kind === "brep" && uniform)
@@ -385,6 +397,83 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       return booleanOp(rc, keep, node.children, (a, b) => a.cut(b));
     case "intersect":
       return booleanOp(rc, keep, node.children, (a, b) => a.intersect(b));
+    case "circle2d": {
+      // A low segment count is an explicit polygon request (a hexagon), exactly
+      // as the cylinder treats it; above that, an exact smooth circle
+      if (
+        Number.isFinite(node.segments) &&
+        node.segments >= 3 &&
+        node.segments <= PRISM_MAX_SEGMENTS
+      )
+        return {
+          kind: "drawing",
+          drawing: rc.drawPolysides(node.r, node.segments),
+        };
+      return { kind: "drawing", drawing: rc.drawCircle(node.r) };
+    }
+    case "rect2d": {
+      const [w, h] = node.size;
+      // drawRoundedRectangle with no radius is a sharp rectangle centered on the
+      // origin; anchor its lower-left corner there when not centered
+      const rect = rc.drawRoundedRectangle(w, h);
+      return {
+        kind: "drawing",
+        drawing: node.center ? rect : rect.translate(w / 2, h / 2),
+      };
+    }
+    case "polygon2d": {
+      const pts = node.points;
+      if (pts.length < 6 || pts.length % 2 !== 0)
+        throw new BrepModelingError(
+          "A polygon needs at least 3 points, as flat x,y pairs.",
+        );
+      let pen = rc.draw([pts[0], pts[1]]);
+      for (let i = 2; i < pts.length; i += 2)
+        pen = pen.lineTo([pts[i], pts[i + 1]]);
+      // close() joins the last point back to the first, so the ring is implicit
+      return { kind: "drawing", drawing: pen.close() };
+    }
+    case "union2d":
+      return drawing2dOp(rc, keep, node.children, (a, b) => a.fuse(b));
+    case "difference2d":
+      return drawing2dOp(rc, keep, node.children, (a, b) => a.cut(b));
+    case "intersect2d":
+      return drawing2dOp(rc, keep, node.children, (a, b) => a.intersect(b));
+    case "offset2d": {
+      const drawing = requireDrawing(evalNode(rc, keep, node.child), "Offset");
+      // Positive grows the outline outward, negative shrinks it inward
+      return { kind: "drawing", drawing: drawing.offset(node.distance) };
+    }
+    case "extrude": {
+      const drawing = requireDrawing(evalNode(rc, keep, node.child), "Extrude");
+      // Sketch on XY and extrude +Z, matching OpenSCAD's linear_extrude. A twist
+      // (degrees over the height) and an end scale (taper) are optional profile
+      // tweaks; omit them when they are the no-op defaults so a straight prism
+      // takes the simple path
+      const config: {
+        twistAngle?: number;
+        extrusionProfile?: { profile: "linear"; endFactor: number };
+      } = {};
+      if (node.twist !== 0) config.twistAngle = node.twist;
+      // A taper is a linear law from the base face to an `endFactor`-scaled top;
+      // replicad needs the law kind named explicitly, not just the end factor
+      if (node.scale !== 1)
+        config.extrusionProfile = { profile: "linear", endFactor: node.scale };
+      const solid = drawing
+        .sketchOnPlane("XY")
+        .extrude(node.height, config) as Shape3D;
+      return { kind: "brep", shape: keep(solid) };
+    }
+    case "revolve": {
+      const drawing = requireDrawing(evalNode(rc, keep, node.child), "Revolve");
+      // Sketch on XZ so the profile's X is the radius and its Y is the height,
+      // then spin about Z: OpenSCAD's rotate_extrude convention. 360 is a full
+      // solid of revolution; a smaller angle leaves a wedge open
+      const solid = drawing
+        .sketchOnPlane("XZ")
+        .revolve("Z", { angle: node.angle }) as Shape3D;
+      return { kind: "brep", shape: keep(solid) };
+    }
   }
 }
 
@@ -399,6 +488,23 @@ function requireBrep(geom: Geom, op: string): Shape3D {
       `${op} needs an exact B-rep solid, but an earlier uneven scale turned this shape into a mesh.`,
     );
   return geom.shape;
+}
+
+/**
+ * Reject a 2D sketch where a 3D transform expects a solid. A sketch has no
+ * place in 3D space until it is extruded or revolved, so moving, rotating, or
+ * scaling one is a modeling mistake the user can fix. Narrows the type so the
+ * transform cases see only solids (brep or mesh).
+ */
+function requireSolidGeom(
+  geom: Geom,
+  op: string,
+): { kind: "brep"; shape: Shape3D } | { kind: "mesh"; mesh: Mesh } {
+  if (geom.kind === "drawing")
+    throw new BrepModelingError(
+      `${op} applies to a 3D shape. Extrude or revolve the 2D sketch into a solid first.`,
+    );
+  return geom;
 }
 
 function booleanOp(
@@ -418,6 +524,38 @@ function booleanOp(
     shapes.push(part.shape);
   }
   return { kind: "brep", shape: shapes.reduce((a, b) => keep(combine(a, b))) };
+}
+
+/**
+ * Unwrap a child that must be a 2D sketch. `extrude`/`revolve`/`offset2d` and
+ * the 2D booleans only make sense on a planar drawing, so a child that
+ * evaluated to a solid (or a mesh) is a modeling mistake the user can fix.
+ */
+function requireDrawing(geom: Geom, op: string): Drawing {
+  if (geom.kind !== "drawing")
+    throw new BrepModelingError(
+      `${op} needs a 2D sketch (circle, rect, polygon, or a 2D boolean) as its input, not a 3D shape.`,
+    );
+  return geom.drawing;
+}
+
+/**
+ * Combine 2D sketches with a planar boolean. Drawings are parametric 2D
+ * geometry, not OCCT handles, so unlike the 3D `booleanOp` there is nothing to
+ * register with `localGC` here.
+ */
+function drawing2dOp(
+  rc: Replicad,
+  keep: Keep,
+  children: OpNode[],
+  combine: (a: Drawing, b: Drawing) => Drawing,
+): Geom {
+  if (!children.length)
+    throw new Error("2D boolean op needs at least one child");
+  const drawings = children.map((child) =>
+    requireDrawing(evalNode(rc, keep, child), "A 2D boolean"),
+  );
+  return { kind: "drawing", drawing: drawings.reduce((a, b) => combine(a, b)) };
 }
 
 // Cache the one-time async load so selecting the kernel again is instant

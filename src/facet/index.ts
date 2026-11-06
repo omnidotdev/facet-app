@@ -1,14 +1,21 @@
 /** Facet engine: the public surface for authoring, evaluating, and exporting. */
 export {
   Shape,
+  Sketch,
   box,
+  circle,
   cube,
   cylinder,
   difference,
+  extrude,
   grid,
   intersection,
+  polygon,
+  rect,
   rectTube,
+  revolve,
   sphere,
+  square,
   union,
 } from "./api";
 export { KernelError, meshBounds } from "./kernel";
