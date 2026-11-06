@@ -19,7 +19,9 @@ function StudioRoute() {
     <div className="facet-landing">
       <section className="fl-gate">
         <span className="fl-eyebrow">Facet Studio</span>
-        <div className="fl-gate-mark">🔶</div>
+        <div className="fl-gate-mark">
+          <img src="/mark.svg" alt="" width={48} height={48} />
+        </div>
         <h1 className="fl-title">
           Under <span className="accent">construction</span>
         </h1>

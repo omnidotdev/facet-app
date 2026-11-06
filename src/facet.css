@@ -71,10 +71,18 @@ body,
 }
 
 .facet-app .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-weight: 700;
   letter-spacing: 0.02em;
   font-size: 16px;
   white-space: nowrap;
+}
+.facet-app .brand-mark {
+  display: block;
+  width: 20px;
+  height: 20px;
 }
 .facet-app .brand b {
   color: var(--accent);
@@ -83,6 +91,13 @@ body,
   font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
+}
+/* The tagline is decorative: show it only when the header has room, so it never
+   competes with the control cluster on tablets or narrow desktop windows */
+@media (max-width: 1100px) {
+  .facet-app .tag {
+    display: none;
+  }
 }
 
 .facet-app select,
