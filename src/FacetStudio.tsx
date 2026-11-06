@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import GeneratePanel from "@/components/ai/GeneratePanel";
 import AccountControl from "@/components/auth/AccountControl";
+import ExamplesMenu from "@/components/ExamplesMenu";
 import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/facet";
 import { loadBrepKernel } from "@/facet/brepKernel";
 import { loadWasmKernel } from "@/facet/wasmKernel";
+import { openModelFromFile, saveModelToFile } from "@/fileIo";
 import { ParamStore } from "@/params";
 import { loadWorkspace, saveWorkspace } from "@/storage";
 import {
@@ -109,6 +111,10 @@ export default function FacetStudio() {
   // side by side); on mobile the editor and the 3D viewport are full-screen tabs
   // so neither is cramped and the params overlay stops covering a tiny viewport
   const [mobileView, setMobileView] = useState<"code" | "view">("code");
+  // Which named example the active model matches (or CUSTOM_OPTION for a custom
+  // edit); drives the Examples menu's active marker. Kept in state (not a select
+  // ref) so the menu reflects tab switches, restores, and generated tabs
+  const [currentExample, setCurrentExample] = useState<string>(defaultExample);
 
   // The whole workspace (tabs + prefs) is restored once; the useState seed and
   // the setup effect share this object so they never disagree on the first model
@@ -142,7 +148,6 @@ export default function FacetStudio() {
   const viewportMount = useRef<HTMLDivElement>(null);
   const paramsMount = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
-  const exampleRef = useRef<HTMLSelectElement>(null);
   const kernelRef = useRef<HTMLSelectElement>(null);
   const themeBtnRef = useRef<HTMLButtonElement>(null);
   const themeLabelRef = useRef<HTMLSpanElement>(null);
@@ -254,6 +259,55 @@ export default function FacetStudio() {
     core.openDoc("");
     core.save();
   };
+
+  // Open a model source file (.facet.ts) into its own new tab, named from the
+  // file, mirroring how an example is opened so it never overwrites the model
+  const openFileIntoTab = (name: string, code: string) => {
+    const core = coreRef.current;
+    if (!core) return;
+    const captured = setActiveCode(tabsRef.current, core.getCode());
+    const { state } = addTab(captured, code, name);
+    commitTabs(state);
+    core.openDoc(code);
+    core.save();
+  };
+
+  // Save the active model's source to a .facet.ts file (native picker where
+  // available, else a download); the file name comes from the active tab
+  const handleSaveFile = () => {
+    const core = coreRef.current;
+    if (!core) return;
+    const name = activeTab(tabsRef.current)?.name ?? "model";
+    void saveModelToFile(name, core.getCode());
+  };
+
+  // Open a .facet.ts (or .ts) file into a new tab
+  const handleOpenFile = () => {
+    void openModelFromFile().then((opened) => {
+      if (opened) openFileIntoTab(opened.name, opened.code);
+    });
+  };
+
+  // Cmd/Ctrl+S saves the model source; Cmd/Ctrl+O opens one, each overriding
+  // the browser default. Bound once; the handlers read live refs
+  // biome-ignore lint/correctness/useExhaustiveDependencies: handlers read live refs, so bind the listener once
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "s") {
+        event.preventDefault();
+        handleSaveFile();
+      } else if (key === "o") {
+        event.preventDefault();
+        handleOpenFile();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Keep the AI panel's handle pointing at fresh closures every render; it is
   // only read on a user click, long after the core is wired
@@ -532,9 +586,7 @@ export default function FacetStudio() {
     // edit, which storage keeps as code only). Point the dropdown at the example
     // whose source matches, or at the neutral "Custom model" option otherwise,
     // so a reload never falsely implies the first example is loaded.
-    if (exampleRef.current) {
-      exampleRef.current.value = matchExample(initialDoc) ?? CUSTOM_OPTION;
-    }
+    setCurrentExample(matchExample(initialDoc) ?? CUSTOM_OPTION);
 
     // Load a document into the editor, re-seeding parameters from scratch (so a
     // new model never carries over the previous model's tuned values by shared
@@ -544,9 +596,7 @@ export default function FacetStudio() {
       store.reset();
       paramsSignature = " ";
       editor.setValue(code);
-      if (exampleRef.current) {
-        exampleRef.current.value = matchExample(code) ?? CUSTOM_OPTION;
-      }
+      setCurrentExample(matchExample(code) ?? CUSTOM_OPTION);
       run(true);
     };
 
@@ -692,9 +742,7 @@ export default function FacetStudio() {
       loadCode: (code) =>
         new Promise<RunOutcome>((resolve) => {
           editor.setValue(code);
-          if (exampleRef.current) {
-            exampleRef.current.value = matchExample(code) ?? CUSTOM_OPTION;
-          }
+          setCurrentExample(matchExample(code) ?? CUSTOM_OPTION);
           run(true, resolve);
         }),
       save: saveSoon,
@@ -720,19 +768,27 @@ export default function FacetStudio() {
         <span className="tag">code CAD · write code, get geometry</span>
         <div className="header-controls">
           <GeneratePanel handle={studioHandle} />
-          <select
-            ref={exampleRef}
-            title="Load an example"
-            defaultValue={defaultExample}
-            onChange={(e) => loadExample(e.target.value)}
+          <ExamplesMenu
+            names={Object.keys(examples)}
+            current={currentExample}
+            onSelect={loadExample}
+          />
+          <button
+            type="button"
+            className="icon-btn"
+            title="Open a model file (.facet.ts)"
+            onClick={handleOpenFile}
           >
-            {Object.keys(examples).map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-            <option value={CUSTOM_OPTION}>Custom model</option>
-          </select>
+            Open
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Save model source to a .facet.ts file"
+            onClick={handleSaveFile}
+          >
+            Save
+          </button>
           <select
             ref={kernelRef}
             className="kernel-select"
