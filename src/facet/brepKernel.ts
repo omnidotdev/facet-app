@@ -259,6 +259,39 @@ function shapeToStepBytes(oc: OpenCascadeInstance, shape: Shape3D): Uint8Array {
   }
 }
 
+// A low `segments` count is an explicit request for a polygonal prism (a hex
+// nut, an octagonal post), not a smoothness hint, so the B-rep cylinder honors
+// it exactly instead of ignoring it (which silently turned a hexagon into a
+// round cylinder). Counts above this stay an exact analytic cylinder, which is
+// the point of B-rep and what a true-cylinder STEP export needs. The default
+// cylinder segment count (32) is well above this, so plain cylinders are
+// unaffected
+const PRISM_MAX_SEGMENTS = 12;
+
+/**
+ * Build an exact N-gon prism whose vertices match the mesh kernel's cylinder
+ * exactly: the first vertex sits on +X and the ring winds clockwise
+ * (`[r·cosθ, -r·sinθ]`), so a hex nut lands identically in both kernels. The
+ * polygon is sketched at z0 and extruded +Z by h, matching the cylinder's span.
+ */
+function makePrism(
+  rc: Replicad,
+  keep: Keep,
+  r: number,
+  h: number,
+  sides: number,
+  z0: number,
+): Shape3D {
+  const vertex = (i: number): [number, number] => {
+    const angle = (i / sides) * Math.PI * 2;
+    return [r * Math.cos(angle), -r * Math.sin(angle)];
+  };
+  let pen = rc.draw(vertex(0));
+  for (let i = 1; i < sides; i++) pen = pen.lineTo(vertex(i));
+  const solid = pen.close().sketchOnPlane("XY", z0).extrude(h) as Shape3D;
+  return keep(solid);
+}
+
 function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
   switch (node.op) {
     case "cube": {
@@ -278,12 +311,22 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       return { kind: "brep", shape: keep(rc.makeSphere(node.r)) };
     case "cylinder": {
       // Axis along +Z, matching the mesh kernel: base at the origin, or centered
-      const location: [number, number, number] = node.center
-        ? [0, 0, -node.h / 2]
-        : [0, 0, 0];
+      const z0 = node.center ? -node.h / 2 : 0;
+      // A low segment count means a polygonal prism; honor it exactly so it does
+      // not silently become a round cylinder here
+      if (
+        Number.isFinite(node.segments) &&
+        node.segments >= 3 &&
+        node.segments <= PRISM_MAX_SEGMENTS
+      ) {
+        return {
+          kind: "brep",
+          shape: makePrism(rc, keep, node.r, node.h, node.segments, z0),
+        };
+      }
       return {
         kind: "brep",
-        shape: keep(rc.makeCylinder(node.r, node.h, location, [0, 0, 1])),
+        shape: keep(rc.makeCylinder(node.r, node.h, [0, 0, z0], [0, 0, 1])),
       };
     }
     case "translate": {

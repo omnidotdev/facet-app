@@ -60,6 +60,54 @@ describe("OCCT B-rep kernel", () => {
     expect(mesh.normals.length).toBe(mesh.triangleCount * 9);
   });
 
+  test.skipIf(!rc)(
+    "honors a low segment count as an exact polygon prism",
+    () => {
+      const node: OpNode = {
+        op: "cylinder",
+        r: 10,
+        h: 5,
+        center: false,
+        segments: 6,
+      };
+      const mesh = evaluateOpGraph(rc!, node);
+      let minX = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      let minY = Number.POSITIVE_INFINITY;
+      let maxY = Number.NEGATIVE_INFINITY;
+      for (let i = 0; i < mesh.positions.length; i += 3) {
+        minX = Math.min(minX, mesh.positions[i]);
+        maxX = Math.max(maxX, mesh.positions[i]);
+        minY = Math.min(minY, mesh.positions[i + 1]);
+        maxY = Math.max(maxY, mesh.positions[i + 1]);
+      }
+      // Hexagon, circumradius 10, first vertex on +X: 20 wide across corners in X,
+      // but only 10*sqrt(3) ~= 17.32 across flats in Y. A round cylinder would
+      // span 20 in both, so the shrunken Y proves this is an exact hex prism
+      expect(maxX - minX).toBeCloseTo(20, 1);
+      expect(maxY - minY).toBeCloseTo(10 * Math.sqrt(3), 1);
+    },
+  );
+
+  test.skipIf(!rc)("keeps a high segment count an exact round cylinder", () => {
+    const node: OpNode = {
+      op: "cylinder",
+      r: 10,
+      h: 5,
+      center: false,
+      segments: 48,
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (let i = 1; i < mesh.positions.length; i += 3) {
+      minY = Math.min(minY, mesh.positions[i]);
+      maxY = Math.max(maxY, mesh.positions[i]);
+    }
+    // Round: spans the full diameter (~20) in Y, unlike the hex prism's 17.32
+    expect(maxY - minY).toBeGreaterThan(19);
+  });
+
   test.skipIf(!rc)("falls back to a mesh for a non-uniform scale", () => {
     const node: OpNode = {
       op: "scale",
