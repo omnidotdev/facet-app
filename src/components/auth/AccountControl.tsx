@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 
 import { isAuthConfigured, signIn, signOut } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
+import { fetchUserInfo, initialsFrom } from "@/lib/auth/userInfo";
+
+import type { UserInfo } from "@/lib/auth/userInfo";
 
 // The shared Omni account hub, where a user manages their profile, billing, and
 // Synapse keys. Null when unset, so the "Manage account" item is simply omitted
@@ -21,7 +24,26 @@ const ACCOUNT_URL = import.meta.env.VITE_ACCOUNT_URL;
 const AccountControl = () => {
   const { signedIn } = useAuthSession();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Load the profile (name/email/avatar) from userinfo once signed in, so the
+  // trigger can show a real avatar instead of a generic glyph
+  useEffect(() => {
+    if (!signedIn) {
+      setUserInfo(null);
+      return;
+    }
+    let active = true;
+    fetchUserInfo().then((info) => {
+      if (active) setUserInfo(info);
+    });
+    return () => {
+      active = false;
+    };
+  }, [signedIn]);
+
+  const initials = userInfo ? initialsFrom(userInfo) : "";
 
   // Close the menu on an outside click, like a native menu
   useEffect(() => {
@@ -66,22 +88,38 @@ const AccountControl = () => {
         title="Account"
       >
         <span className="account-avatar" aria-hidden>
-          <svg
-            viewBox="0 0 24 24"
-            width="16"
-            height="16"
-            fill="currentColor"
-            role="img"
-            aria-label="Account"
-          >
-            <title>Account</title>
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 20c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5v.5H4V20z" />
-          </svg>
+          {userInfo?.picture ? (
+            <img className="account-avatar-img" src={userInfo.picture} alt="" />
+          ) : initials ? (
+            <span className="account-avatar-initials">{initials}</span>
+          ) : (
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="currentColor"
+              role="img"
+              aria-label="Account"
+            >
+              <title>Account</title>
+              <circle cx="12" cy="8" r="4" />
+              <path d="M4 20c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5v.5H4V20z" />
+            </svg>
+          )}
         </span>
       </button>
       {menuOpen ? (
         <div className="account-dropdown" role="menu">
+          {userInfo?.name || userInfo?.email ? (
+            <div className="account-identity">
+              {userInfo.name ? (
+                <span className="account-name">{userInfo.name}</span>
+              ) : null}
+              {userInfo.email ? (
+                <span className="account-email">{userInfo.email}</span>
+              ) : null}
+            </div>
+          ) : null}
           {ACCOUNT_URL ? (
             <a
               className="account-item"
