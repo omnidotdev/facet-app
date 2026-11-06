@@ -266,7 +266,17 @@ export default function FacetStudio() {
   // Open a .facet.ts (or .ts) file into a new tab
   const handleOpenFile = () => {
     void openModelFromFile().then((opened) => {
-      if (opened) openFileIntoTab(opened.name, opened.code);
+      if (!opened) return; // the user cancelled the picker
+      if (!opened.ok) {
+        // Not a valid Facet model (wrong type, binary, or too large)
+        const statusEl = statusRef.current;
+        if (statusEl) {
+          statusEl.className = "status err";
+          statusEl.textContent = `✗ ${opened.error}`;
+        }
+        return;
+      }
+      openFileIntoTab(opened.name, opened.code);
     });
   };
 

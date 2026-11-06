@@ -103,15 +103,46 @@ export const saveModelToFile = async (
   return true;
 };
 
+/** Facet model source is small; reject anything larger as not a model. */
+const MAX_MODEL_BYTES = 512 * 1024;
+
+export type OpenResult =
+  | { ok: true; name: string; code: string }
+  | { ok: false; error: string };
+
 /**
- * Open a model source file. Resolves the file's name and contents, or null when
- * the user cancelled. Uses the File System Access API when available, else a
- * hidden file input.
+ * Validate a picked file as a Facet model. The picker's `accept` is only a
+ * hint, so a user can still choose an image or any other file; this is the
+ * enforcement. A model must be a `.facet.ts`/`.ts` text file, small, and free
+ * of binary/control bytes (so an image renamed to `.ts`, or picked past the
+ * filter, cannot be loaded as "code"). Pure, so it is unit-tested directly.
  */
-export const openModelFromFile = async (): Promise<{
-  name: string;
-  code: string;
-} | null> => {
+export const validateModelFile = (
+  fileName: string,
+  text: string,
+): OpenResult => {
+  const lower = fileName.toLowerCase();
+  if (!(lower.endsWith(FACET_EXT) || lower.endsWith(".ts"))) {
+    return { ok: false, error: "Not a Facet model — open a .facet.ts file." };
+  }
+  if (text.length > MAX_MODEL_BYTES) {
+    return { ok: false, error: "That file is too large to be a Facet model." };
+  }
+  // Model source is text; reject NUL and other control bytes (tab/newline/CR
+  // excepted). A PNG/JPEG decodes to text full of these, so an image is caught.
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: detecting binary content is the point
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text)) {
+    return { ok: false, error: "That file is not a text model." };
+  }
+  return { ok: true, name: modelNameFromFile(fileName), code: text };
+};
+
+/**
+ * Open a model source file, validated as a Facet model. Resolves the parsed
+ * model, a validation error, or null when the user cancelled. Uses the File
+ * System Access API when available, else a hidden file input.
+ */
+export const openModelFromFile = async (): Promise<OpenResult | null> => {
   const w = window as unknown as SaveFilePickerWindow;
 
   if (typeof w.showOpenFilePicker === "function") {
@@ -122,7 +153,7 @@ export const openModelFromFile = async (): Promise<{
       });
       if (!handle) return null;
       const file = await handle.getFile();
-      return { name: modelNameFromFile(file.name), code: await file.text() };
+      return validateModelFile(file.name, await file.text());
     } catch (err) {
       if (isAbort(err)) return null;
       // Fall back to a file input on any other failure
@@ -141,7 +172,7 @@ export const openModelFromFile = async (): Promise<{
         resolve(null);
         return;
       }
-      resolve({ name: modelNameFromFile(file.name), code: await file.text() });
+      resolve(validateModelFile(file.name, await file.text()));
     });
     document.body.appendChild(input);
     input.click();
