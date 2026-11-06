@@ -121,6 +121,27 @@ export class ParamStore {
     this.values.set(name, value);
   }
 
+  /** Seed stored values (used in the sandbox worker from the main thread's snapshot). */
+  seed(values: Record<string, ParamValue>): void {
+    this.values = new Map(Object.entries(values));
+  }
+
+  /** Plain snapshot of stored values, to hand to the sandbox worker. */
+  valuesSnapshot(): Record<string, ParamValue> {
+    return Object.fromEntries(this.values);
+  }
+
+  /**
+   * Adopt the declarations a worker run produced: the main thread no longer runs
+   * the model itself, so it takes the worker's resolved declarations and values
+   * (new parameters arrive at their default, tuned ones keep the value that was
+   * sent in and echoed back) to drive the parameter UI.
+   */
+  adoptRun(decls: ParamDecl[]): void {
+    this.declared = decls;
+    for (const d of decls) this.values.set(d.name, d.value);
+  }
+
   list(): ParamDecl[] {
     return this.declared;
   }
