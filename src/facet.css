@@ -84,6 +84,19 @@ body,
   width: 20px;
   height: 20px;
 }
+/* "Early access" badge beside the wordmark, mirroring the landing nav pill */
+.facet-app .brand-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber, var(--accent));
+  border: 1px solid var(--amber, var(--accent));
+  border-radius: 999px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
 .facet-app .brand b {
   color: var(--accent);
 }
@@ -232,10 +245,10 @@ body,
   border-radius: 4px;
   background: none;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1;
-  padding: 3px 6px;
-  margin: 0 4px;
+  padding: 4px 7px;
+  margin: 0 2px;
 }
 .facet-app button.doc-tab-close:hover {
   color: var(--err);
@@ -245,9 +258,9 @@ body,
   border: none;
   background: none;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 19px;
   line-height: 1;
-  padding: 4px 10px;
+  padding: 4px 11px;
   flex: 0 0 auto;
 }
 .facet-app button.doc-tab-new:hover {
