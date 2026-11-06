@@ -23,6 +23,7 @@ import {
 } from "@/facet";
 import { loadBrepKernel } from "@/facet/brepKernel";
 import { loadWasmKernel } from "@/facet/wasmKernel";
+import { openModelFromFile, saveModelToFile } from "@/fileIo";
 import { ParamStore } from "@/params";
 import { loadWorkspace, saveWorkspace } from "@/storage";
 import {
@@ -258,6 +259,55 @@ export default function FacetStudio() {
     core.openDoc("");
     core.save();
   };
+
+  // Open a model source file (.facet.ts) into its own new tab, named from the
+  // file, mirroring how an example is opened so it never overwrites the model
+  const openFileIntoTab = (name: string, code: string) => {
+    const core = coreRef.current;
+    if (!core) return;
+    const captured = setActiveCode(tabsRef.current, core.getCode());
+    const { state } = addTab(captured, code, name);
+    commitTabs(state);
+    core.openDoc(code);
+    core.save();
+  };
+
+  // Save the active model's source to a .facet.ts file (native picker where
+  // available, else a download); the file name comes from the active tab
+  const handleSaveFile = () => {
+    const core = coreRef.current;
+    if (!core) return;
+    const name = activeTab(tabsRef.current)?.name ?? "model";
+    void saveModelToFile(name, core.getCode());
+  };
+
+  // Open a .facet.ts (or .ts) file into a new tab
+  const handleOpenFile = () => {
+    void openModelFromFile().then((opened) => {
+      if (opened) openFileIntoTab(opened.name, opened.code);
+    });
+  };
+
+  // Cmd/Ctrl+S saves the model source; Cmd/Ctrl+O opens one, each overriding
+  // the browser default. Bound once; the handlers read live refs
+  // biome-ignore lint/correctness/useExhaustiveDependencies: handlers read live refs, so bind the listener once
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "s") {
+        event.preventDefault();
+        handleSaveFile();
+      } else if (key === "o") {
+        event.preventDefault();
+        handleOpenFile();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Keep the AI panel's handle pointing at fresh closures every render; it is
   // only read on a user click, long after the core is wired
@@ -723,6 +773,22 @@ export default function FacetStudio() {
             current={currentExample}
             onSelect={loadExample}
           />
+          <button
+            type="button"
+            className="icon-btn"
+            title="Open a model file (.facet.ts)"
+            onClick={handleOpenFile}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Save model source to a .facet.ts file"
+            onClick={handleSaveFile}
+          >
+            Save
+          </button>
           <select
             ref={kernelRef}
             className="kernel-select"
