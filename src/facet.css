@@ -731,6 +731,39 @@ body,
   justify-content: center;
   line-height: 1;
 }
+/* A real avatar fills the circular trigger; initials are a sized fallback */
+.facet-app .account-avatar-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+.facet-app .account-avatar-initials {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+/* Identity header at the top of the account dropdown */
+.facet-app .account-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.facet-app .account-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.facet-app .account-email {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
 .facet-app .account-dropdown {
   position: absolute;
   top: calc(100% + 6px);
