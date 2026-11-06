@@ -7,21 +7,12 @@ import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
 import {
   KernelError,
-  Shape,
-  box,
-  cube,
-  cylinder,
-  difference,
-  grid,
-  intersection,
   meshKernel,
-  rectTube,
   requiresBrep,
   shouldAutoSwitchToBrep,
-  sphere,
-  union,
 } from "@/facet";
 import { loadBrepKernel } from "@/facet/brepKernel";
+import { ModelRunner } from "@/facet/modelRunner";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { openModelFromFile, saveModelToFile } from "@/fileIo";
 import { ParamStore } from "@/params";
@@ -92,19 +83,6 @@ interface StudioCore {
   /** Persist the whole workspace (debounced). */
   save: () => void;
 }
-
-// The API surface injected into user model code.
-const api = {
-  cube,
-  box,
-  sphere,
-  cylinder,
-  union,
-  difference,
-  intersection,
-  grid,
-  rectTube,
-} as const;
 
 export default function FacetStudio() {
   // Which pane the phone layout shows. Desktop ignores this (both panes show
@@ -371,6 +349,9 @@ export default function FacetStudio() {
     inited.current = true;
 
     const store = new ParamStore();
+    // Model code is evaluated in a sandbox worker (no DOM/token access); the
+    // store here holds values + declarations for the parameter UI only
+    const runner = new ModelRunner();
     // The theme is stamped on <html> at app boot (main.tsx initTheme). Read the
     // current value to seed the viewport and editor.
     const initialTheme = getTheme();
@@ -392,20 +373,6 @@ export default function FacetStudio() {
     // The model the editor opens with: the active tab's code.
     const initialDoc =
       workspace.tabs.find((t) => t.id === workspace.activeId)?.code ?? "";
-
-    const build = (code: string): OpNode => {
-      store.begin();
-      const names = [...Object.keys(api), "param"];
-      // biome-ignore lint/security/noGlobalEval: MVP eval; P1b moves this to a sandboxed worker + esbuild
-      const fn = new Function(...names, `"use strict";\n${code}`);
-      const result = fn(...Object.values(api), store.api());
-      if (!(result instanceof Shape)) {
-        throw new Error(
-          "Your model must `return` a shape (e.g. `return cube(10);`).",
-        );
-      }
-      return result.node;
-    };
 
     const renderParams = () => {
       const paramsEl = paramsMount.current!;
@@ -477,59 +444,66 @@ export default function FacetStudio() {
       }
     };
 
+    // Each run is tagged so a newer run's result supersedes an older one still
+    // in flight in the worker (rapid slider drags or edits)
+    let runSeq = 0;
     const run = (reframe = false, onResult?: (outcome: RunOutcome) => void) => {
       const t0 = performance.now();
       const statusEl = statusRef.current!;
-      let node: OpNode;
-      try {
-        node = build(editor.getValue());
-      } catch (err) {
-        currentNode = null;
-        const message = err instanceof Error ? err.message : String(err);
-        statusEl.className = "status err";
-        statusEl.textContent = `✗ ${message}`;
-        onResult?.({ ok: false, error: message });
-        return;
-      }
+      const seq = ++runSeq;
+      // Evaluate the model in the sandbox worker, then render on the main thread
+      void runner
+        .build(editor.getValue(), store.valuesSnapshot())
+        .then((result) => {
+          if (seq !== runSeq) return; // a newer run has superseded this one
+          if (!result.ok) {
+            currentNode = null;
+            statusEl.className = "status err";
+            statusEl.textContent = `✗ ${result.error}`;
+            onResult?.({ ok: false, error: result.error });
+            return;
+          }
+          store.adoptRun(result.decls);
+          const node = result.node;
 
-      // Fillet/chamfer/shell exist only on the B-rep (OCCT) kernel, so load and
-      // switch to it on demand rather than erroring on the mesh/Rust kernel.
-      // activateBrepKernel flips activeKernelKey to "brep" before it re-runs, so
-      // this branch cannot re-trigger itself and cause a switch loop. Thread
-      // onResult through so a caller sees the outcome of the post-switch run
-      if (shouldAutoSwitchToBrep(node, activeKernelKey)) {
-        announceAutoSwitch = true;
-        activateBrepKernel(reframe, onResult);
-        return;
-      }
+          // Fillet/chamfer/shell exist only on the B-rep (OCCT) kernel, so load
+          // and switch to it on demand. activateBrepKernel flips activeKernelKey
+          // to "brep" before it re-runs, so this cannot re-trigger itself. Thread
+          // onResult through so a caller sees the outcome of the post-switch run
+          if (shouldAutoSwitchToBrep(node, activeKernelKey)) {
+            announceAutoSwitch = true;
+            activateBrepKernel(reframe, onResult);
+            return;
+          }
 
-      try {
-        const mesh = activeKernel.evaluate(node);
-        viewport.setMesh(mesh, reframe);
-        currentNode = node;
-        renderParams();
-        if (announceAutoSwitch && requiresBrep(node)) {
-          // First successful render of a B-rep model after an automatic switch:
-          // say why the kernel changed, then fall back to the usual stats. Gate
-          // on requiresBrep so a failed first eval cannot mislabel a later
-          // non-B-rep render with the switch notice
-          announceAutoSwitch = false;
-          statusEl.className = "status ok";
-          statusEl.textContent =
-            "✓ Using the B-rep kernel for fillet/chamfer/shell";
-        } else {
-          const ms = (performance.now() - t0).toFixed(0);
-          statusEl.className = "status ok";
-          statusEl.textContent = `✓ ${mesh.triangleCount.toLocaleString()} triangles · ${ms} ms · ${activeKernel.name}`;
-        }
-        onResult?.({ ok: true });
-      } catch (err) {
-        currentNode = null;
-        const message = err instanceof Error ? err.message : String(err);
-        statusEl.className = "status err";
-        statusEl.textContent = `✗ ${message}`;
-        onResult?.({ ok: false, error: message });
-      }
+          try {
+            const mesh = activeKernel.evaluate(node);
+            viewport.setMesh(mesh, reframe);
+            currentNode = node;
+            renderParams();
+            if (announceAutoSwitch && requiresBrep(node)) {
+              // First successful render of a B-rep model after an automatic
+              // switch: say why the kernel changed, then fall back to the usual
+              // stats. Gate on requiresBrep so a failed first eval cannot
+              // mislabel a later non-B-rep render with the switch notice
+              announceAutoSwitch = false;
+              statusEl.className = "status ok";
+              statusEl.textContent =
+                "✓ Using the B-rep kernel for fillet/chamfer/shell";
+            } else {
+              const ms = (performance.now() - t0).toFixed(0);
+              statusEl.className = "status ok";
+              statusEl.textContent = `✓ ${mesh.triangleCount.toLocaleString()} triangles · ${ms} ms · ${activeKernel.name}`;
+            }
+            onResult?.({ ok: true });
+          } catch (err) {
+            currentNode = null;
+            const message = err instanceof Error ? err.message : String(err);
+            statusEl.className = "status err";
+            statusEl.textContent = `✗ ${message}`;
+            onResult?.({ ok: false, error: message });
+          }
+        });
     };
 
     // Editor edits re-eval arbitrary code, so debounce them while typing.
@@ -775,6 +749,11 @@ export default function FacetStudio() {
       selectKernel("brep");
     }
 
+    // The setup effect runs once (guarded by inited) and owns the viewport,
+    // editor, and model worker for the Studio's lifetime; like them, the worker
+    // is intentionally not disposed here. Tearing it down in this cleanup would
+    // kill an in-flight async build during React's StrictMode remount, which the
+    // guarded second mount would not recreate.
     return () => unsubscribeTheme();
   }, []);
 
