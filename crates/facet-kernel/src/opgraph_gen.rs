@@ -54,5 +54,40 @@ pub enum OpNode {
     Intersect {
         children: Vec<OpNode>,
     },
+    Circle2d {
+        r: f64,
+        segments: i32,
+    },
+    Rect2d {
+        size: [f64; 2],
+        center: bool,
+    },
+    Polygon2d {
+        points: Vec<f64>,
+    },
+    Union2d {
+        children: Vec<OpNode>,
+    },
+    Difference2d {
+        children: Vec<OpNode>,
+    },
+    Intersect2d {
+        children: Vec<OpNode>,
+    },
+    Offset2d {
+        distance: f64,
+        child: Box<OpNode>,
+    },
+    Extrude {
+        height: f64,
+        twist: f64,
+        scale: f64,
+        child: Box<OpNode>,
+    },
+    Revolve {
+        angle: f64,
+        segments: i32,
+        child: Box<OpNode>,
+    },
 }
 

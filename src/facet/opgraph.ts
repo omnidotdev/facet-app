@@ -28,17 +28,28 @@ export type Vec3 = [number, number, number];
  */
 export function requiresBrep(node: OpNode): boolean {
   switch (node.op) {
+    // Exact-geometry ops and the entire 2D sketch / sweep layer exist only in
+    // the B-rep kernel; a graph that touches any of them must run there
     case "fillet":
     case "chamfer":
     case "shell":
+    case "circle2d":
+    case "rect2d":
+    case "polygon2d":
+    case "extrude":
+    case "revolve":
       return true;
     case "translate":
     case "rotate":
     case "scale":
+    case "offset2d":
       return requiresBrep(node.child);
     case "union":
     case "difference":
     case "intersect":
+    case "union2d":
+    case "difference2d":
+    case "intersect2d":
       return node.children.some(requiresBrep);
     case "cube":
     case "sphere":

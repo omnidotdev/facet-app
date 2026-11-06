@@ -270,4 +270,91 @@ describe("OCCT B-rep kernel", () => {
     }
     expect(heapBytes()).toBeLessThanOrEqual(warmHeap);
   });
+
+  test.skipIf(!rc)("extrudes a 2D square into a solid prism", () => {
+    const node: OpNode = {
+      op: "extrude",
+      height: 10,
+      twist: 0,
+      scale: 1,
+      child: { op: "rect2d", size: [8, 8], center: true },
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    // A box has 12 triangles (2 per face), the floor for an untwisted prism
+    expect(mesh.triangleCount).toBeGreaterThanOrEqual(12);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+    expect(mesh.normals.length).toBe(mesh.triangleCount * 9);
+  });
+
+  test.skipIf(!rc)(
+    "a twisted, tapered extrude builds a non-degenerate solid",
+    () => {
+      const node: OpNode = {
+        op: "extrude",
+        height: 20,
+        twist: 90,
+        scale: 0.5,
+        child: { op: "circle2d", r: 6, segments: 64 },
+      };
+      const mesh = evaluateOpGraph(rc!, node);
+      // The twist + taper curve the walls, so the solid tessellates well past a
+      // plain box; mostly a smoke test that the profile config path builds
+      expect(mesh.triangleCount).toBeGreaterThan(12);
+      expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+    },
+  );
+
+  test.skipIf(!rc)("revolves a profile into a solid of revolution", () => {
+    // A column sitting between x=5 and x=7 (its X is the radius, its Y the
+    // height), revolved a full turn, is a tube; kept off the Z axis so the
+    // profile never straddles it
+    const node: OpNode = {
+      op: "revolve",
+      angle: 360,
+      segments: 64,
+      child: {
+        op: "polygon2d",
+        points: [5, 0, 7, 0, 7, 10, 5, 10],
+      },
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(12);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+  });
+
+  test.skipIf(!rc)("extrudes a 2D boolean (a ring) into a tube", () => {
+    const node: OpNode = {
+      op: "extrude",
+      height: 5,
+      twist: 0,
+      scale: 1,
+      child: {
+        op: "difference2d",
+        children: [
+          { op: "circle2d", r: 10, segments: 64 },
+          { op: "circle2d", r: 6, segments: 64 },
+        ],
+      },
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(12);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+  });
+
+  test.skipIf(!rc)("refuses to mesh a bare 2D sketch", () => {
+    // A sketch is not a solid; the kernel must guide the user to extrude/revolve
+    const node: OpNode = { op: "circle2d", r: 5, segments: 64 };
+    expect(() => evaluateOpGraph(rc!, node)).toThrow(/sketch|extrude|revolve/i);
+  });
+
+  test.skipIf(!rc)("refuses to extrude a 3D shape instead of a sketch", () => {
+    const node: OpNode = {
+      op: "extrude",
+      height: 5,
+      twist: 0,
+      scale: 1,
+      child: { op: "cube", size: [2, 2, 2], center: true },
+    };
+    expect(() => evaluateOpGraph(rc!, node)).toThrow(/2D sketch/i);
+  });
 });

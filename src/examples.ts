@@ -120,6 +120,49 @@ for (const [face, sign, value] of faces) {
 }
 
 return die;`,
+
+  "Extruded star": `// Sketch a star in 2D, then extrude it into a badge
+const r = param.number("radius", { min: 10, max: 60, default: 30, step: 1 });
+const thickness = param.number("thickness", { min: 2, max: 12, default: 4, step: 0.5 });
+const inner = r * 0.4;
+
+const pts = [];
+for (let i = 0; i < 10; i++) {
+  const a = (i / 10) * Math.PI * 2 + Math.PI / 2;
+  const rad = i % 2 === 0 ? r : inner;
+  pts.push([Math.cos(a) * rad, Math.sin(a) * rad]);
+}
+
+return extrude(polygon(pts), thickness);`,
+
+  "Revolved vase": `// Revolve a 2D cross-section about the Z axis (X is the radius, Y the height)
+const h = param.number("height", { min: 40, max: 140, default: 80, step: 1 });
+const base = param.number("base", { min: 10, max: 40, default: 20, step: 1 });
+const rim = param.number("rim", { min: 10, max: 50, default: 32, step: 1 });
+const wall = 2;
+
+const profile = polygon([
+  [0, 0],
+  [base, 0],
+  [rim, h],
+  [rim - wall, h],
+  [base - wall, wall],
+  [0, wall],
+]);
+
+return revolve(profile, { segments: 96 });`,
+
+  Washer: `// A flat washer: a 2D ring (disc minus a concentric hole) extruded
+const outer = param.number("outer", { min: 6, max: 40, default: 16, step: 1 });
+const inner = param.number("inner", { min: 2, max: 30, default: 8, step: 1 });
+const t = param.number("thickness", { min: 1, max: 8, default: 2, step: 0.5 });
+
+// keep the hole smaller than the disc even as the sliders move
+const ro = outer / 2;
+const ri = Math.min(inner, outer - 2) / 2;
+
+const ring = circle(ro).subtract(circle(ri));
+return extrude(ring, t);`,
 };
 
 export const defaultExample = "Parametric plate";
