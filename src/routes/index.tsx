@@ -207,7 +207,7 @@ function Landing() {
             <p className="fl-sub">
               Facet turns code into solid geometry. Model parametric parts in
               real code, evaluate them with a proper geometry kernel, and export
-              print-ready meshes - right in your browser.
+              print-ready meshes right in your browser.
             </p>
             <div className="fl-cta-row">
               <Link to="/studio" className="fl-btn fl-btn-primary">

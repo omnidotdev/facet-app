@@ -170,6 +170,14 @@
   padding: 8px 14px;
   font-size: 14px;
 }
+/* Nav CTAs sit in .fl-nav-links, which is muted; force the readable hero text
+   colour so "Open Studio" is legible on the amber button */
+.fl-nav .fl-btn {
+  color: var(--text);
+}
+.fl-nav .fl-btn-ghost:hover {
+  color: #fff;
+}
 .fl-btn .soon {
   font-family: ui-monospace, monospace;
   font-size: 10px;

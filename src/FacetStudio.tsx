@@ -769,6 +769,7 @@ export default function FacetStudio() {
             height={20}
           />
           <b>Facet</b>
+          <span className="brand-badge">Early access</span>
         </span>
         <span className="tag">code CAD · write code, get geometry</span>
         <div className="header-controls">
