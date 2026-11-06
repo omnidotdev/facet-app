@@ -18,7 +18,6 @@ function StudioRoute() {
   return (
     <div className="facet-landing">
       <section className="fl-gate">
-        <span className="fl-eyebrow">Facet Studio</span>
         <div className="fl-gate-mark">
           <img src="/mark.svg" alt="" width={48} height={48} />
         </div>
