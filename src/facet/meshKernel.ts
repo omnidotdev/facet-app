@@ -132,6 +132,33 @@ function mapVerts(csg: CSG, fn: (p: Vector) => Vector): CSG {
   );
 }
 
+/** Reflect a point or direction across the plane through the origin with unit normal n. */
+function reflectAcross(v: Vector, n: Vector): Vector {
+  const d = 2 * (v.x * n.x + v.y * n.y + v.z * n.z);
+  return new Vector(v.x - d * n.x, v.y - d * n.y, v.z - d * n.z);
+}
+
+/**
+ * Mirror a solid across the plane through the origin whose normal is `normal`.
+ * A reflection flips handedness, so reflecting the vertices alone leaves every
+ * polygon wound inside-out; reverse each polygon's winding (and reflect its
+ * per-vertex normals) so the solid stays outward-facing. The Polygon rebuild
+ * recomputes each plane from the corrected winding.
+ */
+function mirrorCsg(csg: CSG, normal: Vec3): CSG {
+  const len = Math.hypot(normal[0], normal[1], normal[2]) || 1;
+  const n = new Vector(normal[0] / len, normal[1] / len, normal[2] / len);
+  return CSG.fromPolygons(
+    csg.polygons.map((poly) => {
+      const verts = poly.vertices.map(
+        (v) => new Vertex(reflectAcross(v.pos, n), reflectAcross(v.normal, n)),
+      );
+      verts.reverse();
+      return new Polygon(verts);
+    }),
+  );
+}
+
 function rotatePoint(p: Vector, deg: Vec3): Vector {
   const d = Math.PI / 180;
   let { x, y, z } = p;
@@ -182,6 +209,8 @@ function evalNode(node: OpNode): CSG {
       );
     case "rotate":
       return mapVerts(evalNode(node.child), (p) => rotatePoint(p, node.deg));
+    case "mirror":
+      return mirrorCsg(evalNode(node.child), node.normal);
     case "union":
       return reduceBool(node.children, (a, b) => a.union(b));
     case "difference":

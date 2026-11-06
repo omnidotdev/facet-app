@@ -75,6 +75,12 @@ const SHAPE_METHODS: Completion[] = [
     info: "Scale; a single number scales uniformly",
   },
   {
+    label: "mirror",
+    type: "method",
+    detail: ".mirror(x, y?, z?)",
+    info: "Mirror across the plane whose normal is (x, y, z); mirror([1,0,0]) flips X",
+  },
+  {
     label: "fillet",
     type: "method",
     detail: ".fillet(radius)",

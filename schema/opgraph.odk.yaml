@@ -87,3 +87,10 @@ unions:
         angle: number       # sweep in degrees about the Z axis; 360 = full
         segments: integer
         child: OpNode
+      # Reflect across the plane through the origin whose normal is `normal`
+      # (OpenSCAD's mirror). normal [1,0,0] flips X, [0,1,0] flips Y, etc. Works
+      # in every kernel: the reflection reverses winding, which each kernel
+      # corrects so the solid stays outward-facing
+      mirror:
+        normal: number[3]
+        child: OpNode

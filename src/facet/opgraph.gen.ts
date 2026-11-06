@@ -23,5 +23,6 @@ export type OpNode =
   | { op: "intersect2d"; children: OpNode[] }
   | { op: "offset2d"; distance: number; child: OpNode }
   | { op: "extrude"; height: number; twist: number; scale: number; child: OpNode }
-  | { op: "revolve"; angle: number; segments: number; child: OpNode };
+  | { op: "revolve"; angle: number; segments: number; child: OpNode }
+  | { op: "mirror"; normal: [number, number, number]; child: OpNode };
 

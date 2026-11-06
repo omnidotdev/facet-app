@@ -93,6 +93,37 @@ describe("B-rep-only ops are rejected by the mesh kernel", () => {
   });
 });
 
+describe("mirror reflects a solid and keeps it outward-facing", () => {
+  test("mirror across the YZ plane flips a shape from +X to -X", () => {
+    // A cube pushed to +X, mirrored across the plane with normal [1,0,0]
+    const node = cube(10).translate(20, 0, 0).mirror([1, 0, 0]).node;
+    const mesh = meshKernel.evaluate(node);
+    const bounds = meshBounds(mesh);
+    // It spanned 15..25 in X; after the flip it spans -25..-15
+    expect(bounds.max[0]).toBeLessThan(0);
+    expect(bounds.min[0]).toBeGreaterThan(-30);
+    // Same box, so the same triangle count as the un-mirrored cube
+    expect(mesh.triangleCount).toBe(
+      meshKernel.evaluate(cube(10).node).triangleCount,
+    );
+  });
+
+  test("a mirrored solid still booleans correctly (winding is not inverted)", () => {
+    // If mirror left faces wound inside-out, the CSG subtraction would treat the
+    // tool as empty and remove nothing. The tool (mirrored to span X -20..0)
+    // overlaps the -X half of the base (X -10..10), so a correct subtraction
+    // must carve that half away, leaving a solid that starts at x=0
+    const base = cube(20);
+    const tool = cube(20).translate(10, 0, 0).mirror([1, 0, 0]);
+    const cut = meshKernel.evaluate(base.subtract(tool).node);
+    const bounds = meshBounds(cut);
+    expect(cut.triangleCount).toBeGreaterThan(0);
+    // The -X half is gone: the result no longer reaches to x=-10
+    expect(bounds.min[0]).toBeGreaterThan(-2);
+    expect(bounds.max[0]).toBeCloseTo(10, 0);
+  });
+});
+
 describe("STL export", () => {
   test("binary STL is 84 + 50 bytes per triangle", () => {
     const mesh = meshKernel.evaluate(cube(10).node);
