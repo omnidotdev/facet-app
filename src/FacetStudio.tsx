@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import GeneratePanel from "@/components/ai/GeneratePanel";
 import AccountControl from "@/components/auth/AccountControl";
 import ExamplesMenu from "@/components/ExamplesMenu";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
 import {
@@ -117,6 +118,9 @@ export default function FacetStudio() {
     activeId: initialWorkspace.activeId,
   }));
   // A tab awaiting close confirmation, or null when no confirm is open
+  // Retains the closing tab's name so the confirm dialog's title stays stable
+  // through its close animation (when `closing` has already been cleared)
+  const closingNameRef = useRef("");
   const [closing, setClosing] = useState<{ id: string; name: string } | null>(
     null,
   );
@@ -330,16 +334,6 @@ export default function FacetStudio() {
       openGeneratedTab,
     };
   });
-
-  // Let Escape dismiss the close-confirm dialog
-  useEffect(() => {
-    if (!closing) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setClosing(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [closing]);
 
   // F2 renames the active tab (the common editor/file-tab shortcut). Ignored
   // while already renaming, so the inline input keeps focus
@@ -767,6 +761,9 @@ export default function FacetStudio() {
     return () => unsubscribeTheme();
   }, []);
 
+  // Keep the retained name current while the confirm dialog is open
+  if (closing) closingNameRef.current = closing.name;
+
   return (
     <div className="facet-app">
       <header>
@@ -999,36 +996,20 @@ export default function FacetStudio() {
         </a>
       </footer>
 
-      {closing ? (
-        <div
-          className="ai-modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Close model"
-        >
-          <div className="ai-modal confirm-modal">
-            <div className="ai-modal-head">
-              <span className="ai-title">Close “{closing.name}”?</span>
-            </div>
-            <p className="ai-help">
-              This model will be removed from your workspace and cannot be
-              recovered.
-            </p>
-            <div className="ai-actions confirm-actions">
-              <button type="button" onClick={() => setClosing(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="danger"
-                onClick={() => doCloseTab(closing.id)}
-              >
-                Close model
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        open={closing !== null}
+        onOpenChange={(open) => {
+          if (!open) setClosing(null);
+        }}
+        title={`Close “${closingNameRef.current}”?`}
+        description="This model will be removed from your workspace and cannot be recovered."
+        confirmLabel="Close model"
+        cancelLabel="Cancel"
+        destructive
+        onConfirm={() => {
+          if (closing) doCloseTab(closing.id);
+        }}
+      />
     </div>
   );
 }
