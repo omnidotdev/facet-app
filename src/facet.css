@@ -699,11 +699,24 @@ body,
 .facet-app button.account-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--text);
+  cursor: pointer;
+}
+.facet-app button.account-trigger:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .account-avatar {
-  color: var(--accent);
-  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
 }
 .facet-app .account-dropdown {
@@ -731,8 +744,57 @@ body,
   color: var(--text);
   text-decoration: none;
   white-space: nowrap;
+  /* Both items share one size: an <a> inherits the ambient font while a
+     <button> would fall back to the UA default, so pin both to inherit */
+  font: inherit;
+  cursor: pointer;
 }
 .facet-app .account-dropdown .account-item:hover {
   background: var(--panel-2);
   border-color: transparent;
+}
+
+/* Examples menu: a labeled dropdown of demo models, matching the account menu */
+.facet-app .examples-menu {
+  position: relative;
+  display: inline-flex;
+}
+.facet-app .examples-caret {
+  opacity: 0.7;
+}
+.facet-app .examples-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+.facet-app .examples-dropdown .examples-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.facet-app .examples-dropdown .examples-item:hover {
+  background: var(--panel-2);
+}
+.facet-app .examples-dropdown .examples-item[aria-current="true"] {
+  color: var(--accent);
+  font-weight: 600;
 }

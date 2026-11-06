@@ -62,11 +62,23 @@ const AccountControl = () => {
         onClick={() => setMenuOpen((open) => !open)}
         aria-haspopup="menu"
         aria-expanded={menuOpen}
+        aria-label="Account menu"
+        title="Account"
       >
         <span className="account-avatar" aria-hidden>
-          ◍
+          <svg
+            viewBox="0 0 24 24"
+            width="16"
+            height="16"
+            fill="currentColor"
+            role="img"
+            aria-label="Account"
+          >
+            <title>Account</title>
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 20c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5v.5H4V20z" />
+          </svg>
         </span>
-        <span>Account</span>
       </button>
       {menuOpen ? (
         <div className="account-dropdown" role="menu">
