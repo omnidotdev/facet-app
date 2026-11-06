@@ -910,3 +910,123 @@ body,
 .facet-app button.settings-row-btn:hover {
   border-color: var(--accent);
 }
+
+/* Shared Ark UI dialog (ConfirmDialog): click-outside + Escape come from Ark;
+   enter/exit animation is driven by the data-state it sets on each part */
+.fx-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgb(0 0 0 / 55%);
+  /* The backdrop only exists while open; make it catch the outside press that
+     dismisses (a modal backdrop should block the page behind it anyway) */
+  pointer-events: auto !important;
+}
+.fx-dialog-backdrop[data-state="open"] {
+  animation: fx-fade-in 0.15s ease;
+}
+.fx-dialog-backdrop[data-state="closed"] {
+  animation: fx-fade-out 0.14s ease forwards;
+}
+.fx-dialog-positioner {
+  position: fixed;
+  inset: 0;
+  z-index: 101;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.fx-dialog {
+  width: 100%;
+  max-width: 420px;
+  padding: 18px 20px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 40%);
+}
+.fx-dialog[data-state="open"] {
+  animation: fx-pop-in 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.fx-dialog[data-state="closed"] {
+  animation: fx-pop-out 0.12s ease forwards;
+}
+.fx-dialog-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.fx-dialog-desc {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.fx-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.fx-dialog-btn {
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.fx-dialog-btn:hover {
+  border-color: var(--accent);
+}
+.fx-dialog-btn.danger {
+  background: var(--err);
+  border-color: var(--err);
+  color: #fff;
+}
+.fx-dialog-btn.danger:hover {
+  filter: brightness(1.08);
+}
+.fx-dialog-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+@keyframes fx-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fx-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes fx-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fx-pop-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
