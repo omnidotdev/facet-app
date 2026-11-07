@@ -53,9 +53,24 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         OpNode::Union { children } => reduce_bool(children, |a, b| a.union(b)),
         OpNode::Difference { children } => reduce_bool(children, |a, b| a.subtract(b)),
         OpNode::Intersect { children } => reduce_bool(children, |a, b| a.intersect(b)),
-        // 2D sketch profiles and sweeps (extrude/revolve) build on exact planar
-        // curves the mesh/CSG kernel has no representation for; direct the user
-        // to the B-rep kernel, which the Studio auto-switches to
+        // extrude/revolve of a simple profile (circle/rect/polygon) tessellate
+        // here; a curved or combined profile has no mesh representation
+        OpNode::Extrude { height, twist, scale, child } => match crate::sweep::profile_ring(child) {
+            Some(ring) => crate::sweep::extrude_profile(&ring, *height, *twist, *scale),
+            None => Err(
+                "This profile needs the B-rep kernel. Switch the kernel to B-rep (OCCT)."
+                    .to_string(),
+            ),
+        },
+        OpNode::Revolve { angle, segments, child } => match crate::sweep::profile_ring(child) {
+            Some(ring) => crate::sweep::revolve_profile(&ring, *angle, *segments),
+            None => Err(
+                "This profile needs the B-rep kernel. Switch the kernel to B-rep (OCCT)."
+                    .to_string(),
+            ),
+        },
+        // Bare 2D sketches and the curved/combined 2D ops have no mesh form; the
+        // Studio routes these to the B-rep kernel
         OpNode::Circle2d { .. }
         | OpNode::Rect2d { .. }
         | OpNode::Polygon2d { .. }
@@ -64,10 +79,8 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         | OpNode::Union2d { .. }
         | OpNode::Difference2d { .. }
         | OpNode::Intersect2d { .. }
-        | OpNode::Offset2d { .. }
-        | OpNode::Extrude { .. }
-        | OpNode::Revolve { .. } => Err(
-            "2D sketches and extrude/revolve need the B-rep kernel. Switch the kernel to B-rep (OCCT)."
+        | OpNode::Offset2d { .. } => Err(
+            "2D sketches need the B-rep kernel, or extrude/revolve them. Switch the kernel to B-rep (OCCT)."
                 .to_string(),
         ),
     }
