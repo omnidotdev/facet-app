@@ -3,6 +3,9 @@
 // stays lean and the wasm is fetched on demand the first time this kernel loads
 import wasmUrl from "replicad-opencascadejs/wasm?url";
 
+// The bundled sans font (Liberation Sans, SIL OFL) that `text()` renders with;
+// Vite hands back its asset URL and replicad's loadFont fetches it on demand
+import fontUrl from "../fonts/LiberationSans-Regular.ttf?url";
 import { KernelError } from "./kernel";
 import { meshToStlBinary } from "./stl";
 import { drawSvgPath } from "./svgPath";
@@ -480,6 +483,19 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       // Parse the SVG path into a planar drawing (Y-flipped so it reads upright,
       // opposite-wound subpaths cut as holes)
       return { kind: "drawing", drawing: drawSvgPath(rc, node.path) };
+    case "text2d": {
+      // The bundled font is loaded at kernel init; render the text as outlines
+      try {
+        return {
+          kind: "drawing",
+          drawing: rc.drawText(node.text, { fontSize: node.size }),
+        };
+      } catch {
+        throw new BrepModelingError(
+          "Text could not be rendered: the font is still loading or failed to load.",
+        );
+      }
+    }
     case "union2d":
       return drawing2dOp(rc, keep, node.children, (a, b) => a.fuse(b));
     case "difference2d":
@@ -641,6 +657,13 @@ export function loadBrepKernel(): Promise<Kernel | null> {
       ]);
       const oc = await ocInit.default({ locateFile: () => wasmUrl });
       rc.setOC(oc);
+      // Load the bundled font so text() works; tolerate a fetch failure (text
+      // then errors with a clear message, the rest of the kernel still works)
+      try {
+        await rc.loadFont(fontUrl);
+      } catch (err) {
+        console.warn("Facet: text font failed to load:", err);
+      }
 
       // Keep a user-safe modeling message visible, but never leak a raw OCCT
       // exception to the UI: log the detail and surface a generic message

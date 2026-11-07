@@ -37,6 +37,7 @@ export function requiresBrep(node: OpNode): boolean {
     case "rect2d":
     case "polygon2d":
     case "svg2d":
+    case "text2d":
     case "extrude":
     case "revolve":
       return true;

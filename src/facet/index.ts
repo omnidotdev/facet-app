@@ -17,6 +17,7 @@ export {
   revolve,
   sphere,
   square,
+  text,
   union,
 } from "./api";
 export { KernelError, meshBounds } from "./kernel";

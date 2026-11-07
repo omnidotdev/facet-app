@@ -72,6 +72,11 @@ unions:
         # the glyph reads upright, and subpaths that wind the opposite way become
         # holes. A 2D profile, extrude/revolve it like any other sketch
         path: string
+      text2d:
+        # a line of text as a 2D profile (the bundled sans font), sized by cap
+        # height in mm; extrude it for a raised/engraved label
+        text: string
+        size: number
       union2d:
         children: OpNode[]
       difference2d:

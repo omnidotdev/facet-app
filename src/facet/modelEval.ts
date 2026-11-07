@@ -27,6 +27,7 @@ import {
   revolve,
   sphere,
   square,
+  text,
   union,
 } from "@/facet/api";
 import { ParamStore } from "@/params";
@@ -50,6 +51,7 @@ const modelApi = {
   rect,
   polygon,
   importSvg,
+  text,
   extrude,
   revolve,
 } as const;
