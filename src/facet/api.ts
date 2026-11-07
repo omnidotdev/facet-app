@@ -262,6 +262,14 @@ export function importSvg(path: string): Sketch {
   return new Sketch({ op: "svg2d", path });
 }
 
+/**
+ * A line of text as a 2D sketch, in the bundled sans font, `size` mm tall.
+ * Extrude it for a raised or (subtract it for) an engraved label.
+ */
+export function text(content: string, opts: { size?: number } = {}): Sketch {
+  return new Sketch({ op: "text2d", text: content, size: opts.size ?? 10 });
+}
+
 /** Extrude a 2D sketch straight up by `height` into a solid. */
 export function extrude(
   sketch: Sketch,

@@ -19,6 +19,7 @@ export type OpNode =
   | { op: "rect2d"; size: [number, number]; center: boolean }
   | { op: "polygon2d"; points: number[] }
   | { op: "svg2d"; path: string }
+  | { op: "text2d"; text: string; size: number }
   | { op: "union2d"; children: OpNode[] }
   | { op: "difference2d"; children: OpNode[] }
   | { op: "intersect2d"; children: OpNode[] }

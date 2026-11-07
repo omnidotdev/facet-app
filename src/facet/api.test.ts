@@ -14,6 +14,7 @@ import {
   revolve,
   sphere,
   square,
+  text,
   union,
 } from "./api";
 
@@ -187,6 +188,14 @@ describe("2D sketch and sweep API builds an op-graph", () => {
         [5, 8],
       ]).node,
     ).toEqual({ op: "polygon2d", points: [0, 0, 10, 0, 5, 8] });
+  });
+
+  test("text wraps content in a text2d sketch node with a default size", () => {
+    expect(text("OMNI").node).toEqual({ op: "text2d", text: "OMNI", size: 10 });
+    expect(text("7", { size: 24 }).node).toMatchObject({
+      op: "text2d",
+      size: 24,
+    });
   });
 
   test("importSvg wraps an svg path in a svg2d sketch node", () => {

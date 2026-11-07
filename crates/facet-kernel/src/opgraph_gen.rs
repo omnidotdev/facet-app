@@ -68,6 +68,10 @@ pub enum OpNode {
     Svg2d {
         path: String,
     },
+    Text2d {
+        text: String,
+        size: f64,
+    },
     Union2d {
         children: Vec<OpNode>,
     },

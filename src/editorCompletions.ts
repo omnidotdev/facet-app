@@ -187,6 +187,12 @@ const TOP_LEVEL: Completion[] = [
     info: "A 2D sketch from an SVG path string (an icon/glyph/logo); extrude or revolve it",
   },
   {
+    label: "text",
+    type: "function",
+    detail: "text(content, { size })",
+    info: "A line of text as a 2D sketch (size mm tall); extrude for a raised label or subtract for engraved",
+  },
+  {
     label: "extrude",
     type: "function",
     detail: "extrude(sketch, height, { twist, scale })",
