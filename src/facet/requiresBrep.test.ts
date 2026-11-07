@@ -10,6 +10,25 @@ describe("requiresBrep", () => {
   test("is false for a lone primitive", () => {
     expect(requiresBrep(cube)).toBe(false);
     expect(requiresBrep({ op: "sphere", r: 5, segments: 32 })).toBe(false);
+    expect(
+      requiresBrep({
+        op: "cone",
+        r1: 2,
+        r2: 1,
+        h: 4,
+        segments: 32,
+        center: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("is false for a polyhedron (explicit mesh)", () => {
+    const tetra: OpNode = {
+      op: "polyhedron",
+      points: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+      faces: [3, 0, 2, 1, 3, 0, 1, 3, 3, 1, 2, 3, 3, 2, 0, 3],
+    };
+    expect(requiresBrep(tetra)).toBe(false);
   });
 
   test("is false for a pure boolean graph of primitives", () => {
@@ -53,6 +72,25 @@ describe("requiresBrep", () => {
     expect(requiresBrep({ op: "fillet", radius: 1, child: cube })).toBe(true);
     expect(requiresBrep({ op: "chamfer", size: 1, child: cube })).toBe(true);
     expect(requiresBrep({ op: "shell", thickness: 2, child: cube })).toBe(true);
+  });
+
+  test("hull is false when every child needs no B-rep", () => {
+    const graph: OpNode = {
+      op: "hull",
+      children: [cube, { op: "sphere", r: 5, segments: 32 }],
+    };
+    expect(requiresBrep(graph)).toBe(false);
+  });
+
+  test("hull is true when any child needs B-rep", () => {
+    const graph: OpNode = {
+      op: "hull",
+      children: [
+        { op: "fillet", radius: 1, child: cube },
+        { op: "sphere", r: 5, segments: 32 },
+      ],
+    };
+    expect(requiresBrep(graph)).toBe(true);
   });
 
   test("recurses through a single-child transform", () => {

@@ -220,6 +220,27 @@ export function cylinder(
   });
 }
 
+/**
+ * A cone or taper: bottom radius `r1`, top radius `r2`, height `h`. `r2 = 0`
+ * (the default) is a sharp apex; a positive `r2` makes a truncated cone
+ * (OpenSCAD's cylinder(r1, r2, h)). Centered on the origin by default.
+ */
+export function cone(
+  r1 = 1,
+  r2 = 0,
+  h = 1,
+  opts: { center?: boolean; segments?: number } = {},
+): Shape {
+  return new Shape({
+    op: "cone",
+    r1,
+    r2,
+    h,
+    segments: opts.segments ?? 32,
+    center: opts.center ?? true,
+  });
+}
+
 // --- 2D sketches ------------------------------------------------------------
 
 /** A 2D circle of radius `r`. A low `segments` count makes a regular polygon. */
@@ -303,6 +324,35 @@ export function intersection(...shapes: Shape[]): Shape {
   if (!shapes.length) throw new Error("intersection needs at least one shape");
   const [first, ...rest] = shapes;
   return first.intersect(...rest);
+}
+
+/**
+ * The convex hull of every shape (OpenSCAD's hull()): the tightest convex solid
+ * that contains them all. Great for lofting between profiles or rounding a set
+ * of points into one smooth body.
+ */
+export function hull(...shapes: Shape[]): Shape {
+  if (!shapes.length) throw new Error("hull needs at least one shape");
+  return new Shape({ op: "hull", children: shapes.map((s) => s.node) });
+}
+
+/**
+ * An explicit mesh (OpenSCAD's polyhedron) from a list of `points` and the
+ * `faces` that connect them, each face a list of point indices. Order each
+ * face's vertices so they run in a consistent rotational order seen from
+ * OUTSIDE the solid, so its normal points outward. A face may have any number
+ * of vertices (>= 3); non-triangular faces are fan-triangulated.
+ *
+ * The fan triangulation assumes each face is CONVEX (as OpenSCAD's polyhedron
+ * does): a concave face must be pre-split into convex faces, or its fan will
+ * cross outside the outline. A concave planar face can also tessellate
+ * differently between the mesh and exact (B-rep) kernels, since the mesh kernel
+ * fans it while the B-rep kernel sews it as one planar n-gon face.
+ */
+export function polyhedron(points: Vec3[], faces: number[][]): Shape {
+  const flatPoints = points.flat();
+  const flatFaces = faces.flatMap((f) => [f.length, ...f]);
+  return new Shape({ op: "polyhedron", points: flatPoints, faces: flatFaces });
 }
 
 /**

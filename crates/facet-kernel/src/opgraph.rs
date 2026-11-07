@@ -31,6 +31,9 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         OpNode::Cylinder { r, h, segments, center } => {
             Ok(csg_cylinder(*r, *h, *center, segment_count(*segments)))
         }
+        OpNode::Cone { r1, r2, h, segments, center } => {
+            Ok(csg_cone(*r1, *r2, *h, *center, segment_count(*segments)))
+        }
         OpNode::Translate { v, child } => {
             Ok(map_verts(&eval_node(child)?, |p| p.plus(Vec3::new(v[0], v[1], v[2]))))
         }
@@ -53,6 +56,8 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         OpNode::Union { children } => reduce_bool(children, |a, b| a.union(b)),
         OpNode::Difference { children } => reduce_bool(children, |a, b| a.subtract(b)),
         OpNode::Intersect { children } => reduce_bool(children, |a, b| a.intersect(b)),
+        OpNode::Hull { children } => csg_hull(children),
+        OpNode::Polyhedron { points, faces } => csg_polyhedron(points, faces),
         // extrude/revolve of a simple profile (circle/rect/polygon) tessellate
         // here; a curved or combined profile has no mesh representation
         OpNode::Extrude { height, twist, scale, child } => match crate::sweep::profile_ring(child) {
@@ -84,6 +89,95 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
                 .to_string(),
         ),
     }
+}
+
+/// Convex hull (OpenSCAD's hull()) of every child: evaluate each child to CSG,
+/// pour all their vertex positions into one cloud, and wrap the hull triangles
+/// back into a solid. The shared `hull3d` matches the TS meshKernel step for
+/// step, and the cloud is identical because the primitives match, so the two
+/// kernels tessellate a hull identically. `hull3d` winds each triangle outward,
+/// so the face normal seeds outward and `to_mesh` reads it flat.
+///
+/// The cloud is de-duplicated by exact coordinate equality first: CSG polygons
+/// repeat each shared vertex, so a sphere child would enter many times over and
+/// make the hull needlessly O(n*F). This matches the TS `csgHull` dedup byte
+/// for byte (first occurrence wins) so the seed and triangulation stay
+/// bit-identical: a zero coordinate is canonicalized to +0 before hashing, so
+/// +0 and -0 fold together exactly as the TS string key does
+fn csg_hull(children: &[OpNode]) -> Result<Csg, String> {
+    if children.is_empty() {
+        return Err("hull needs at least one child".to_string());
+    }
+    let mut seen: std::collections::HashSet<[u64; 3]> = std::collections::HashSet::new();
+    let mut points: Vec<[f64; 3]> = Vec::new();
+    let canon = |v: f64| if v == 0.0 { 0.0 } else { v };
+    for child in children {
+        for poly in &eval_node(child)?.polygons {
+            for vert in &poly.vertices {
+                let key = [
+                    canon(vert.pos.x).to_bits(),
+                    canon(vert.pos.y).to_bits(),
+                    canon(vert.pos.z).to_bits(),
+                ];
+                if seen.insert(key) {
+                    points.push([vert.pos.x, vert.pos.y, vert.pos.z]);
+                }
+            }
+        }
+    }
+    let polygons = crate::hull::hull3d(&points)?
+        .iter()
+        .map(|&[a, b, c]| {
+            let pa = Vec3::new(points[a][0], points[a][1], points[a][2]);
+            let pb = Vec3::new(points[b][0], points[b][1], points[b][2]);
+            let pc = Vec3::new(points[c][0], points[c][1], points[c][2]);
+            let normal = pb.minus(pa).cross(pc.minus(pa)).unit();
+            Polygon::new(vec![
+                Vertex::new(pa, normal),
+                Vertex::new(pb, normal),
+                Vertex::new(pc, normal),
+            ])
+        })
+        .collect();
+    Ok(Csg::from_polygons(polygons))
+}
+
+// Below this cross-product length a fan triangle has no area, so its normal is
+// undefined and the triangle is dropped rather than emitted with a NaN normal.
+// Mirrors the hull EPS and the TS csgPolyhedron guard, so both kernels drop the
+// same triangles
+const POLYHEDRON_DEGENERATE_EPS: f64 = 1e-9;
+
+/// An explicit mesh (OpenSCAD's polyhedron): decode the flat point and face
+/// lists, fan-triangulate each face, and emit one CSG triangle per fan triangle
+/// with a flat outward normal from its winding. A zero-area fan triangle is
+/// skipped so no NaN normal reaches the output. The shared decode,
+/// triangulation, and degeneracy guard mirror the TS `csgPolyhedron` step for
+/// step over the same flat lists, and `to_mesh` reads each triangle's plane
+/// normal, so the tessellation is bit-identical between the two kernels.
+fn csg_polyhedron(points: &[f64], faces: &[f64]) -> Result<Csg, String> {
+    let decoded = crate::polyhedron::decode_polyhedron(points, faces)?;
+    let mut polygons: Vec<Polygon> = Vec::new();
+    for face in &decoded.faces {
+        for [a, b, c] in crate::polyhedron::triangulate_face(face) {
+            let pa = Vec3::new(decoded.points[a][0], decoded.points[a][1], decoded.points[a][2]);
+            let pb = Vec3::new(decoded.points[b][0], decoded.points[b][1], decoded.points[b][2]);
+            let pc = Vec3::new(decoded.points[c][0], decoded.points[c][1], decoded.points[c][2]);
+            let raw = pb.minus(pa).cross(pc.minus(pa));
+            // Drop a zero-area triangle: its unit normal would be NaN, and the
+            // Polygon plane to_mesh reads back would carry that NaN into the mesh
+            if raw.length() <= POLYHEDRON_DEGENERATE_EPS {
+                continue;
+            }
+            let normal = raw.unit();
+            polygons.push(Polygon::new(vec![
+                Vertex::new(pa, normal),
+                Vertex::new(pb, normal),
+                Vertex::new(pc, normal),
+            ]));
+        }
+    }
+    Ok(Csg::from_polygons(polygons))
 }
 
 fn reduce_bool(children: &[OpNode], f: impl Fn(&Csg, &Csg) -> Csg) -> Result<Csg, String> {
@@ -249,6 +343,52 @@ fn csg_cylinder(r: f64, h: f64, center: bool, slices: u32) -> Csg {
     Csg::from_polygons(polygons)
 }
 
+/// A truncated cone (OpenSCAD's cylinder(r1, r2, h) taper): a bottom ring at
+/// radius `r1` and a top ring at `r2`, `slices` sides. The top cap is emitted
+/// only when `r2 > 0`; a zero top collapses to a sharp apex and the side faces
+/// become triangles. Mirrors the TS meshKernel `csgCone` exactly, including the
+/// `[r*cos, -r*sin]` winding, so a cone with r1 == r2 coincides with a cylinder
+fn csg_cone(r1: f64, r2: f64, h: f64, center: bool, slices: u32) -> Csg {
+    // The winding, cap, and apex logic here is duplicated across csg_cone and
+    // csg_cylinder in both Rust and TS (four copies); keep all four geometrically
+    // identical so a tweak to one is mirrored everywhere
+    let z0 = if center { -h / 2.0 } else { 0.0 };
+    let z1 = z0 + h;
+    let axis_x = Vec3::new(1.0, 0.0, 0.0);
+    let axis_y = Vec3::new(0.0, -1.0, 0.0);
+    let axis_z = Vec3::new(0.0, 0.0, 1.0);
+    let bottom = Vertex::new(Vec3::new(0.0, 0.0, z0), axis_z.negated());
+    let top = Vertex::new(Vec3::new(0.0, 0.0, z1), axis_z);
+    // A point on the ring at a given radius and height; the per-vertex normal is
+    // only a seed for CSG clipping, as each face reads flat from its winding
+    let ring = |radius: f64, z: f64, slice: f64| -> Vertex {
+        let angle = slice * std::f64::consts::TAU;
+        let out = axis_x.times(angle.cos()).plus(axis_y.times(angle.sin()));
+        Vertex::new(out.times(radius).plus(Vec3::new(0.0, 0.0, z)), out)
+    };
+    let mut polygons: Vec<Polygon> = Vec::new();
+    for i in 0..slices {
+        let t0 = i as f64 / slices as f64;
+        let t1 = (i + 1) as f64 / slices as f64;
+        let b0 = ring(r1, z0, t0);
+        let b1 = ring(r1, z0, t1);
+        // Bottom cap always, wound like the cylinder's start cap
+        polygons.push(Polygon::new(vec![bottom, b0, b1]));
+        if r2 > 0.0 {
+            let u0 = ring(r2, z1, t0);
+            let u1 = ring(r2, z1, t1);
+            // Side quad wound like the cylinder: bottom t1, bottom t0, top t0, top t1
+            polygons.push(Polygon::new(vec![b1, b0, u0, u1]));
+            // Top cap only when the top ring has area
+            polygons.push(Polygon::new(vec![top, u1, u0]));
+        } else {
+            // Sharp apex: the side is a triangle up to the single top point
+            polygons.push(Polygon::new(vec![b1, b0, top]));
+        }
+    }
+    Csg::from_polygons(polygons)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,6 +420,110 @@ mod tests {
                 .err()
                 .expect("B-rep-only op must be rejected");
             assert!(err.contains("B-rep kernel"), "unexpected message: {err}");
+        }
+    }
+
+    /// csg_cone must tessellate to a non-empty solid with the expected X/Z
+    /// bounds for both a sharp apex (r2 = 0) and a truncated frustum (r2 > 0),
+    /// mirroring the TS meshKernel cone tests
+    #[test]
+    fn cone_meshes_apex_and_frustum_with_correct_bounds() {
+        for (r1, r2) in [(2.0_f64, 0.0_f64), (2.0, 1.0)] {
+            let csg = csg_cone(r1, r2, 4.0, true, 32);
+            let (positions, _normals) = crate::csg::to_mesh(&csg);
+            assert!(positions.len() / 9 > 0, "expected a positive triangle count");
+            let mut min_x = f32::INFINITY;
+            let mut max_x = f32::NEG_INFINITY;
+            let mut min_z = f32::INFINITY;
+            let mut max_z = f32::NEG_INFINITY;
+            for p in positions.chunks(3) {
+                min_x = min_x.min(p[0]);
+                max_x = max_x.max(p[0]);
+                min_z = min_z.min(p[2]);
+                max_z = max_z.max(p[2]);
+            }
+            // Bottom radius 2 sets the X diameter (4), centered height 4 runs -2 to 2 in Z
+            assert!((max_x - min_x - 4.0).abs() < 1e-3, "x span was {}", max_x - min_x);
+            assert!((max_z - min_z - 4.0).abs() < 1e-3, "z span was {}", max_z - min_z);
+        }
+    }
+
+    /// A cube given as a polyhedron (8 points, 6 quad faces) must mesh to
+    /// exactly 12 triangles filling the unit box, mirroring the TS meshKernel
+    /// polyhedron test
+    #[test]
+    fn polyhedron_cube_meshes_to_twelve_triangles() {
+        let json = r#"{"op":"polyhedron",
+            "points":[0,0,0, 1,0,0, 1,1,0, 0,1,0, 0,0,1, 1,0,1, 1,1,1, 0,1,1],
+            "faces":[4,0,3,2,1, 4,4,5,6,7, 4,0,1,5,4, 4,3,7,6,2, 4,0,4,7,3, 4,1,2,6,5]}"#;
+        let node: OpNode = serde_json::from_str(json).expect("parse polyhedron graph");
+        let csg = eval_node(&node).expect("evaluate polyhedron");
+        let (positions, _normals) = crate::csg::to_mesh(&csg);
+        assert_eq!(positions.len() / 9, 12, "expected 12 triangles");
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in positions.chunks(3) {
+            for a in 0..3 {
+                min[a] = min[a].min(p[a]);
+                max[a] = max[a].max(p[a]);
+            }
+        }
+        for a in 0..3 {
+            assert!(min[a].abs() < 1e-5, "min[{a}] was {}", min[a]);
+            assert!((max[a] - 1.0).abs() < 1e-5, "max[{a}] was {}", max[a]);
+        }
+    }
+
+    /// A polyhedron with a zero-area face (a repeated index) must drop that fan
+    /// triangle rather than emit a NaN normal, matching the TS csgPolyhedron
+    /// guard, so only the four real tetrahedron triangles survive
+    #[test]
+    fn polyhedron_degenerate_face_is_dropped_without_nan() {
+        let json = r#"{"op":"polyhedron",
+            "points":[0,0,0, 1,0,0, 0,1,0, 0,0,1],
+            "faces":[3,0,2,1, 3,0,1,3, 3,1,2,3, 3,2,0,3, 3,0,1,0]}"#;
+        let node: OpNode = serde_json::from_str(json).expect("parse polyhedron graph");
+        let csg = eval_node(&node).expect("evaluate polyhedron");
+        let (positions, normals) = crate::csg::to_mesh(&csg);
+        assert_eq!(positions.len() / 9, 4, "degenerate face must be dropped");
+        assert!(positions.iter().all(|v| !v.is_nan()), "position NaN leaked");
+        assert!(normals.iter().all(|v| !v.is_nan()), "normal NaN leaked");
+    }
+
+    /// hull of eight unit cubes at the corners of a 10-unit box must mesh a
+    /// non-empty solid whose bounds are the 11-unit box (extreme points at
+    /// +/-5.5), mirroring the TS meshKernel hull test
+    #[test]
+    fn hull_of_corner_cubes_fills_the_bounding_box() {
+        let mut children = String::new();
+        for x in [-5, 5] {
+            for y in [-5, 5] {
+                for z in [-5, 5] {
+                    if !children.is_empty() {
+                        children.push(',');
+                    }
+                    children.push_str(&format!(
+                        r#"{{"op":"translate","v":[{x},{y},{z}],"child":{{"op":"cube","size":[1,1,1],"center":true}}}}"#
+                    ));
+                }
+            }
+        }
+        let json = format!(r#"{{"op":"hull","children":[{children}]}}"#);
+        let node: OpNode = serde_json::from_str(&json).expect("parse hull graph");
+        let csg = eval_node(&node).expect("evaluate hull");
+        let (positions, _normals) = crate::csg::to_mesh(&csg);
+        assert!(positions.len() / 9 > 0, "expected a positive triangle count");
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in positions.chunks(3) {
+            for a in 0..3 {
+                min[a] = min[a].min(p[a]);
+                max[a] = max[a].max(p[a]);
+            }
+        }
+        for a in 0..3 {
+            assert!((min[a] + 5.5).abs() < 1e-4, "min[{a}] was {}", min[a]);
+            assert!((max[a] - 5.5).abs() < 1e-4, "max[{a}] was {}", max[a]);
         }
     }
 

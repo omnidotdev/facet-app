@@ -2,13 +2,16 @@ import { describe, expect, test } from "bun:test";
 
 import {
   circle,
+  cone,
   cube,
   cylinder,
   difference,
   extrude,
   grid,
+  hull,
   importSvg,
   polygon,
+  polyhedron,
   rect,
   rectTube,
   revolve,
@@ -32,6 +35,17 @@ describe("authoring API builds an op-graph without computing geometry", () => {
       op: "cube",
       size: [2, 4, 6],
       center: false,
+    });
+  });
+
+  test("cone carries its radii, height, and defaults", () => {
+    expect(cone(2, 1, 4).node).toEqual({
+      op: "cone",
+      r1: 2,
+      r2: 1,
+      h: 4,
+      segments: 32,
+      center: true,
     });
   });
 
@@ -79,6 +93,39 @@ describe("authoring API builds an op-graph without computing geometry", () => {
     const a = union(cube(1), sphere(1)).node;
     const b = cube(1).union(sphere(1)).node;
     expect(a).toEqual(b);
+  });
+
+  test("hull collects its children into a hull node", () => {
+    expect(hull(cube(1), sphere(1)).node).toEqual({
+      op: "hull",
+      children: [cube(1).node, sphere(1).node],
+    });
+  });
+
+  test("empty hull throws", () => {
+    expect(() => hull()).toThrow(/at least one shape/);
+  });
+
+  test("polyhedron flattens points and count-prefixes each face", () => {
+    const node = polyhedron(
+      [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+      [
+        [0, 2, 1],
+        [0, 1, 3],
+        [1, 2, 3],
+        [2, 0, 3],
+      ],
+    ).node;
+    expect(node).toEqual({
+      op: "polyhedron",
+      points: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+      faces: [3, 0, 2, 1, 3, 0, 1, 3, 3, 1, 2, 3, 3, 2, 0, 3],
+    });
   });
 
   test("fillet wraps the shape in a fillet node", () => {

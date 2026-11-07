@@ -6,6 +6,8 @@ export type OpNode =
   | { op: "cube"; size: [number, number, number]; center: boolean }
   | { op: "sphere"; r: number; segments: number }
   | { op: "cylinder"; r: number; h: number; segments: number; center: boolean }
+  | { op: "cone"; r1: number; r2: number; h: number; segments: number; center: boolean }
+  | { op: "polyhedron"; points: number[]; faces: number[] }
   | { op: "translate"; v: [number, number, number]; child: OpNode }
   | { op: "rotate"; deg: [number, number, number]; child: OpNode }
   | { op: "scale"; v: [number, number, number]; child: OpNode }
@@ -15,6 +17,7 @@ export type OpNode =
   | { op: "union"; children: OpNode[] }
   | { op: "difference"; children: OpNode[] }
   | { op: "intersect"; children: OpNode[] }
+  | { op: "hull"; children: OpNode[] }
   | { op: "circle2d"; r: number; segments: number }
   | { op: "rect2d"; size: [number, number]; center: boolean }
   | { op: "polygon2d"; points: number[] }

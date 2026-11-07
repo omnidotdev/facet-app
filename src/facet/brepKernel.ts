@@ -6,12 +6,14 @@ import wasmUrl from "replicad-opencascadejs/wasm?url";
 // The bundled sans font (Liberation Sans, SIL OFL) that `text()` renders with;
 // Vite hands back its asset URL and replicad's loadFont fetches it on demand
 import fontUrl from "../fonts/LiberationSans-Regular.ttf?url";
+import { hull3d } from "./hull";
 import { KernelError } from "./kernel";
+import { decodePolyhedron, triangulateFace } from "./polyhedron";
 import { meshToStlBinary } from "./stl";
 import { drawSvgPath } from "./svgPath";
 import { meshTo3mf } from "./threeMf";
 
-import type { Drawing, Shape3D } from "replicad";
+import type { Drawing, Face, Shape3D } from "replicad";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
 import type { ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode } from "./opgraph";
@@ -387,6 +389,21 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
         shape: keep(rc.makeCylinder(node.r, node.h, [0, 0, z0], [0, 0, 1])),
       };
     }
+    case "cone": {
+      // Draw the (radius, height) profile on XZ and spin it about Z, matching
+      // OpenSCAD's cylinder(r1, r2, h) taper. r2 = 0 collapses the top to a
+      // sharp apex, so the profile is a triangle instead of a trapezoid
+      const z0 = node.center ? -node.h / 2 : 0;
+      const z1 = z0 + node.h;
+      let pen = rc.draw([0, z0]).lineTo([node.r1, z0]);
+      if (node.r2 > 0) pen = pen.lineTo([node.r2, z1]);
+      pen = pen.lineTo([0, z1]);
+      const solid = pen
+        .close()
+        .sketchOnPlane("XZ")
+        .revolve("Z", { angle: 360 }) as Shape3D;
+      return { kind: "brep", shape: keep(solid) };
+    }
     case "translate": {
       const child = requireSolidGeom(evalNode(rc, keep, node.child), "Move");
       if (child.kind === "mesh")
@@ -443,6 +460,10 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       return booleanOp(rc, keep, node.children, (a, b) => a.cut(b));
     case "intersect":
       return booleanOp(rc, keep, node.children, (a, b) => a.intersect(b));
+    case "hull":
+      return brepHull(rc, keep, node.children);
+    case "polyhedron":
+      return brepPolyhedron(rc, keep, node.points, node.faces);
     case "circle2d": {
       // A low segment count is an explicit polygon request (a hexagon), exactly
       // as the cylinder treats it; above that, an exact smooth circle
@@ -584,6 +605,180 @@ function requireSolidGeom(
       `${op} applies to a 3D shape. Extrude or revolve the 2D sketch into a solid first.`,
     );
   return geom;
+}
+
+/**
+ * Convex hull (OpenSCAD's hull()) of every child. Tessellate each child to a
+ * mesh and pour all their vertices into one cloud, then compute the hull with
+ * the shared `hull3d` (the same routine the mesh and WASM kernels use). Each
+ * hull triangle becomes a planar triangular face, and `makeSolid` welds the
+ * faces (coincident at the shared hull vertices) into a closed shell and fixes
+ * it into a solid. That is replicad's documented face-to-solid path, so the
+ * hull stays exact B-rep (filletable, STEP-exportable) rather than dropping to
+ * a display mesh.
+ *
+ * The hull is taken over the children's TESSELLATED meshes (at MESH_TOLERANCE),
+ * so a curved child (sphere, cylinder) yields a planar-faceted approximation of
+ * the true smooth hull, not a smooth surface; a finer tolerance tightens it.
+ */
+function brepHull(rc: Replicad, keep: Keep, children: OpNode[]): Geom {
+  if (!children.length) throw new Error("hull needs at least one child");
+  // De-duplicate by exact coordinate equality: a de-indexed mesh repeats each
+  // vertex per triangle, so a curved child would enter many times over and make
+  // the hull needlessly O(n*F). First occurrence wins
+  const seen = new Set<string>();
+  const points: Array<[number, number, number]> = [];
+  for (const child of children) {
+    const mesh = toMesh(requireSolidGeom(evalNode(rc, keep, child), "Hull"));
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const x = mesh.positions[i];
+      const y = mesh.positions[i + 1];
+      const z = mesh.positions[i + 2];
+      const key = `${x},${y},${z}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      points.push([x, y, z]);
+    }
+  }
+  // Each makePolygon face is an OCCT handle, so register it with localGC like
+  // every other handle in this file; makeSolid consumes them into the solid
+  const faces = hull3d(points).map(([a, b, c]) =>
+    keep(rc.makePolygon([points[a], points[b], points[c]])),
+  );
+  // A degenerate hull (near-flat cloud) can fail to sew or yield an invalid
+  // shell; surface that as an actionable modeling error rather than leaking a
+  // raw OCCT exception or returning a broken solid
+  let solid: Shape3D;
+  try {
+    solid = keep(rc.makeSolid(faces));
+  } catch {
+    throw new BrepModelingError(
+      "The hull couldn't be built into a solid. Add shapes that are not all flat or in a line.",
+    );
+  }
+  const oc = rc.getOC();
+  // BRepCheck_Analyzer is a raw OCCT object, not a replicad handle localGC
+  // tracks, so free it by hand; delete in finally so a throw cannot leak it
+  const analyzer = new oc.BRepCheck_Analyzer(solid.wrapped, true);
+  let valid: boolean;
+  try {
+    valid = analyzer.IsValid();
+  } finally {
+    analyzer.delete();
+  }
+  if (!valid)
+    throw new BrepModelingError(
+      "The hull couldn't be built into a valid solid. Add shapes that are not all flat or in a line.",
+    );
+  return { kind: "brep", shape: solid };
+}
+
+// A face counts as planar when every vertex lies within this distance (in model
+// units) of the plane through its first three vertices. At or below it the face
+// is sewn as one makePolygon n-gon; above it the face is fanned into triangles
+const POLYHEDRON_PLANAR_TOLERANCE = 1e-6;
+
+/**
+ * Whether every vertex of a face lies on the plane through its first three
+ * vertices. A triangle (or smaller) is always planar. A degenerate first
+ * triangle (collinear, so no plane) reports non-planar, which routes the face
+ * through the triangulation fallback rather than asking makePolygon for a wire
+ * it cannot build.
+ */
+function isFacePlanar(pts: number[][]): boolean {
+  if (pts.length <= 3) return true;
+  const p0 = pts[0];
+  const ux = pts[1][0] - p0[0];
+  const uy = pts[1][1] - p0[1];
+  const uz = pts[1][2] - p0[2];
+  const vx = pts[2][0] - p0[0];
+  const vy = pts[2][1] - p0[1];
+  const vz = pts[2][2] - p0[2];
+  let nx = uy * vz - uz * vy;
+  let ny = uz * vx - ux * vz;
+  let nz = ux * vy - uy * vx;
+  const len = Math.hypot(nx, ny, nz);
+  if (len < POLYHEDRON_PLANAR_TOLERANCE) return false;
+  nx /= len;
+  ny /= len;
+  nz /= len;
+  for (let k = 3; k < pts.length; k++) {
+    const d = Math.abs(
+      nx * (pts[k][0] - p0[0]) +
+        ny * (pts[k][1] - p0[1]) +
+        nz * (pts[k][2] - p0[2]),
+    );
+    if (d > POLYHEDRON_PLANAR_TOLERANCE) return false;
+  }
+  return true;
+}
+
+/**
+ * An explicit mesh (OpenSCAD's polyhedron) built as an exact B-rep solid. Each
+ * ORIGINAL face becomes one planar `makePolygon` n-gon, so a planar quad stays a
+ * single four-sided face (filletable, STEP-exportable) rather than being split
+ * into triangles. A non-planar face has no single planar wire, so it falls back
+ * to the shared fan triangulation and contributes one `makePolygon` per
+ * triangle. `makeSolid` then welds every face (coincident along shared edges)
+ * into a closed shell and fixes it into a solid, the same face-to-solid path the
+ * hull uses, with the same validity guard.
+ */
+function brepPolyhedron(
+  rc: Replicad,
+  keep: Keep,
+  points: number[],
+  faces: number[],
+): Geom {
+  const decoded = decodePolyhedron(points, faces);
+  // A degenerate face (a collinear n-gon or a fan triangle with a repeated
+  // index) makes OCCT throw from makePolygon, and a face set that does not close
+  // (a hole, a self-intersection, flipped winding) fails to sew; wrap both the
+  // face building and the sew so any OCCT failure surfaces as an actionable
+  // modeling error rather than leaking a raw OCCT exception
+  let solid: Shape3D;
+  try {
+    const occFaces: Face[] = [];
+    for (const face of decoded.faces) {
+      const facePoints = face.map((i) => decoded.points[i]);
+      if (isFacePlanar(facePoints)) {
+        occFaces.push(keep(rc.makePolygon(facePoints)));
+      } else {
+        // Non-planar: fan into triangles, each a planar makePolygon face
+        for (const [a, b, c] of triangulateFace(face))
+          occFaces.push(
+            keep(
+              rc.makePolygon([
+                decoded.points[a],
+                decoded.points[b],
+                decoded.points[c],
+              ]),
+            ),
+          );
+      }
+    }
+    solid = keep(rc.makeSolid(occFaces));
+  } catch (err) {
+    // A BrepModelingError from a nested evaluate is already user-facing; keep it
+    if (err instanceof BrepModelingError) throw err;
+    throw new BrepModelingError(
+      "The polyhedron couldn't be built into a solid. Check that its faces are wound consistently and close the surface.",
+    );
+  }
+  const oc = rc.getOC();
+  // BRepCheck_Analyzer is a raw OCCT object, not a replicad handle localGC
+  // tracks, so free it by hand; delete in finally so a throw cannot leak it
+  const analyzer = new oc.BRepCheck_Analyzer(solid.wrapped, true);
+  let valid: boolean;
+  try {
+    valid = analyzer.IsValid();
+  } finally {
+    analyzer.delete();
+  }
+  if (!valid)
+    throw new BrepModelingError(
+      "The polyhedron couldn't be built into a valid solid. Check that its faces are wound consistently and close the surface.",
+    );
+  return { kind: "brep", shape: solid };
 }
 
 function booleanOp(

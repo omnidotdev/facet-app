@@ -127,6 +127,12 @@ const TOP_LEVEL: Completion[] = [
     info: "A cylinder of radius r and height h. Centered by default",
   },
   {
+    label: "cone",
+    type: "function",
+    detail: "cone(r1, r2, h, { center, segments })",
+    info: "A cone or taper; r2 = 0 is a sharp apex, r2 > 0 a truncated cone. Centered by default",
+  },
+  {
     label: "union",
     type: "function",
     detail: "union(...shapes)",
@@ -143,6 +149,18 @@ const TOP_LEVEL: Completion[] = [
     type: "function",
     detail: "intersection(...shapes)",
     info: "Keep only the overlap of shapes",
+  },
+  {
+    label: "hull",
+    type: "function",
+    detail: "hull(...shapes)",
+    info: "The convex hull wrapping all the shapes (like OpenSCAD's hull)",
+  },
+  {
+    label: "polyhedron",
+    type: "function",
+    detail: "polyhedron(points, faces)",
+    info: "An explicit mesh from points and faces (like OpenSCAD's polyhedron); wind each face counterclockwise seen from outside",
   },
   {
     label: "grid",

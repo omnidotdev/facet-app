@@ -1,10 +1,12 @@
 import { CSG, Polygon, Vector, Vertex } from "./csg";
+import { hull3d } from "./hull";
 import { KernelError } from "./kernel";
 import {
   extrudeProfileMesh,
   profileRing,
   revolveProfileMesh,
 } from "./meshSweep";
+import { decodePolyhedron, triangulateFace } from "./polyhedron";
 import { meshToStlBinary } from "./stl";
 import { meshTo3mf } from "./threeMf";
 
@@ -12,6 +14,15 @@ import type { ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode, Vec3 } from "./opgraph";
 
 // --- Primitive solids as CSG polygon sets -----------------------------------
+
+/**
+ * Clamp a `segments` value to a safe positive loop count, mirroring the Rust
+ * kernel's `segment_count` (`n.max(1) as u32`) so a zero or negative count
+ * yields the same ring count in both kernels instead of diverging.
+ */
+function segmentCount(n: number): number {
+  return Math.max(1, Math.floor(n));
+}
 
 function csgCube(center: Vec3, radius: Vec3): CSG {
   const c = new Vector(center[0], center[1], center[2]);
@@ -126,6 +137,156 @@ function csgCylinder(
   return CSG.fromPolygons(polygons);
 }
 
+/**
+ * A truncated cone (OpenSCAD's cylinder(r1, r2, h) taper): a bottom ring at
+ * radius `r1` and a top ring at `r2`, `slices` sides. The top cap is emitted
+ * only when `r2 > 0`; when it is zero the top collapses to a sharp apex and the
+ * side faces become triangles. The ring winds `[r*cos, -r*sin]` exactly like
+ * the cylinder, so a cone with r1 == r2 coincides with a cylinder.
+ */
+function csgCone(
+  r1: number,
+  r2: number,
+  h: number,
+  center: boolean,
+  slices: number,
+): CSG {
+  // The winding, cap, and apex logic here is duplicated across csgCone and
+  // csgCylinder in both TS and Rust (four copies); keep all four geometrically
+  // identical so a tweak to one is mirrored everywhere
+  const z0 = center ? -h / 2 : 0;
+  const z1 = z0 + h;
+  const axisX = new Vector(1, 0, 0);
+  const axisY = new Vector(0, -1, 0);
+  const axisZ = new Vector(0, 0, 1);
+  const bottom = new Vertex(new Vector(0, 0, z0), axisZ.negated());
+  const top = new Vertex(new Vector(0, 0, z1), axisZ);
+  // A point on the ring at a given radius and height. The per-vertex normal is
+  // only a seed for CSG clipping; csgToMesh recomputes a flat face normal from
+  // the winding, so each face reads flat regardless
+  const ring = (radius: number, z: number, slice: number): Vertex => {
+    const angle = slice * Math.PI * 2;
+    const out = axisX.times(Math.cos(angle)).plus(axisY.times(Math.sin(angle)));
+    return new Vertex(out.times(radius).plus(new Vector(0, 0, z)), out);
+  };
+  const polygons: Polygon[] = [];
+  for (let i = 0; i < slices; i++) {
+    const t0 = i / slices;
+    const t1 = (i + 1) / slices;
+    const b0 = ring(r1, z0, t0);
+    const b1 = ring(r1, z0, t1);
+    // Bottom cap always, wound like the cylinder's start cap
+    polygons.push(new Polygon([bottom, b0, b1]));
+    if (r2 > 0) {
+      const u0 = ring(r2, z1, t0);
+      const u1 = ring(r2, z1, t1);
+      // Side quad wound like the cylinder: bottom t1, bottom t0, top t0, top t1
+      polygons.push(new Polygon([b1, b0, u0, u1]));
+      // Top cap only when the top ring has area
+      polygons.push(new Polygon([top, u1, u0]));
+    } else {
+      // Sharp apex: the side is a triangle up to the single top point
+      polygons.push(new Polygon([b1, b0, top]));
+    }
+  }
+  return CSG.fromPolygons(polygons);
+}
+
+/**
+ * Convex hull (OpenSCAD's hull()) of every child: evaluate each child to CSG,
+ * pour all their vertex positions into one cloud, and wrap the hull triangles
+ * back into a solid. `hull3d` returns each triangle wound outward, so the face
+ * normal seeds outward and `csgToMesh` reads it flat; the same cloud and the
+ * same `hull3d` run in the Rust kernel, so both tessellate identically.
+ *
+ * The cloud is de-duplicated by exact coordinate equality first: CSG polygons
+ * repeat each shared vertex, so a sphere child would enter many times over and
+ * make the hull needlessly O(n*F). The Rust `csg_hull` dedups byte-identically
+ * (first occurrence wins), so the seed and triangulation stay bit-identical.
+ */
+function csgHull(children: OpNode[]): CSG {
+  if (!children.length) throw new Error("hull needs at least one child");
+  const seen = new Set<string>();
+  const points: number[][] = [];
+  for (const child of children) {
+    for (const poly of evalNode(child).polygons) {
+      for (const vert of poly.vertices) {
+        // Number.toString round-trips each f64 to a unique shortest string, so
+        // this key is exact f64 equality (and folds +0/-0 like `===`, which the
+        // Rust side matches by canonicalizing a zero coordinate to +0)
+        const key = `${vert.pos.x},${vert.pos.y},${vert.pos.z}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        points.push([vert.pos.x, vert.pos.y, vert.pos.z]);
+      }
+    }
+  }
+  const polygons = hull3d(points).map(([a, b, c]) => {
+    const pa = new Vector(points[a][0], points[a][1], points[a][2]);
+    const pb = new Vector(points[b][0], points[b][1], points[b][2]);
+    const pc = new Vector(points[c][0], points[c][1], points[c][2]);
+    const normal = pb.minus(pa).cross(pc.minus(pa)).unit();
+    return new Polygon([
+      new Vertex(pa, normal),
+      new Vertex(pb, normal),
+      new Vertex(pc, normal),
+    ]);
+  });
+  return CSG.fromPolygons(polygons);
+}
+
+// Below this cross-product length a fan triangle has no area (collinear verts
+// or a repeated index), so its normal is undefined; such a triangle is dropped
+// rather than emitted with a NaN normal. Mirrors the hull EPS and the Rust
+// csg_polyhedron guard, so both kernels drop the same triangles
+const POLYHEDRON_DEGENERATE_EPS = 1e-9;
+
+/**
+ * An explicit mesh (OpenSCAD's polyhedron): decode the flat point and face
+ * lists, fan-triangulate each face, and emit one CSG triangle per fan triangle.
+ * Each triangle's normal is the flat outward normal from its winding
+ * (`(p1 - p0) x (p2 - p0)`), so `csgToMesh` reads a flat per-triangle normal.
+ * A zero-area fan triangle is skipped so no NaN normal reaches the output. The
+ * same decode, triangulation, and degeneracy guard run in the Rust kernel over
+ * the same flat lists, so the tessellation is bit-identical between the two.
+ */
+function csgPolyhedron(points: number[], faces: number[]): CSG {
+  const decoded = decodePolyhedron(points, faces);
+  const polygons: Polygon[] = [];
+  for (const face of decoded.faces) {
+    for (const [a, b, c] of triangulateFace(face)) {
+      const pa = new Vector(
+        decoded.points[a][0],
+        decoded.points[a][1],
+        decoded.points[a][2],
+      );
+      const pb = new Vector(
+        decoded.points[b][0],
+        decoded.points[b][1],
+        decoded.points[b][2],
+      );
+      const pc = new Vector(
+        decoded.points[c][0],
+        decoded.points[c][1],
+        decoded.points[c][2],
+      );
+      const raw = pb.minus(pa).cross(pc.minus(pa));
+      // Drop a zero-area triangle: its unit normal would be NaN, and the
+      // Polygon plane csgToMesh reads back would carry that NaN into the mesh
+      if (raw.length() <= POLYHEDRON_DEGENERATE_EPS) continue;
+      const normal = raw.unit();
+      polygons.push(
+        new Polygon([
+          new Vertex(pa, normal),
+          new Vertex(pb, normal),
+          new Vertex(pc, normal),
+        ]),
+      );
+    }
+  }
+  return CSG.fromPolygons(polygons);
+}
+
 // --- Transforms (map vertex positions, planes recompute on rebuild) ---------
 
 function mapVerts(csg: CSG, fn: (p: Vector) => Vector): CSG {
@@ -202,7 +363,20 @@ function evalNode(node: OpNode): CSG {
         Math.max(2, Math.round(node.segments / 2)),
       );
     case "cylinder":
-      return csgCylinder(node.r, node.h, node.center, node.segments);
+      return csgCylinder(
+        node.r,
+        node.h,
+        node.center,
+        segmentCount(node.segments),
+      );
+    case "cone":
+      return csgCone(
+        node.r1,
+        node.r2,
+        node.h,
+        node.center,
+        segmentCount(node.segments),
+      );
     case "translate":
       return mapVerts(evalNode(node.child), (p) =>
         p.plus(new Vector(node.v[0], node.v[1], node.v[2])),
@@ -222,6 +396,10 @@ function evalNode(node: OpNode): CSG {
       return reduceBool(node.children, (a, b) => a.subtract(b));
     case "intersect":
       return reduceBool(node.children, (a, b) => a.intersect(b));
+    case "hull":
+      return csgHull(node.children);
+    case "polyhedron":
+      return csgPolyhedron(node.points, node.faces);
     // Exact-geometry ops have no mesh/CSG equivalent, so point the user at the
     // kernel that can do them rather than returning wrong geometry
     case "fillet":

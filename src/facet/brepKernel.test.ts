@@ -108,6 +108,63 @@ describe("OCCT B-rep kernel", () => {
     expect(maxY - minY).toBeGreaterThan(19);
   });
 
+  test.skipIf(!rc)("revolves a sharp-apex cone (r2 = 0)", () => {
+    const node: OpNode = {
+      op: "cone",
+      r1: 2,
+      r2: 0,
+      h: 4,
+      segments: 32,
+      center: true,
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+    expect(mesh.normals.length).toBe(mesh.triangleCount * 9);
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      minX = Math.min(minX, mesh.positions[i]);
+      maxX = Math.max(maxX, mesh.positions[i]);
+      minZ = Math.min(minZ, mesh.positions[i + 2]);
+      maxZ = Math.max(maxZ, mesh.positions[i + 2]);
+    }
+    // Bottom radius 2 spans the full diameter in X, and centered height 4 runs
+    // from -2 to 2 in Z
+    expect(maxX - minX).toBeCloseTo(4, 1);
+    expect(maxZ - minZ).toBeCloseTo(4, 1);
+  });
+
+  test.skipIf(!rc)("revolves a truncated cone (r2 > 0)", () => {
+    const node: OpNode = {
+      op: "cone",
+      r1: 2,
+      r2: 1,
+      h: 4,
+      segments: 32,
+      center: true,
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+    expect(mesh.normals.length).toBe(mesh.triangleCount * 9);
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      minX = Math.min(minX, mesh.positions[i]);
+      maxX = Math.max(maxX, mesh.positions[i]);
+      minZ = Math.min(minZ, mesh.positions[i + 2]);
+      maxZ = Math.max(maxZ, mesh.positions[i + 2]);
+    }
+    // The wider bottom radius 2 sets the X diameter, height 4 centered in Z
+    expect(maxX - minX).toBeCloseTo(4, 1);
+    expect(maxZ - minZ).toBeCloseTo(4, 1);
+  });
+
   test.skipIf(!rc)("falls back to a mesh for a non-uniform scale", () => {
     const node: OpNode = {
       op: "scale",
@@ -382,4 +439,180 @@ describe("OCCT B-rep kernel", () => {
     expect(maxX).toBeLessThan(0);
     expect(minX).toBeGreaterThan(-30);
   });
+});
+
+/** Signed volume of a closed triangle mesh via the divergence theorem. */
+function brepMeshVolume(mesh: {
+  positions: Float32Array;
+  triangleCount: number;
+}): number {
+  let v = 0;
+  const p = mesh.positions;
+  for (let t = 0; t < mesh.triangleCount; t++) {
+    const b = t * 9;
+    v +=
+      (p[b] * (p[b + 4] * p[b + 8] - p[b + 5] * p[b + 7]) -
+        p[b + 1] * (p[b + 3] * p[b + 8] - p[b + 5] * p[b + 6]) +
+        p[b + 2] * (p[b + 3] * p[b + 7] - p[b + 4] * p[b + 6])) /
+      6;
+  }
+  return Math.abs(v);
+}
+
+describe("B-rep hull wraps a convex solid around its children", () => {
+  // Eight unit cubes centered at the corners of a 10-unit box; the convex hull
+  // of the cloud is the solid 11-unit box (extreme points at +/-5.5)
+  function cornerCubes(): OpNode {
+    const children: OpNode[] = [];
+    for (const x of [-5, 5])
+      for (const y of [-5, 5])
+        for (const z of [-5, 5])
+          children.push({
+            op: "translate",
+            v: [x, y, z],
+            child: { op: "cube", size: [1, 1, 1], center: true },
+          });
+    return { op: "hull", children };
+  }
+
+  test.skipIf(!rc)("hull of eight corner cubes fills the bounding box", () => {
+    const mesh = evaluateOpGraph(rc!, cornerCubes());
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    const min = [
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+    ];
+    const max = [
+      Number.NEGATIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ];
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      for (let a = 0; a < 3; a++) {
+        min[a] = Math.min(min[a], mesh.positions[i + a]);
+        max[a] = Math.max(max[a], mesh.positions[i + a]);
+      }
+    }
+    for (let a = 0; a < 3; a++) {
+      expect(min[a]).toBeCloseTo(-5.5, 3);
+      expect(max[a]).toBeCloseTo(5.5, 3);
+    }
+    // The exact solid 11-unit box has volume 11^3 = 1331
+    expect(brepMeshVolume(mesh)).toBeCloseTo(1331, 0);
+  });
+
+  test.skipIf(!rc)("hull of two separated spheres bridges the gap", () => {
+    const sphereAt = (x: number): OpNode => ({
+      op: "translate",
+      v: [x, 0, 0],
+      child: { op: "sphere", r: 3, segments: 16 },
+    });
+    const node: OpNode = { op: "hull", children: [sphereAt(0), sphereAt(20)] };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      minX = Math.min(minX, mesh.positions[i]);
+      maxX = Math.max(maxX, mesh.positions[i]);
+    }
+    // The hull reaches from the left of the near sphere (~ -3) to the right of
+    // the far one (~ 23), bridging the 20-unit gap into one solid
+    expect(minX).toBeLessThan(-2.5);
+    expect(maxX).toBeGreaterThan(22.5);
+    const oneSphere = (4 / 3) * Math.PI * 3 ** 3;
+    expect(brepMeshVolume(mesh)).toBeGreaterThan(2 * oneSphere);
+  });
+});
+
+/** Axis-aligned bounds of a mesh, as [min, max] triples. */
+function brepMeshBounds(mesh: { positions: Float32Array }): {
+  min: number[];
+  max: number[];
+} {
+  const min = [
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+  ];
+  const max = [
+    Number.NEGATIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ];
+  for (let i = 0; i < mesh.positions.length; i += 3)
+    for (let a = 0; a < 3; a++) {
+      min[a] = Math.min(min[a], mesh.positions[i + a]);
+      max[a] = Math.max(max[a], mesh.positions[i + a]);
+    }
+  return { min, max };
+}
+
+describe("B-rep polyhedron sews an explicit solid from its faces", () => {
+  test.skipIf(!rc)("a unit tetrahedron sews into a solid of volume 1/6", () => {
+    const node: OpNode = {
+      op: "polyhedron",
+      points: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+      faces: [3, 0, 2, 1, 3, 0, 1, 3, 3, 1, 2, 3, 3, 2, 0, 3],
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    // Four planar triangular faces tessellate to exactly four triangles
+    expect(mesh.triangleCount).toBe(4);
+    expect(brepMeshVolume(mesh)).toBeCloseTo(1 / 6, 5);
+  });
+
+  test.skipIf(!rc)(
+    "a cube from 6 quad faces keeps each quad a single planar face",
+    () => {
+      const node: OpNode = {
+        op: "polyhedron",
+        points: [
+          0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1,
+          1,
+        ],
+        faces: [
+          4, 0, 3, 2, 1, 4, 4, 5, 6, 7, 4, 0, 1, 5, 4, 4, 3, 7, 6, 2, 4, 0, 4,
+          7, 3, 4, 1, 2, 6, 5,
+        ],
+      };
+      const mesh = evaluateOpGraph(rc!, node);
+      // Six planar quads, each kept as one B-rep face and tessellating to two
+      // triangles, is 12 triangles in total
+      expect(mesh.triangleCount).toBe(12);
+      const { min, max } = brepMeshBounds(mesh);
+      expect(min[0]).toBeCloseTo(0, 5);
+      expect(min[1]).toBeCloseTo(0, 5);
+      expect(min[2]).toBeCloseTo(0, 5);
+      expect(max[0]).toBeCloseTo(1, 5);
+      expect(max[1]).toBeCloseTo(1, 5);
+      expect(max[2]).toBeCloseTo(1, 5);
+      expect(brepMeshVolume(mesh)).toBeCloseTo(1, 5);
+    },
+  );
+
+  test.skipIf(!rc)(
+    "a non-planar face falls back to triangulation and still sews a solid",
+    () => {
+      // A cube with one corner (vertex 6) pulled out along the diagonal, so the
+      // three quad faces that share it are non-planar and must be fanned
+      const node: OpNode = {
+        op: "polyhedron",
+        points: [
+          0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1.3, 1.3, 1.3,
+          0, 1, 1,
+        ],
+        faces: [
+          4, 0, 3, 2, 1, 4, 4, 5, 6, 7, 4, 0, 1, 5, 4, 4, 3, 7, 6, 2, 4, 0, 4,
+          7, 3, 4, 1, 2, 6, 5,
+        ],
+      };
+      const mesh = evaluateOpGraph(rc!, node);
+      expect(mesh.triangleCount).toBeGreaterThan(0);
+      // The pulled corner grows the solid past the unit cube's volume of 1
+      expect(brepMeshVolume(mesh)).toBeGreaterThan(1);
+      const { max } = brepMeshBounds(mesh);
+      expect(max[0]).toBeCloseTo(1.3, 5);
+    },
+  );
 });
