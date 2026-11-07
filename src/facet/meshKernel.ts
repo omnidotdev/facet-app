@@ -1,5 +1,10 @@
 import { CSG, Polygon, Vector, Vertex } from "./csg";
 import { KernelError } from "./kernel";
+import {
+  extrudeProfileMesh,
+  profileRing,
+  revolveProfileMesh,
+} from "./meshSweep";
 import { meshToStlBinary } from "./stl";
 import { meshTo3mf } from "./threeMf";
 
@@ -231,8 +236,27 @@ function evalNode(node: OpNode): CSG {
       throw new KernelError(
         "Shell needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
       );
-    // The 2D sketch layer and its extrude/revolve sweeps exist only in the
-    // B-rep kernel; the mesh/CSG kernel has no planar-curve representation
+    // extrude/revolve of a SIMPLE profile (circle/rect/polygon) is tessellated
+    // here; a curved/combined profile (svg/text/offset/2D boolean) has no mesh
+    // representation and routes to B-rep
+    case "extrude": {
+      const ring = profileRing(node.child);
+      if (!ring)
+        throw new KernelError(
+          "This profile needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+        );
+      return extrudeProfileMesh(ring, node.height, node.twist, node.scale);
+    }
+    case "revolve": {
+      const ring = profileRing(node.child);
+      if (!ring)
+        throw new KernelError(
+          "This profile needs the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+        );
+      return revolveProfileMesh(ring, node.angle, node.segments);
+    }
+    // A bare 2D sketch is not a solid; the curved/combined 2D ops have no mesh
+    // representation at all. Both route to the B-rep kernel
     case "circle2d":
     case "rect2d":
     case "polygon2d":
@@ -242,10 +266,8 @@ function evalNode(node: OpNode): CSG {
     case "difference2d":
     case "intersect2d":
     case "offset2d":
-    case "extrude":
-    case "revolve":
       throw new KernelError(
-        "2D sketches and extrude/revolve need the B-rep kernel. Switch the kernel to B-rep (OCCT).",
+        "2D sketches need the B-rep kernel, or extrude/revolve them. Switch the kernel to B-rep (OCCT).",
       );
   }
 }
