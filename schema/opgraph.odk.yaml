@@ -36,6 +36,15 @@ unions:
         h: number
         segments: integer
         center: boolean
+      # Explicit mesh (OpenSCAD's polyhedron): a flat list of x,y,z point triples
+      # plus a flat face list where each face is prefixed by its vertex count
+      # ([n, i0..i(n-1), m, j0..]). Faces wind so their vertices read in a
+      # consistent rotational order seen from OUTSIDE the solid, so a per-face
+      # normal points outward. Works in every kernel; it is explicit geometry, so
+      # no child needs exact geometry on its own
+      polyhedron:
+        points: number[]
+        faces: number[]
       translate:
         v: number[3]
         child: OpNode

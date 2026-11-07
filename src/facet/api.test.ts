@@ -11,6 +11,7 @@ import {
   hull,
   importSvg,
   polygon,
+  polyhedron,
   rect,
   rectTube,
   revolve,
@@ -103,6 +104,28 @@ describe("authoring API builds an op-graph without computing geometry", () => {
 
   test("empty hull throws", () => {
     expect(() => hull()).toThrow(/at least one shape/);
+  });
+
+  test("polyhedron flattens points and count-prefixes each face", () => {
+    const node = polyhedron(
+      [
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ],
+      [
+        [0, 2, 1],
+        [0, 1, 3],
+        [1, 2, 3],
+        [2, 0, 3],
+      ],
+    ).node;
+    expect(node).toEqual({
+      op: "polyhedron",
+      points: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+      faces: [3, 0, 2, 1, 3, 0, 1, 3, 3, 1, 2, 3, 3, 2, 0, 3],
+    });
   });
 
   test("fillet wraps the shape in a fillet node", () => {

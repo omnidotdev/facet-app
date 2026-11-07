@@ -6,6 +6,7 @@ import {
   profileRing,
   revolveProfileMesh,
 } from "./meshSweep";
+import { decodePolyhedron, triangulateFace } from "./polyhedron";
 import { meshToStlBinary } from "./stl";
 import { meshTo3mf } from "./threeMf";
 
@@ -234,6 +235,58 @@ function csgHull(children: OpNode[]): CSG {
   return CSG.fromPolygons(polygons);
 }
 
+// Below this cross-product length a fan triangle has no area (collinear verts
+// or a repeated index), so its normal is undefined; such a triangle is dropped
+// rather than emitted with a NaN normal. Mirrors the hull EPS and the Rust
+// csg_polyhedron guard, so both kernels drop the same triangles
+const POLYHEDRON_DEGENERATE_EPS = 1e-9;
+
+/**
+ * An explicit mesh (OpenSCAD's polyhedron): decode the flat point and face
+ * lists, fan-triangulate each face, and emit one CSG triangle per fan triangle.
+ * Each triangle's normal is the flat outward normal from its winding
+ * (`(p1 - p0) x (p2 - p0)`), so `csgToMesh` reads a flat per-triangle normal.
+ * A zero-area fan triangle is skipped so no NaN normal reaches the output. The
+ * same decode, triangulation, and degeneracy guard run in the Rust kernel over
+ * the same flat lists, so the tessellation is bit-identical between the two.
+ */
+function csgPolyhedron(points: number[], faces: number[]): CSG {
+  const decoded = decodePolyhedron(points, faces);
+  const polygons: Polygon[] = [];
+  for (const face of decoded.faces) {
+    for (const [a, b, c] of triangulateFace(face)) {
+      const pa = new Vector(
+        decoded.points[a][0],
+        decoded.points[a][1],
+        decoded.points[a][2],
+      );
+      const pb = new Vector(
+        decoded.points[b][0],
+        decoded.points[b][1],
+        decoded.points[b][2],
+      );
+      const pc = new Vector(
+        decoded.points[c][0],
+        decoded.points[c][1],
+        decoded.points[c][2],
+      );
+      const raw = pb.minus(pa).cross(pc.minus(pa));
+      // Drop a zero-area triangle: its unit normal would be NaN, and the
+      // Polygon plane csgToMesh reads back would carry that NaN into the mesh
+      if (raw.length() <= POLYHEDRON_DEGENERATE_EPS) continue;
+      const normal = raw.unit();
+      polygons.push(
+        new Polygon([
+          new Vertex(pa, normal),
+          new Vertex(pb, normal),
+          new Vertex(pc, normal),
+        ]),
+      );
+    }
+  }
+  return CSG.fromPolygons(polygons);
+}
+
 // --- Transforms (map vertex positions, planes recompute on rebuild) ---------
 
 function mapVerts(csg: CSG, fn: (p: Vector) => Vector): CSG {
@@ -345,6 +398,8 @@ function evalNode(node: OpNode): CSG {
       return reduceBool(node.children, (a, b) => a.intersect(b));
     case "hull":
       return csgHull(node.children);
+    case "polyhedron":
+      return csgPolyhedron(node.points, node.faces);
     // Exact-geometry ops have no mesh/CSG equivalent, so point the user at the
     // kernel that can do them rather than returning wrong geometry
     case "fillet":

@@ -22,6 +22,15 @@ describe("requiresBrep", () => {
     ).toBe(false);
   });
 
+  test("is false for a polyhedron (explicit mesh)", () => {
+    const tetra: OpNode = {
+      op: "polyhedron",
+      points: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+      faces: [3, 0, 2, 1, 3, 0, 1, 3, 3, 1, 2, 3, 3, 2, 0, 3],
+    };
+    expect(requiresBrep(tetra)).toBe(false);
+  });
+
   test("is false for a pure boolean graph of primitives", () => {
     const graph: OpNode = {
       op: "difference",

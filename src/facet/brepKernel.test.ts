@@ -525,3 +525,94 @@ describe("B-rep hull wraps a convex solid around its children", () => {
     expect(brepMeshVolume(mesh)).toBeGreaterThan(2 * oneSphere);
   });
 });
+
+/** Axis-aligned bounds of a mesh, as [min, max] triples. */
+function brepMeshBounds(mesh: { positions: Float32Array }): {
+  min: number[];
+  max: number[];
+} {
+  const min = [
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+    Number.POSITIVE_INFINITY,
+  ];
+  const max = [
+    Number.NEGATIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ];
+  for (let i = 0; i < mesh.positions.length; i += 3)
+    for (let a = 0; a < 3; a++) {
+      min[a] = Math.min(min[a], mesh.positions[i + a]);
+      max[a] = Math.max(max[a], mesh.positions[i + a]);
+    }
+  return { min, max };
+}
+
+describe("B-rep polyhedron sews an explicit solid from its faces", () => {
+  test.skipIf(!rc)("a unit tetrahedron sews into a solid of volume 1/6", () => {
+    const node: OpNode = {
+      op: "polyhedron",
+      points: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+      faces: [3, 0, 2, 1, 3, 0, 1, 3, 3, 1, 2, 3, 3, 2, 0, 3],
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    // Four planar triangular faces tessellate to exactly four triangles
+    expect(mesh.triangleCount).toBe(4);
+    expect(brepMeshVolume(mesh)).toBeCloseTo(1 / 6, 5);
+  });
+
+  test.skipIf(!rc)(
+    "a cube from 6 quad faces keeps each quad a single planar face",
+    () => {
+      const node: OpNode = {
+        op: "polyhedron",
+        points: [
+          0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1,
+          1,
+        ],
+        faces: [
+          4, 0, 3, 2, 1, 4, 4, 5, 6, 7, 4, 0, 1, 5, 4, 4, 3, 7, 6, 2, 4, 0, 4,
+          7, 3, 4, 1, 2, 6, 5,
+        ],
+      };
+      const mesh = evaluateOpGraph(rc!, node);
+      // Six planar quads, each kept as one B-rep face and tessellating to two
+      // triangles, is 12 triangles in total
+      expect(mesh.triangleCount).toBe(12);
+      const { min, max } = brepMeshBounds(mesh);
+      expect(min[0]).toBeCloseTo(0, 5);
+      expect(min[1]).toBeCloseTo(0, 5);
+      expect(min[2]).toBeCloseTo(0, 5);
+      expect(max[0]).toBeCloseTo(1, 5);
+      expect(max[1]).toBeCloseTo(1, 5);
+      expect(max[2]).toBeCloseTo(1, 5);
+      expect(brepMeshVolume(mesh)).toBeCloseTo(1, 5);
+    },
+  );
+
+  test.skipIf(!rc)(
+    "a non-planar face falls back to triangulation and still sews a solid",
+    () => {
+      // A cube with one corner (vertex 6) pulled out along the diagonal, so the
+      // three quad faces that share it are non-planar and must be fanned
+      const node: OpNode = {
+        op: "polyhedron",
+        points: [
+          0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 1.3, 1.3, 1.3,
+          0, 1, 1,
+        ],
+        faces: [
+          4, 0, 3, 2, 1, 4, 4, 5, 6, 7, 4, 0, 1, 5, 4, 4, 3, 7, 6, 2, 4, 0, 4,
+          7, 3, 4, 1, 2, 6, 5,
+        ],
+      };
+      const mesh = evaluateOpGraph(rc!, node);
+      expect(mesh.triangleCount).toBeGreaterThan(0);
+      // The pulled corner grows the solid past the unit cube's volume of 1
+      expect(brepMeshVolume(mesh)).toBeGreaterThan(1);
+      const { max } = brepMeshBounds(mesh);
+      expect(max[0]).toBeCloseTo(1.3, 5);
+    },
+  );
+});

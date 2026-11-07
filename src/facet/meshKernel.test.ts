@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { cone, cube, cylinder, sphere } from "./api";
+import { cone, cube, cylinder, polyhedron, sphere } from "./api";
 import { meshBounds } from "./kernel";
 import { meshKernel } from "./meshKernel";
 import { meshToStlBinary } from "./stl";
@@ -97,6 +97,132 @@ describe("mesh kernel evaluates the op-graph into geometry", () => {
       meshKernel.evaluate(cone(2, 0, 4, { segments: 32 }).node),
     );
     expect(meshVolume(mesh)).toBeGreaterThan(apexVolume);
+  });
+});
+
+/**
+ * Assert every triangle's flat normal points away from the solid's centroid.
+ * The winding convention makes `(p1 - p0) x (p2 - p0)` the outward normal, so
+ * for a convex solid it must agree with the vector from the centroid to the
+ * triangle.
+ */
+function expectOutwardNormals(mesh: Mesh): void {
+  const p = mesh.positions;
+  // Centroid of all triangle vertices (good enough for a convex solid)
+  let cx = 0;
+  let cy = 0;
+  let cz = 0;
+  const vertCount = p.length / 3;
+  for (let i = 0; i < p.length; i += 3) {
+    cx += p[i];
+    cy += p[i + 1];
+    cz += p[i + 2];
+  }
+  cx /= vertCount;
+  cy /= vertCount;
+  cz /= vertCount;
+  for (let t = 0; t < mesh.triangleCount; t++) {
+    const b = t * 9;
+    const ux = p[b + 3] - p[b];
+    const uy = p[b + 4] - p[b + 1];
+    const uz = p[b + 5] - p[b + 2];
+    const vx = p[b + 6] - p[b];
+    const vy = p[b + 7] - p[b + 1];
+    const vz = p[b + 8] - p[b + 2];
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    // Centroid -> triangle first vertex
+    const dx = p[b] - cx;
+    const dy = p[b + 1] - cy;
+    const dz = p[b + 2] - cz;
+    expect(nx * dx + ny * dy + nz * dz).toBeGreaterThan(0);
+  }
+}
+
+describe("polyhedron meshes an explicit solid with outward normals", () => {
+  test("a unit tetrahedron is 4 triangles with positive volume and outward normals", () => {
+    const mesh = meshKernel.evaluate(
+      polyhedron(
+        [
+          [0, 0, 0],
+          [1, 0, 0],
+          [0, 1, 0],
+          [0, 0, 1],
+        ],
+        [
+          [0, 2, 1],
+          [0, 1, 3],
+          [1, 2, 3],
+          [2, 0, 3],
+        ],
+      ).node,
+    );
+    expect(mesh.triangleCount).toBe(4);
+    // A unit corner tetrahedron has volume 1/6
+    expect(meshVolume(mesh)).toBeCloseTo(1 / 6, 10);
+    expectOutwardNormals(mesh);
+  });
+
+  test("a cube from 8 points and 6 quad faces is 12 triangles with the right bbox", () => {
+    const mesh = meshKernel.evaluate(
+      polyhedron(
+        [
+          [0, 0, 0],
+          [1, 0, 0],
+          [1, 1, 0],
+          [0, 1, 0],
+          [0, 0, 1],
+          [1, 0, 1],
+          [1, 1, 1],
+          [0, 1, 1],
+        ],
+        [
+          [0, 3, 2, 1],
+          [4, 5, 6, 7],
+          [0, 1, 5, 4],
+          [3, 7, 6, 2],
+          [0, 4, 7, 3],
+          [1, 2, 6, 5],
+        ],
+      ).node,
+    );
+    expect(mesh.triangleCount).toBe(12);
+    const { min, max } = meshBounds(mesh);
+    expect(min).toEqual([0, 0, 0]);
+    expect(max).toEqual([1, 1, 1]);
+    expect(meshVolume(mesh)).toBeCloseTo(1, 10);
+    expectOutwardNormals(mesh);
+  });
+
+  test("an out-of-range vertex index throws", () => {
+    expect(() =>
+      meshKernel.evaluate({
+        op: "polyhedron",
+        points: [0, 0, 0, 1, 0, 0, 0, 1, 0],
+        faces: [3, 0, 1, 3],
+      }),
+    ).toThrow(/out-of-range/);
+  });
+
+  test("a degenerate face is dropped, leaving no NaN in the output", () => {
+    // The four valid tetrahedron faces plus a zero-area face with a repeated
+    // index ([0, 1, 0]) and a collinear face ([0, 1, ...]) that fan to zero-area
+    // triangles; those must be skipped, not emitted with a NaN normal
+    const mesh = meshKernel.evaluate({
+      op: "polyhedron",
+      points: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
+      faces: [
+        3, 0, 2, 1, 3, 0, 1, 3, 3, 1, 2, 3, 3, 2, 0, 3,
+        // a triangle with a repeated vertex: zero area, must be dropped
+        3, 0, 1, 0,
+      ],
+    });
+    // Only the four real faces survive
+    expect(mesh.triangleCount).toBe(4);
+    for (const v of mesh.positions) expect(Number.isNaN(v)).toBe(false);
+    for (const v of mesh.normals) expect(Number.isNaN(v)).toBe(false);
+    expect(meshVolume(mesh)).toBeCloseTo(1 / 6, 10);
   });
 });
 

@@ -28,6 +28,10 @@ pub enum OpNode {
         segments: i32,
         center: bool,
     },
+    Polyhedron {
+        points: Vec<f64>,
+        faces: Vec<f64>,
+    },
     Translate {
         v: [f64; 3],
         child: Box<OpNode>,

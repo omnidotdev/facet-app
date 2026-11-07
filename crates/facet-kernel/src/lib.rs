@@ -9,6 +9,7 @@ mod csg;
 mod hull;
 mod opgraph;
 mod opgraph_gen;
+mod polyhedron;
 mod sweep;
 
 use wasm_bindgen::prelude::*;

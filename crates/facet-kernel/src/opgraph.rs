@@ -57,6 +57,7 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         OpNode::Difference { children } => reduce_bool(children, |a, b| a.subtract(b)),
         OpNode::Intersect { children } => reduce_bool(children, |a, b| a.intersect(b)),
         OpNode::Hull { children } => csg_hull(children),
+        OpNode::Polyhedron { points, faces } => csg_polyhedron(points, faces),
         // extrude/revolve of a simple profile (circle/rect/polygon) tessellate
         // here; a curved or combined profile has no mesh representation
         OpNode::Extrude { height, twist, scale, child } => match crate::sweep::profile_ring(child) {
@@ -138,6 +139,44 @@ fn csg_hull(children: &[OpNode]) -> Result<Csg, String> {
             ])
         })
         .collect();
+    Ok(Csg::from_polygons(polygons))
+}
+
+// Below this cross-product length a fan triangle has no area, so its normal is
+// undefined and the triangle is dropped rather than emitted with a NaN normal.
+// Mirrors the hull EPS and the TS csgPolyhedron guard, so both kernels drop the
+// same triangles
+const POLYHEDRON_DEGENERATE_EPS: f64 = 1e-9;
+
+/// An explicit mesh (OpenSCAD's polyhedron): decode the flat point and face
+/// lists, fan-triangulate each face, and emit one CSG triangle per fan triangle
+/// with a flat outward normal from its winding. A zero-area fan triangle is
+/// skipped so no NaN normal reaches the output. The shared decode,
+/// triangulation, and degeneracy guard mirror the TS `csgPolyhedron` step for
+/// step over the same flat lists, and `to_mesh` reads each triangle's plane
+/// normal, so the tessellation is bit-identical between the two kernels.
+fn csg_polyhedron(points: &[f64], faces: &[f64]) -> Result<Csg, String> {
+    let decoded = crate::polyhedron::decode_polyhedron(points, faces)?;
+    let mut polygons: Vec<Polygon> = Vec::new();
+    for face in &decoded.faces {
+        for [a, b, c] in crate::polyhedron::triangulate_face(face) {
+            let pa = Vec3::new(decoded.points[a][0], decoded.points[a][1], decoded.points[a][2]);
+            let pb = Vec3::new(decoded.points[b][0], decoded.points[b][1], decoded.points[b][2]);
+            let pc = Vec3::new(decoded.points[c][0], decoded.points[c][1], decoded.points[c][2]);
+            let raw = pb.minus(pa).cross(pc.minus(pa));
+            // Drop a zero-area triangle: its unit normal would be NaN, and the
+            // Polygon plane to_mesh reads back would carry that NaN into the mesh
+            if raw.length() <= POLYHEDRON_DEGENERATE_EPS {
+                continue;
+            }
+            let normal = raw.unit();
+            polygons.push(Polygon::new(vec![
+                Vertex::new(pa, normal),
+                Vertex::new(pb, normal),
+                Vertex::new(pc, normal),
+            ]));
+        }
+    }
     Ok(Csg::from_polygons(polygons))
 }
 
@@ -407,6 +446,48 @@ mod tests {
             assert!((max_x - min_x - 4.0).abs() < 1e-3, "x span was {}", max_x - min_x);
             assert!((max_z - min_z - 4.0).abs() < 1e-3, "z span was {}", max_z - min_z);
         }
+    }
+
+    /// A cube given as a polyhedron (8 points, 6 quad faces) must mesh to
+    /// exactly 12 triangles filling the unit box, mirroring the TS meshKernel
+    /// polyhedron test
+    #[test]
+    fn polyhedron_cube_meshes_to_twelve_triangles() {
+        let json = r#"{"op":"polyhedron",
+            "points":[0,0,0, 1,0,0, 1,1,0, 0,1,0, 0,0,1, 1,0,1, 1,1,1, 0,1,1],
+            "faces":[4,0,3,2,1, 4,4,5,6,7, 4,0,1,5,4, 4,3,7,6,2, 4,0,4,7,3, 4,1,2,6,5]}"#;
+        let node: OpNode = serde_json::from_str(json).expect("parse polyhedron graph");
+        let csg = eval_node(&node).expect("evaluate polyhedron");
+        let (positions, _normals) = crate::csg::to_mesh(&csg);
+        assert_eq!(positions.len() / 9, 12, "expected 12 triangles");
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in positions.chunks(3) {
+            for a in 0..3 {
+                min[a] = min[a].min(p[a]);
+                max[a] = max[a].max(p[a]);
+            }
+        }
+        for a in 0..3 {
+            assert!(min[a].abs() < 1e-5, "min[{a}] was {}", min[a]);
+            assert!((max[a] - 1.0).abs() < 1e-5, "max[{a}] was {}", max[a]);
+        }
+    }
+
+    /// A polyhedron with a zero-area face (a repeated index) must drop that fan
+    /// triangle rather than emit a NaN normal, matching the TS csgPolyhedron
+    /// guard, so only the four real tetrahedron triangles survive
+    #[test]
+    fn polyhedron_degenerate_face_is_dropped_without_nan() {
+        let json = r#"{"op":"polyhedron",
+            "points":[0,0,0, 1,0,0, 0,1,0, 0,0,1],
+            "faces":[3,0,2,1, 3,0,1,3, 3,1,2,3, 3,2,0,3, 3,0,1,0]}"#;
+        let node: OpNode = serde_json::from_str(json).expect("parse polyhedron graph");
+        let csg = eval_node(&node).expect("evaluate polyhedron");
+        let (positions, normals) = crate::csg::to_mesh(&csg);
+        assert_eq!(positions.len() / 9, 4, "degenerate face must be dropped");
+        assert!(positions.iter().all(|v| !v.is_nan()), "position NaN leaked");
+        assert!(normals.iter().all(|v| !v.is_nan()), "normal NaN leaked");
     }
 
     /// hull of eight unit cubes at the corners of a 10-unit box must mesh a

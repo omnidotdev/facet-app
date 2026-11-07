@@ -337,6 +337,25 @@ export function hull(...shapes: Shape[]): Shape {
 }
 
 /**
+ * An explicit mesh (OpenSCAD's polyhedron) from a list of `points` and the
+ * `faces` that connect them, each face a list of point indices. Order each
+ * face's vertices so they run in a consistent rotational order seen from
+ * OUTSIDE the solid, so its normal points outward. A face may have any number
+ * of vertices (>= 3); non-triangular faces are fan-triangulated.
+ *
+ * The fan triangulation assumes each face is CONVEX (as OpenSCAD's polyhedron
+ * does): a concave face must be pre-split into convex faces, or its fan will
+ * cross outside the outline. A concave planar face can also tessellate
+ * differently between the mesh and exact (B-rep) kernels, since the mesh kernel
+ * fans it while the B-rep kernel sews it as one planar n-gon face.
+ */
+export function polyhedron(points: Vec3[], faces: number[][]): Shape {
+  const flatPoints = points.flat();
+  const flatFaces = faces.flatMap((f) => [f.length, ...f]);
+  return new Shape({ op: "polyhedron", points: flatPoints, faces: flatFaces });
+}
+
+/**
  * Tile a shape into an `nx` by `ny` grid on the XY plane, each copy spaced by
  * `spacing` (a single number for equal x/y, or `[sx, sy]`). The grid is centered
  * on the origin. Returns their union. Useful for tessellations and baseplates

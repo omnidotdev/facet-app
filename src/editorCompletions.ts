@@ -157,6 +157,12 @@ const TOP_LEVEL: Completion[] = [
     info: "The convex hull wrapping all the shapes (like OpenSCAD's hull)",
   },
   {
+    label: "polyhedron",
+    type: "function",
+    detail: "polyhedron(points, faces)",
+    info: "An explicit mesh from points and faces (like OpenSCAD's polyhedron); wind each face counterclockwise seen from outside",
+  },
+  {
     label: "grid",
     type: "function",
     detail: "grid(shape, nx, ny, spacing)",
