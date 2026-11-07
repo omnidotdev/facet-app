@@ -42,8 +42,9 @@ export class Shape {
   }
 
   /**
-   * Mirror across the plane through the origin whose normal is (x, y, z), like
-   * OpenSCAD's mirror. `mirror([1, 0, 0])` flips X, `[0, 1, 0]` flips Y.
+   * Mirror across the plane through the origin whose normal is (x, y, z), the
+   * conventional scripted-CAD mirror. `mirror([1, 0, 0])` flips X, `[0, 1, 0]`
+   * flips Y.
    */
   mirror(x: number | Vec3, y?: number, z?: number): Shape {
     return this.wrap({
@@ -222,8 +223,8 @@ export function cylinder(
 
 /**
  * A cone or taper: bottom radius `r1`, top radius `r2`, height `h`. `r2 = 0`
- * (the default) is a sharp apex; a positive `r2` makes a truncated cone
- * (OpenSCAD's cylinder(r1, r2, h)). Centered on the origin by default.
+ * (the default) is a sharp apex; a positive `r2` makes a truncated cone (the
+ * conventional `cylinder(r1, r2, h)` taper). Centered on the origin by default.
  */
 export function cone(
   r1 = 1,
@@ -327,7 +328,7 @@ export function intersection(...shapes: Shape[]): Shape {
 }
 
 /**
- * The convex hull of every shape (OpenSCAD's hull()): the tightest convex solid
+ * The convex hull of every shape (the conventional `hull()` operation): the tightest convex solid
  * that contains them all. Great for lofting between profiles or rounding a set
  * of points into one smooth body.
  */
@@ -337,14 +338,15 @@ export function hull(...shapes: Shape[]): Shape {
 }
 
 /**
- * An explicit mesh (OpenSCAD's polyhedron) from a list of `points` and the
+ * An explicit mesh (a `polyhedron` in the scripted-CAD convention) from a list of `points` and the
  * `faces` that connect them, each face a list of point indices. Order each
  * face's vertices so they run in a consistent rotational order seen from
  * OUTSIDE the solid, so its normal points outward. A face may have any number
  * of vertices (>= 3); non-triangular faces are fan-triangulated.
  *
- * The fan triangulation assumes each face is CONVEX (as OpenSCAD's polyhedron
- * does): a concave face must be pre-split into convex faces, or its fan will
+ * The fan triangulation assumes each face is CONVEX (as the scripted-CAD
+ * `polyhedron` convention does): a concave face must be pre-split into convex
+ * faces, or its fan will
  * cross outside the outline. A concave planar face can also tessellate
  * differently between the mesh and exact (B-rep) kernels, since the mesh kernel
  * fans it while the B-rep kernel sews it as one planar n-gon face.

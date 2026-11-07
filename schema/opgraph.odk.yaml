@@ -36,7 +36,7 @@ unions:
         h: number
         segments: integer
         center: boolean
-      # Explicit mesh (OpenSCAD's polyhedron): a flat list of x,y,z point triples
+      # Explicit mesh (a polyhedron in the scripted-CAD convention): a flat list of x,y,z point triples
       # plus a flat face list where each face is prefixed by its vertex count
       # ([n, i0..i(n-1), m, j0..]). Faces wind so their vertices read in a
       # consistent rotational order seen from OUTSIDE the solid, so a per-face
@@ -69,7 +69,7 @@ unions:
         children: OpNode[]
       intersect:
         children: OpNode[]
-      # Convex hull of all its children (OpenSCAD's hull()): gather every
+      # Convex hull of all its children (the conventional hull() operation): gather every
       # child's vertices into one cloud and wrap the tightest convex solid
       # around them. Works in every kernel; it tessellates each child, so no
       # child needs exact geometry on its own
@@ -121,7 +121,7 @@ unions:
         segments: integer
         child: OpNode
       # Reflect across the plane through the origin whose normal is `normal`
-      # (OpenSCAD's mirror). normal [1,0,0] flips X, [0,1,0] flips Y, etc. Works
+      # (the conventional mirror operation). normal [1,0,0] flips X, [0,1,0] flips Y, etc. Works
       # in every kernel: the reflection reverses winding, which each kernel
       # corrects so the solid stays outward-facing
       mirror:

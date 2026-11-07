@@ -91,7 +91,7 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
     }
 }
 
-/// Convex hull (OpenSCAD's hull()) of every child: evaluate each child to CSG,
+/// Convex hull (the conventional `hull()` operation) of every child: evaluate each child to CSG,
 /// pour all their vertex positions into one cloud, and wrap the hull triangles
 /// back into a solid. The shared `hull3d` matches the TS meshKernel step for
 /// step, and the cloud is identical because the primitives match, so the two
@@ -148,7 +148,7 @@ fn csg_hull(children: &[OpNode]) -> Result<Csg, String> {
 // same triangles
 const POLYHEDRON_DEGENERATE_EPS: f64 = 1e-9;
 
-/// An explicit mesh (OpenSCAD's polyhedron): decode the flat point and face
+/// An explicit mesh (a `polyhedron` in the scripted-CAD convention): decode the flat point and face
 /// lists, fan-triangulate each face, and emit one CSG triangle per fan triangle
 /// with a flat outward normal from its winding. A zero-area fan triangle is
 /// skipped so no NaN normal reaches the output. The shared decode,
@@ -343,7 +343,7 @@ fn csg_cylinder(r: f64, h: f64, center: bool, slices: u32) -> Csg {
     Csg::from_polygons(polygons)
 }
 
-/// A truncated cone (OpenSCAD's cylinder(r1, r2, h) taper): a bottom ring at
+/// A truncated cone (the conventional `cylinder(r1, r2, h)` taper): a bottom ring at
 /// radius `r1` and a top ring at `r2`, `slices` sides. The top cap is emitted
 /// only when `r2 > 0`; a zero top collapses to a sharp apex and the side faces
 /// become triangles. Mirrors the TS meshKernel `csgCone` exactly, including the
