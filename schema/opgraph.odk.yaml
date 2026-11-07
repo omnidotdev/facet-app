@@ -110,6 +110,25 @@ unions:
         # positive grows the outline outward, negative shrinks it inward
         distance: number
         child: OpNode
+      # --- 2D transforms -----------------------------------------------------
+      # Position and mirror a sketch in its own plane, so one half of a
+      # symmetric profile can be built and reflected. Each follows its child:
+      # a transformed simple profile (circle/rect/polygon) still tessellates in
+      # the mesh/WASM kernels, a transformed curved/combined one stays B-rep
+      translate2d:
+        v: number[2]
+        child: OpNode
+      rotate2d:
+        angle: number       # degrees, counter-clockwise about the origin
+        child: OpNode
+      scale2d:
+        factor: number      # uniform scale about the origin
+        child: OpNode
+      mirror2d:
+        # reflect across the line through the origin whose normal is this
+        # vector; [1,0] flips X, [0,1] flips Y
+        normal: number[2]
+        child: OpNode
       # --- 2D -> 3D ----------------------------------------------------------
       extrude:
         height: number

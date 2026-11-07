@@ -115,6 +115,33 @@ describe("requiresBrep", () => {
     expect(requiresBrep(graph)).toBe(true);
   });
 
+  test("a 2D transform of a simple profile stays out of B-rep", () => {
+    const circle: OpNode = { op: "circle2d", r: 5, segments: 64 };
+    expect(requiresBrep({ op: "translate2d", v: [2, 3], child: circle })).toBe(
+      false,
+    );
+    expect(requiresBrep({ op: "rotate2d", angle: 30, child: circle })).toBe(
+      false,
+    );
+    expect(requiresBrep({ op: "scale2d", factor: 2, child: circle })).toBe(
+      false,
+    );
+    expect(
+      requiresBrep({ op: "mirror2d", normal: [1, 0], child: circle }),
+    ).toBe(false);
+  });
+
+  test("a 2D transform of a curved/combined profile forces B-rep", () => {
+    const svg: OpNode = { op: "svg2d", path: "M0 0 L10 0 L5 8 Z" };
+    const label: OpNode = { op: "text2d", text: "A", size: 10 };
+    expect(requiresBrep({ op: "mirror2d", normal: [1, 0], child: svg })).toBe(
+      true,
+    );
+    expect(requiresBrep({ op: "translate2d", v: [1, 1], child: label })).toBe(
+      true,
+    );
+  });
+
   test("detects a fillet nested inside a boolean child", () => {
     const graph: OpNode = {
       op: "union",

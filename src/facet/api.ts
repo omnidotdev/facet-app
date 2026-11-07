@@ -9,9 +9,16 @@ import type { OpNode, Vec3 } from "./opgraph";
  * cut things out of it.
  */
 
+type Vec2 = [number, number];
+
 function asVec3(x: number | Vec3, y?: number, z?: number): Vec3 {
   if (Array.isArray(x)) return x;
   return [x, y ?? 0, z ?? 0];
+}
+
+function asVec2(x: number | Vec2, y?: number): Vec2 {
+  if (Array.isArray(x)) return x;
+  return [x, y ?? 0];
 }
 
 export class Shape {
@@ -125,6 +132,43 @@ export class Sketch {
   /** Grow (positive) or shrink (negative) this outline by `distance`. */
   offset(distance: number): Sketch {
     return this.wrap({ op: "offset2d", distance, child: this.node });
+  }
+
+  /** Move this sketch by (x, y) in its plane, or by a vector. */
+  translate(x: number | Vec2, y?: number): Sketch {
+    return this.wrap({ op: "translate2d", v: asVec2(x, y), child: this.node });
+  }
+  /** Alias for translate. */
+  move(x: number | Vec2, y?: number): Sketch {
+    return this.translate(x, y);
+  }
+
+  /** Rotate this sketch `deg` degrees counter-clockwise about the origin. */
+  rotate(deg: number): Sketch {
+    if (!Number.isFinite(deg))
+      throw new Error("rotate needs a finite angle in degrees.");
+    return this.wrap({ op: "rotate2d", angle: deg, child: this.node });
+  }
+
+  /** Scale this sketch uniformly by `factor` about the origin. */
+  scale(factor: number): Sketch {
+    if (!Number.isFinite(factor) || factor === 0)
+      throw new Error("scale needs a finite, non-zero factor.");
+    return this.wrap({ op: "scale2d", factor, child: this.node });
+  }
+
+  /**
+   * Mirror this sketch across the line through the origin whose normal is
+   * (x, y). `mirror([1, 0])` flips X, `mirror([0, 1])` flips Y. Build one half
+   * of a symmetric profile and reflect it to get the whole.
+   */
+  mirror(x: number | Vec2, y?: number): Sketch {
+    const normal = asVec2(x, y);
+    if (!Number.isFinite(normal[0]) || !Number.isFinite(normal[1]))
+      throw new Error("mirror needs a finite normal.");
+    if (normal[0] === 0 && normal[1] === 0)
+      throw new Error("mirror needs a non-zero normal to define a line.");
+    return this.wrap({ op: "mirror2d", normal, child: this.node });
   }
 
   /** Fuse this sketch with others (2D union). */

@@ -558,6 +558,38 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
         .revolve("Z", { angle: node.angle }) as Shape3D;
       return { kind: "brep", shape: keep(solid) };
     }
+    case "translate2d": {
+      const drawing = requireDrawing(
+        evalNode(rc, keep, node.child),
+        "Translate",
+      );
+      return {
+        kind: "drawing",
+        drawing: drawing.translate(node.v[0], node.v[1]),
+      };
+    }
+    case "rotate2d": {
+      const drawing = requireDrawing(evalNode(rc, keep, node.child), "Rotate");
+      // Rotate about the origin (replicad rotates a drawing in degrees)
+      return { kind: "drawing", drawing: drawing.rotate(node.angle, [0, 0]) };
+    }
+    case "scale2d": {
+      const drawing = requireDrawing(evalNode(rc, keep, node.child), "Scale");
+      // Scale about the origin; replicad defaults to the bounding-box center, so
+      // pass the origin explicitly to match the mesh/WASM kernels
+      return { kind: "drawing", drawing: drawing.scale(node.factor, [0, 0]) };
+    }
+    case "mirror2d": {
+      const drawing = requireDrawing(evalNode(rc, keep, node.child), "Mirror");
+      // Reflect across the line through the origin whose normal is node.normal;
+      // replicad's plane mode mirrors across the line in a given direction, and
+      // that direction is perpendicular to the normal ([-ny, nx])
+      const [nx, ny] = node.normal;
+      return {
+        kind: "drawing",
+        drawing: drawing.mirror([-ny, nx], [0, 0], "plane"),
+      };
+    }
     case "mirror": {
       const child = requireSolidGeom(evalNode(rc, keep, node.child), "Mirror");
       if (child.kind === "mesh")

@@ -55,6 +55,13 @@ export function requiresBrep(node: OpNode): boolean {
     case "rotate":
     case "scale":
     case "mirror":
+    // A 2D transform follows its profile too: a transformed simple ring still
+    // tessellates in the mesh kernel, a transformed curved/combined one stays
+    // B-rep
+    case "translate2d":
+    case "rotate2d":
+    case "scale2d":
+    case "mirror2d":
       return requiresBrep(node.child);
     case "union":
     case "difference":

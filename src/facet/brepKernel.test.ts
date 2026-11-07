@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { evaluateOpGraph, exportOpGraphStep } from "./brepKernel";
+import { meshBounds } from "./kernel";
+import { meshKernel } from "./meshKernel";
 
 import type { OpNode } from "./opgraph";
 
@@ -615,4 +617,185 @@ describe("B-rep polyhedron sews an explicit solid from its faces", () => {
       expect(max[0]).toBeCloseTo(1.3, 5);
     },
   );
+});
+
+describe("B-rep 2D sketch transforms position and mirror a profile", () => {
+  test.skipIf(!rc)(
+    "a translated square extrudes to a solid shifted by the translation",
+    () => {
+      // An 8-wide centered square spans -4..4; shift by (10, 5), extrude 3
+      const node: OpNode = {
+        op: "extrude",
+        height: 3,
+        twist: 0,
+        scale: 1,
+        child: {
+          op: "translate2d",
+          v: [10, 5],
+          child: { op: "rect2d", size: [8, 8], center: true },
+        },
+      };
+      const { min, max } = brepMeshBounds(evaluateOpGraph(rc!, node));
+      expect(min[0]).toBeCloseTo(6, 4);
+      expect(max[0]).toBeCloseTo(14, 4);
+      expect(min[1]).toBeCloseTo(1, 4);
+      expect(max[1]).toBeCloseTo(9, 4);
+      expect(min[2]).toBeCloseTo(0, 4);
+      expect(max[2]).toBeCloseTo(3, 4);
+    },
+  );
+
+  test.skipIf(!rc)("a uniform scale is about the origin, not the bbox", () => {
+    // A 4-wide square shifted to span 8..12 (bbox center x=10); scaling by 2
+    // about the ORIGIN moves it to 16..24. Scaling about the bbox center would
+    // leave it at 6..14, so this pins the origin convention
+    const node: OpNode = {
+      op: "extrude",
+      height: 1,
+      twist: 0,
+      scale: 1,
+      child: {
+        op: "scale2d",
+        factor: 2,
+        child: {
+          op: "translate2d",
+          v: [10, 0],
+          child: { op: "rect2d", size: [4, 4], center: true },
+        },
+      },
+    };
+    const { min, max } = brepMeshBounds(evaluateOpGraph(rc!, node));
+    expect(min[0]).toBeCloseTo(16, 4);
+    expect(max[0]).toBeCloseTo(24, 4);
+  });
+
+  test.skipIf(!rc)(
+    "a 90-degree rotation swaps a rectangle's width and height",
+    () => {
+      // A 10x2 centered rectangle (-5..5 in X, -1..1 in Y) rotated 90 degrees
+      // about the origin swaps those spans
+      const node: OpNode = {
+        op: "extrude",
+        height: 1,
+        twist: 0,
+        scale: 1,
+        child: {
+          op: "rotate2d",
+          angle: 90,
+          child: { op: "rect2d", size: [10, 2], center: true },
+        },
+      };
+      const { min, max } = brepMeshBounds(evaluateOpGraph(rc!, node));
+      expect(max[0] - min[0]).toBeCloseTo(2, 4);
+      expect(max[1] - min[1]).toBeCloseTo(10, 4);
+    },
+  );
+
+  test.skipIf(!rc)(
+    "mirror reflects an asymmetric profile across a line through the origin",
+    () => {
+      // A right triangle living entirely in +X (0..10); mirroring across the
+      // line with normal [1,0] lands it entirely in -X (-10..0)
+      const node: OpNode = {
+        op: "extrude",
+        height: 2,
+        twist: 0,
+        scale: 1,
+        child: {
+          op: "mirror2d",
+          normal: [1, 0],
+          child: { op: "polygon2d", points: [0, 0, 10, 0, 10, 6] },
+        },
+      };
+      const mesh = evaluateOpGraph(rc!, node);
+      expect(brepMeshVolume(mesh)).toBeGreaterThan(0);
+      const { min, max } = brepMeshBounds(mesh);
+      expect(min[0]).toBeCloseTo(-10, 4);
+      expect(max[0]).toBeCloseTo(0, 4);
+      // The Y extent is untouched by an X mirror
+      expect(min[1]).toBeCloseTo(0, 4);
+      expect(max[1]).toBeCloseTo(6, 4);
+    },
+  );
+
+  test.skipIf(!rc)(
+    "a bare 2D transform (not extruded) asks to extrude or revolve first",
+    () => {
+      const node: OpNode = {
+        op: "translate2d",
+        v: [2, 0],
+        child: { op: "circle2d", r: 5, segments: 64 },
+      };
+      expect(() => evaluateOpGraph(rc!, node)).toThrow(
+        /sketch|extrude|revolve/i,
+      );
+    },
+  );
+
+  test.skipIf(!rc)(
+    "the motivating case: a half profile unioned with its X mirror is centered on x=0",
+    () => {
+      // Build only the +X half (x 0..8), mirror it to -X, extrude the 2D union:
+      // the solid must be left-right symmetric, so its X bounds are equal and
+      // opposite about x=0
+      const half: OpNode = {
+        op: "polygon2d",
+        points: [0, 0, 8, 0, 8, 4, 0, 10],
+      };
+      const node: OpNode = {
+        op: "extrude",
+        height: 3,
+        twist: 0,
+        scale: 1,
+        child: {
+          op: "union2d",
+          children: [half, { op: "mirror2d", normal: [1, 0], child: half }],
+        },
+      };
+      const mesh = evaluateOpGraph(rc!, node);
+      expect(brepMeshVolume(mesh)).toBeGreaterThan(0);
+      const { min, max } = brepMeshBounds(mesh);
+      expect(min[0]).toBeCloseTo(-max[0], 4);
+      expect(min[0]).toBeCloseTo(-8, 4);
+      expect(max[0]).toBeCloseTo(8, 4);
+    },
+  );
+});
+
+describe("2D transforms agree between the B-rep and mesh kernels", () => {
+  // The B-rep and mesh kernels implement rotate/mirror independently (replicad
+  // Drawing methods vs profileRing point-math). A direction divergence (one
+  // rotating the opposite way, or mirroring across the wrong line) would pass
+  // the axis-only and width/height-swap tests, so cross-check an asymmetric
+  // profile at an asymmetric angle where the two would disagree. The mesh ring
+  // vertices of a polygon are the exact transformed points, and the B-rep caps
+  // sew those same points, so the bounds match tightly
+  const leaning: OpNode = { op: "polygon2d", points: [0, 0, 10, 0, 10, 6] };
+  const extrudeOf = (child: OpNode): OpNode => ({
+    op: "extrude",
+    height: 2,
+    twist: 0,
+    scale: 1,
+    child,
+  });
+
+  test.skipIf(!rc)("a 37-degree rotation lands in the same place", () => {
+    const node = extrudeOf({ op: "rotate2d", angle: 37, child: leaning });
+    const brep = brepMeshBounds(evaluateOpGraph(rc!, node));
+    const mesh = meshBounds(meshKernel.evaluate(node));
+    for (let a = 0; a < 2; a++) {
+      expect(brep.min[a]).toBeCloseTo(mesh.min[a], 3);
+      expect(brep.max[a]).toBeCloseTo(mesh.max[a], 3);
+    }
+  });
+
+  test.skipIf(!rc)("a non-axis mirror lands in the same place", () => {
+    const node = extrudeOf({ op: "mirror2d", normal: [1, 1], child: leaning });
+    const brep = brepMeshBounds(evaluateOpGraph(rc!, node));
+    const mesh = meshBounds(meshKernel.evaluate(node));
+    for (let a = 0; a < 2; a++) {
+      expect(brep.min[a]).toBeCloseTo(mesh.min[a], 3);
+      expect(brep.max[a]).toBeCloseTo(mesh.max[a], 3);
+    }
+  });
 });

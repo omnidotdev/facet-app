@@ -226,6 +226,48 @@ pub fn profile_ring(node: &OpNode) -> Option<Vec<Pt>> {
             }
             Some(points.chunks(2).map(|c| (c[0], c[1])).collect())
         }
+        // A 2D transform recurses into its child ring and maps each point,
+        // mirroring the TS meshSweep point-math. translate/scale/mirror are
+        // algebraic (add/multiply/sqrt), so the two kernels agree bit for bit;
+        // rotate goes through sin/cos, which are not correctly-rounded, so it
+        // matches within a floating-point tolerance. A curved/combined child
+        // returns None and routes to B-rep
+        OpNode::Translate2d { v, child } => {
+            let ring = profile_ring(child)?;
+            let (dx, dy) = (v[0], v[1]);
+            Some(ring.iter().map(|&(x, y)| (x + dx, y + dy)).collect())
+        }
+        OpNode::Rotate2d { angle, child } => {
+            let ring = profile_ring(child)?;
+            let a = *angle * DEG;
+            let (cos, sin) = (a.cos(), a.sin());
+            Some(
+                ring.iter()
+                    .map(|&(x, y)| (x * cos - y * sin, x * sin + y * cos))
+                    .collect(),
+            )
+        }
+        OpNode::Scale2d { factor, child } => {
+            let ring = profile_ring(child)?;
+            Some(ring.iter().map(|&(x, y)| (x * factor, y * factor)).collect())
+        }
+        OpNode::Mirror2d { normal, child } => {
+            let ring = profile_ring(child)?;
+            let (nx, ny) = (normal[0], normal[1]);
+            let len = (nx * nx + ny * ny).sqrt();
+            let len = if len == 0.0 { 1.0 } else { len };
+            let (ux, uy) = (nx / len, ny / len);
+            let mut reflected: Vec<Pt> = ring
+                .iter()
+                .map(|&(x, y)| {
+                    let d = 2.0 * (x * ux + y * uy);
+                    (x - d * ux, y - d * uy)
+                })
+                .collect();
+            // A reflection flips orientation, so reverse the ring winding
+            reflected.reverse();
+            Some(reflected)
+        }
         _ => None,
     }
 }

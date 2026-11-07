@@ -252,5 +252,50 @@ export function profileRing(node: OpNode): Pt[] | null {
     for (let i = 0; i < pts.length; i += 2) ring.push([pts[i], pts[i + 1]]);
     return ring;
   }
+  // A 2D transform recurses into its child ring and maps each point. A simple
+  // transformed profile stays tessellatable here; a curved/combined child
+  // returns null and routes to B-rep. The math matches the B-rep Drawing
+  // methods (origin-centered rotate/scale, reflection across a line through the
+  // origin), so the two kernels build the same solid. It also mirrors the Rust
+  // sweep: translate/scale/mirror are algebraic and agree with it bit for bit,
+  // while rotate's sin/cos match within a floating-point tolerance
+  if (node.op === "translate2d") {
+    const ring = profileRing(node.child);
+    if (!ring) return null;
+    const [dx, dy] = node.v;
+    return ring.map(([x, y]): Pt => [x + dx, y + dy]);
+  }
+  if (node.op === "rotate2d") {
+    const ring = profileRing(node.child);
+    if (!ring) return null;
+    const a = node.angle * DEG;
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    return ring.map(([x, y]): Pt => [x * cos - y * sin, x * sin + y * cos]);
+  }
+  if (node.op === "scale2d") {
+    const ring = profileRing(node.child);
+    if (!ring) return null;
+    return ring.map(([x, y]): Pt => [x * node.factor, y * node.factor]);
+  }
+  if (node.op === "mirror2d") {
+    const ring = profileRing(node.child);
+    if (!ring) return null;
+    const [nx, ny] = node.normal;
+    // Use a plain sqrt (not Math.hypot) so the length matches the Rust kernel
+    // bit for bit: IEEE sqrt is correctly rounded and deterministic across V8
+    // and wasm, whereas Math.hypot scales and compensates and can differ by a
+    // ULP for a non-axis normal
+    const len = Math.sqrt(nx * nx + ny * ny) || 1;
+    const ux = nx / len;
+    const uy = ny / len;
+    const reflected = ring.map(([x, y]): Pt => {
+      const d = 2 * (x * ux + y * uy);
+      return [x - d * ux, y - d * uy];
+    });
+    // A reflection flips orientation, so reverse the ring to keep its winding
+    reflected.reverse();
+    return reflected;
+  }
   return null; // svg2d, text2d, offset2d, 2D booleans -> B-rep
 }
