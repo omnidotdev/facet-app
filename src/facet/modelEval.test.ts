@@ -39,6 +39,15 @@ describe("buildModel", () => {
     }
   });
 
+  test("exposes polyhedron in the sandbox", () => {
+    const res = buildModel(
+      "return polyhedron([[0,0,0],[1,0,0],[0,1,0],[0,0,1]], [[0,2,1],[0,1,3],[1,2,3],[2,0,3]]);",
+      {},
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.node.op).toBe("polyhedron");
+  });
+
   test("returns a friendly error when nothing is returned", () => {
     const res = buildModel("const x = cube(1);", {});
     expect(res.ok).toBe(false);

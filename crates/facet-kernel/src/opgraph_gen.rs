@@ -21,6 +21,17 @@ pub enum OpNode {
         segments: i32,
         center: bool,
     },
+    Cone {
+        r1: f64,
+        r2: f64,
+        h: f64,
+        segments: i32,
+        center: bool,
+    },
+    Polyhedron {
+        points: Vec<f64>,
+        faces: Vec<f64>,
+    },
     Translate {
         v: [f64; 3],
         child: Box<OpNode>,
@@ -52,6 +63,9 @@ pub enum OpNode {
         children: Vec<OpNode>,
     },
     Intersect {
+        children: Vec<OpNode>,
+    },
+    Hull {
         children: Vec<OpNode>,
     },
     Circle2d {
