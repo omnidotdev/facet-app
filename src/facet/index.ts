@@ -9,6 +9,7 @@ export {
   difference,
   extrude,
   grid,
+  importSvg,
   intersection,
   polygon,
   rect,

@@ -65,6 +65,9 @@ pub enum OpNode {
     Polygon2d {
         points: Vec<f64>,
     },
+    Svg2d {
+        path: String,
+    },
     Union2d {
         children: Vec<OpNode>,
     },

@@ -253,6 +253,15 @@ export function polygon(points: [number, number][] | number[]): Sketch {
   return new Sketch({ op: "polygon2d", points: flat });
 }
 
+/**
+ * A 2D sketch from an SVG path `d` string (an icon, a glyph, a logo outline).
+ * The Y axis is flipped so the art reads upright, and opposite-wound subpaths
+ * become holes. Extrude or revolve the result like any other sketch.
+ */
+export function importSvg(path: string): Sketch {
+  return new Sketch({ op: "svg2d", path });
+}
+
 /** Extrude a 2D sketch straight up by `height` into a solid. */
 export function extrude(
   sketch: Sketch,
