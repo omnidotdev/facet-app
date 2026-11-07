@@ -292,3 +292,112 @@ describe("2D sketch and sweep API builds an op-graph", () => {
     }
   });
 });
+
+describe("2D sketch transforms build an op-graph", () => {
+  test("translate records the vector and nests the child", () => {
+    const node = circle(5).translate(3, 4).node;
+    expect(node).toEqual({
+      op: "translate2d",
+      v: [3, 4],
+      child: { op: "circle2d", r: 5, segments: 64 },
+    });
+  });
+
+  test("translate defaults the y offset to zero and accepts a vector", () => {
+    expect(circle(5).translate(2).node).toMatchObject({
+      op: "translate2d",
+      v: [2, 0],
+    });
+    expect(circle(5).translate([2, 7]).node).toMatchObject({
+      op: "translate2d",
+      v: [2, 7],
+    });
+  });
+
+  test("move is an alias for translate", () => {
+    expect(square(4).move(1, 2).node).toMatchObject({
+      op: "translate2d",
+      v: [1, 2],
+    });
+  });
+
+  test("rotate records the angle in degrees", () => {
+    expect(square(4).rotate(30).node).toEqual({
+      op: "rotate2d",
+      angle: 30,
+      child: { op: "rect2d", size: [4, 4], center: true },
+    });
+  });
+
+  test("scale records a uniform factor", () => {
+    expect(circle(2).scale(3).node).toEqual({
+      op: "scale2d",
+      factor: 3,
+      child: { op: "circle2d", r: 2, segments: 64 },
+    });
+  });
+
+  test("mirror records the line normal and nests the child", () => {
+    const node = polygon([0, 0, 10, 0, 5, 8]).mirror([1, 0]).node;
+    expect(node).toEqual({
+      op: "mirror2d",
+      normal: [1, 0],
+      child: { op: "polygon2d", points: [0, 0, 10, 0, 5, 8] },
+    });
+  });
+
+  test("mirror defaults the y component to zero and accepts loose args", () => {
+    expect(circle(5).mirror(0, 1).node).toMatchObject({
+      op: "mirror2d",
+      normal: [0, 1],
+    });
+    expect(circle(5).mirror(1).node).toMatchObject({
+      op: "mirror2d",
+      normal: [1, 0],
+    });
+  });
+
+  test("transforms chain and stay in the sketch domain (extrude consumes them)", () => {
+    const shape = square(4).translate(10, 0).mirror([1, 0]).extrude(2);
+    expect(shape.node.op).toBe("extrude");
+    if (shape.node.op === "extrude") {
+      expect(shape.node.child.op).toBe("mirror2d");
+    }
+  });
+});
+
+describe("2D sketch transforms reject degenerate inputs at the boundary", () => {
+  test("mirror rejects a zero-length normal", () => {
+    // A zero normal has no line to reflect across; the kernels disagree on it
+    // (a silent no-op in mesh, a throw in B-rep), so stop it at the boundary
+    expect(() => circle(5).mirror([0, 0])).toThrow(/normal/i);
+    expect(() => circle(5).mirror(0, 0)).toThrow(/normal/i);
+  });
+
+  test("mirror rejects a non-finite normal", () => {
+    expect(() => circle(5).mirror([Number.NaN, 1])).toThrow(/normal/i);
+    expect(() => circle(5).mirror(Number.POSITIVE_INFINITY, 0)).toThrow(
+      /normal/i,
+    );
+  });
+
+  test("scale rejects a zero or non-finite factor", () => {
+    expect(() => circle(5).scale(0)).toThrow(/scale|factor/i);
+    expect(() => circle(5).scale(Number.NaN)).toThrow(/scale|factor/i);
+    expect(() => circle(5).scale(Number.POSITIVE_INFINITY)).toThrow(
+      /scale|factor/i,
+    );
+  });
+
+  test("rotate rejects a non-finite angle", () => {
+    expect(() => circle(5).rotate(Number.NaN)).toThrow(/angle/i);
+    expect(() => circle(5).rotate(Number.POSITIVE_INFINITY)).toThrow(/angle/i);
+  });
+
+  test("a negative scale factor is allowed (a reflection through the origin)", () => {
+    expect(circle(5).scale(-1).node).toMatchObject({
+      op: "scale2d",
+      factor: -1,
+    });
+  });
+});

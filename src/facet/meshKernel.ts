@@ -444,6 +444,12 @@ function evalNode(node: OpNode): CSG {
     case "difference2d":
     case "intersect2d":
     case "offset2d":
+    // A 2D transform is still a bare sketch here; it only tessellates as the
+    // child of an extrude/revolve, handled by profileRing above
+    case "translate2d":
+    case "rotate2d":
+    case "scale2d":
+    case "mirror2d":
       throw new KernelError(
         "2D sketches need the B-rep kernel, or extrude/revolve them. Switch the kernel to B-rep (OCCT).",
       );

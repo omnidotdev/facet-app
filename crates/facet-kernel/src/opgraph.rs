@@ -84,7 +84,13 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         | OpNode::Union2d { .. }
         | OpNode::Difference2d { .. }
         | OpNode::Intersect2d { .. }
-        | OpNode::Offset2d { .. } => Err(
+        | OpNode::Offset2d { .. }
+        // A 2D transform only tessellates as the child of an extrude/revolve,
+        // handled by profile_ring above; a bare one has no mesh form
+        | OpNode::Translate2d { .. }
+        | OpNode::Rotate2d { .. }
+        | OpNode::Scale2d { .. }
+        | OpNode::Mirror2d { .. } => Err(
             "2D sketches need the B-rep kernel, or extrude/revolve them. Switch the kernel to B-rep (OCCT)."
                 .to_string(),
         ),
@@ -534,5 +540,78 @@ mod tests {
         assert_eq!(segment_count(-5), 1);
         assert_eq!(segment_count(0), 1);
         assert_eq!(segment_count(32), 32);
+    }
+
+    /// Axis-aligned bounds of a tessellated solid, as (min, max) triples
+    fn bounds(csg: &Csg) -> ([f32; 3], [f32; 3]) {
+        let (positions, _) = crate::csg::to_mesh(csg);
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in positions.chunks(3) {
+            for a in 0..3 {
+                min[a] = min[a].min(p[a]);
+                max[a] = max[a].max(p[a]);
+            }
+        }
+        (min, max)
+    }
+
+    /// A translated simple profile must extrude to a solid shifted by the
+    /// translation, so the 2D transform recurses through profile_ring exactly
+    /// as the TS mesh kernel does
+    #[test]
+    fn translate2d_shifts_an_extruded_profile() {
+        let json = r#"{"op":"extrude","height":3,"twist":0,"scale":1,
+            "child":{"op":"translate2d","v":[10,5],
+            "child":{"op":"rect2d","size":[8,8],"center":true}}}"#;
+        let node: OpNode = serde_json::from_str(json).expect("parse graph");
+        let csg = eval_node(&node).expect("evaluate translated extrude");
+        let (min, max) = bounds(&csg);
+        assert!((min[0] - 6.0).abs() < 1e-4, "min x was {}", min[0]);
+        assert!((max[0] - 14.0).abs() < 1e-4, "max x was {}", max[0]);
+        assert!((min[1] - 1.0).abs() < 1e-4, "min y was {}", min[1]);
+        assert!((max[1] - 9.0).abs() < 1e-4, "max y was {}", max[1]);
+    }
+
+    /// A uniform scale is about the origin (not the bbox center), matching the
+    /// B-rep kernel's explicit origin center
+    #[test]
+    fn scale2d_is_about_the_origin() {
+        let json = r#"{"op":"extrude","height":1,"twist":0,"scale":1,
+            "child":{"op":"scale2d","factor":2,
+            "child":{"op":"translate2d","v":[10,0],
+            "child":{"op":"rect2d","size":[4,4],"center":true}}}}"#;
+        let node: OpNode = serde_json::from_str(json).expect("parse graph");
+        let csg = eval_node(&node).expect("evaluate scaled extrude");
+        let (min, max) = bounds(&csg);
+        assert!((min[0] - 16.0).abs() < 1e-4, "min x was {}", min[0]);
+        assert!((max[0] - 24.0).abs() < 1e-4, "max x was {}", max[0]);
+    }
+
+    /// Mirror across the line through the origin with normal [1,0] flips a
+    /// +X profile entirely into -X
+    #[test]
+    fn mirror2d_reflects_across_a_line_through_the_origin() {
+        let json = r#"{"op":"extrude","height":2,"twist":0,"scale":1,
+            "child":{"op":"mirror2d","normal":[1,0],
+            "child":{"op":"polygon2d","points":[0,0,10,0,10,6]}}}"#;
+        let node: OpNode = serde_json::from_str(json).expect("parse graph");
+        let csg = eval_node(&node).expect("evaluate mirrored extrude");
+        let (min, max) = bounds(&csg);
+        assert!((min[0] + 10.0).abs() < 1e-4, "min x was {}", min[0]);
+        assert!(max[0].abs() < 1e-4, "max x was {}", max[0]);
+        assert!(min[1].abs() < 1e-4, "min y was {}", min[1]);
+        assert!((max[1] - 6.0).abs() < 1e-4, "max y was {}", max[1]);
+    }
+
+    /// A bare 2D transform (not extruded) has no mesh form, so this kernel must
+    /// point the user at the B-rep kernel rather than panic
+    #[test]
+    fn bare_2d_transform_is_rejected() {
+        let json = r#"{"op":"translate2d","v":[2,0],
+            "child":{"op":"circle2d","r":5,"segments":64}}"#;
+        let node: OpNode = serde_json::from_str(json).expect("parse graph");
+        let err = eval_node(&node).err().expect("bare transform must be rejected");
+        assert!(err.contains("B-rep kernel"), "unexpected message: {err}");
     }
 }

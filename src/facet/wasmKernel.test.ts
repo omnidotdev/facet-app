@@ -178,4 +178,97 @@ describe("Rust/WASM kernel", () => {
       },
     );
   }
+
+  // The 2D transform point-math is duplicated in TS (meshSweep.ts) and Rust
+  // (sweep.rs); a transformed simple profile must tessellate bit-identically or
+  // the WASM kernel silently regresses. Each case extrudes a transformed ring,
+  // the input that exercises every arm (translate, rotate, scale, and the
+  // orientation-flipping mirror)
+  const extrudeOf = (child: OpNode): OpNode => ({
+    op: "extrude",
+    height: 3,
+    twist: 0,
+    scale: 1,
+    child,
+  });
+  const square8 = (): OpNode => ({
+    op: "rect2d",
+    size: [8, 8],
+    center: true,
+  });
+  const leaningTriangle = (): OpNode => ({
+    op: "polygon2d",
+    points: [0, 0, 10, 0, 10, 6],
+  });
+
+  for (const [name, build] of [
+    [
+      "a translated square",
+      () => extrudeOf({ op: "translate2d", v: [10, 5], child: square8() }),
+    ],
+    [
+      "a scaled, translated square",
+      () =>
+        extrudeOf({
+          op: "scale2d",
+          factor: 2,
+          child: { op: "translate2d", v: [10, 0], child: square8() },
+        }),
+    ],
+    [
+      "a mirrored leaning triangle",
+      () =>
+        extrudeOf({ op: "mirror2d", normal: [1, 0], child: leaningTriangle() }),
+    ],
+    [
+      // A non-axis normal exercises the normalization path, where an imprecise
+      // length (Math.hypot vs a plain sqrt) would diverge from the Rust side by
+      // a ULP and tessellate differently
+      "a mirrored leaning triangle across a diagonal",
+      () =>
+        extrudeOf({ op: "mirror2d", normal: [1, 1], child: leaningTriangle() }),
+    ],
+  ] as const) {
+    // translate/scale/mirror are algebraic (add/multiply/sqrt), and IEEE
+    // add/multiply/sqrt are correctly rounded, so TS and Rust must agree bit for
+    // bit
+    test.skipIf(!kernel)(
+      `a transformed profile (${name}) meshes identically to the TS mesh kernel`,
+      () => {
+        const node = build();
+        const ts = meshKernel.evaluate(node);
+        const rust = kernel?.evaluate(node);
+        expect(rust).toBeTruthy();
+        if (!rust) return;
+        expect(rust.triangleCount).toBeGreaterThan(0);
+        expect(rust.triangleCount).toBe(ts.triangleCount);
+        expect(Array.from(rust.positions)).toEqual(Array.from(ts.positions));
+        expect(Array.from(rust.normals)).toEqual(Array.from(ts.normals));
+      },
+    );
+  }
+
+  // Rotation runs the ring through sin/cos, which are NOT correctly-rounded
+  // transcendentals: V8's Math.sin/cos and wasm libm's can differ by a ULP, so
+  // a rotated profile matches within a tight floating-point tolerance rather
+  // than bit for bit (unlike the algebraic transforms above)
+  test.skipIf(!kernel)(
+    "a rotated profile matches the TS mesh kernel within floating-point tolerance",
+    () => {
+      const node = extrudeOf({
+        op: "rotate2d",
+        angle: 37,
+        child: { op: "rect2d", size: [10, 2], center: true },
+      });
+      const ts = meshKernel.evaluate(node);
+      const rust = kernel?.evaluate(node);
+      expect(rust).toBeTruthy();
+      if (!rust) return;
+      expect(rust.triangleCount).toBe(ts.triangleCount);
+      for (let i = 0; i < ts.positions.length; i++)
+        expect(rust.positions[i]).toBeCloseTo(ts.positions[i], 9);
+      for (let i = 0; i < ts.normals.length; i++)
+        expect(rust.normals[i]).toBeCloseTo(ts.normals[i], 9);
+    },
+  );
 });

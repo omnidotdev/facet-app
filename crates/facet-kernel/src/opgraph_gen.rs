@@ -99,6 +99,22 @@ pub enum OpNode {
         distance: f64,
         child: Box<OpNode>,
     },
+    Translate2d {
+        v: [f64; 2],
+        child: Box<OpNode>,
+    },
+    Rotate2d {
+        angle: f64,
+        child: Box<OpNode>,
+    },
+    Scale2d {
+        factor: f64,
+        child: Box<OpNode>,
+    },
+    Mirror2d {
+        normal: [f64; 2],
+        child: Box<OpNode>,
+    },
     Extrude {
         height: f64,
         twist: f64,

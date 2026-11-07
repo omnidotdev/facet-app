@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
-import { cone, cube, cylinder, polyhedron, sphere } from "./api";
+import {
+  circle,
+  cone,
+  cube,
+  cylinder,
+  polygon,
+  polyhedron,
+  sphere,
+  square,
+} from "./api";
 import { meshBounds } from "./kernel";
 import { meshKernel } from "./meshKernel";
 import { meshToStlBinary } from "./stl";
@@ -325,6 +334,65 @@ describe("mirror reflects a solid and keeps it outward-facing", () => {
     // The -X half is gone: the result no longer reaches to x=-10
     expect(bounds.min[0]).toBeGreaterThan(-2);
     expect(bounds.max[0]).toBeCloseTo(10, 0);
+  });
+});
+
+describe("2D sketch transforms tessellate through an extruded profile", () => {
+  test("a translated square extrudes to a solid shifted by the translation", () => {
+    // A 4-wide centered square spans -2..2; shift it by (10, 5) and extrude 3
+    const node = square(4).translate(10, 5).extrude(3).node;
+    const mesh = meshKernel.evaluate(node);
+    const { min, max } = meshBounds(mesh);
+    expect(min[0]).toBeCloseTo(8, 5);
+    expect(max[0]).toBeCloseTo(12, 5);
+    expect(min[1]).toBeCloseTo(3, 5);
+    expect(max[1]).toBeCloseTo(7, 5);
+    expect(min[2]).toBeCloseTo(0, 5);
+    expect(max[2]).toBeCloseTo(3, 5);
+  });
+
+  test("a uniform scale grows the profile about the origin", () => {
+    // A circle of radius 5 scaled by 2 spans -10..10 in X and Y
+    const node = circle(5, { segments: 64 }).scale(2).extrude(1).node;
+    const { min, max } = meshBounds(meshKernel.evaluate(node));
+    expect(min[0]).toBeCloseTo(-10, 3);
+    expect(max[0]).toBeCloseTo(10, 3);
+    expect(min[1]).toBeCloseTo(-10, 3);
+    expect(max[1]).toBeCloseTo(10, 3);
+  });
+
+  test("a 90-degree rotation swaps a rectangle's width and height", () => {
+    // A 10x2 centered rectangle spans -5..5 in X, -1..1 in Y; rotating it 90
+    // degrees about the origin swaps those spans
+    const node = square([10, 2]).rotate(90).extrude(1).node;
+    const { min, max } = meshBounds(meshKernel.evaluate(node));
+    expect(max[0] - min[0]).toBeCloseTo(2, 5);
+    expect(max[1] - min[1]).toBeCloseTo(10, 5);
+  });
+
+  test("mirror reflects an asymmetric profile across a line through the origin", () => {
+    // A right-leaning triangle entirely in +X (0..10); mirroring across the
+    // line with normal [1,0] lands it entirely in -X (-10..0)
+    const tri = polygon([0, 0, 10, 0, 10, 6]);
+    const node = tri.mirror([1, 0]).extrude(2).node;
+    const { min, max } = meshBounds(meshKernel.evaluate(node));
+    expect(min[0]).toBeCloseTo(-10, 5);
+    expect(max[0]).toBeCloseTo(0, 5);
+    // The Y extent is untouched by an X mirror
+    expect(min[1]).toBeCloseTo(0, 5);
+    expect(max[1]).toBeCloseTo(6, 5);
+  });
+
+  test("a mirror keeps the profile a valid solid (positive volume)", () => {
+    const tri = polygon([0, 0, 10, 0, 10, 6]);
+    const mesh = meshKernel.evaluate(tri.mirror([1, 0]).extrude(2).node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    expect(meshVolume(mesh)).toBeGreaterThan(0);
+  });
+
+  test("a bare 2D transform (not extruded) asks for the B-rep kernel", () => {
+    const node = square(4).translate(2, 0).node;
+    expect(() => meshKernel.evaluate(node)).toThrow(/B-rep kernel|extrude/i);
   });
 });
 
