@@ -1,15 +1,15 @@
 /**
  * Parse an SVG path `d` string into a replicad 2D `Drawing`.
  *
- * The SVG coordinate system has +Y pointing down; CAD (and replicad) has +Y up,
- * so every Y is negated here to keep a glyph upright. Each subpath becomes its
- * own closed drawing; subpaths that wind the opposite way to the outer contour
- * are treated as holes and cut out (so letter counters and ring interiors read
- * correctly), and same-winding subpaths are fused (a multi-part glyph).
+ * Curves (C/S/Q/T/A) are flattened to line segments here rather than handed to
+ * replicad's curve pen: feeding a complex glyph's beziers to replicad directly
+ * produced self-touching artifacts, while a dense polyline is robust and, at a
+ * glyph's scale, visually identical. The SVG Y axis (down) is negated to CAD
+ * (up) so art reads upright, and subpaths that wind the opposite way to the
+ * outer contour are cut as holes (letter counters, ring interiors).
  *
  * Supported commands: M/m L/l H/h V/v C/c S/s Q/q T/t A/a Z/z (absolute and
- * relative). This is a profile builder, not a renderer: the result is a flat
- * `Drawing` the kernel extrudes or revolves like any other sketch.
+ * relative). The result is a flat `Drawing` the kernel extrudes or revolves.
  */
 
 import type { Drawing } from "replicad";
@@ -17,35 +17,19 @@ import type { Drawing } from "replicad";
 type Rc = typeof import("replicad");
 type Pt = [number, number];
 
-/** The slice of replicad's pen surface this builder uses. */
-interface PenLike {
-  lineTo(p: Pt): PenLike;
-  cubicBezierCurveTo(end: Pt, startControl: Pt, endControl: Pt): PenLike;
-  bezierCurveTo(end: Pt, controlPoints: Pt): PenLike;
-  ellipseTo(
-    end: Pt,
-    rx: number,
-    ry: number,
-    rotation: number,
-    longAxis: boolean,
-    sweep: boolean,
-  ): PenLike;
-  close(): Drawing;
-}
+/** Segments per flattened curve. 24 is smooth at a glyph's ~100-unit scale. */
+const CURVE_SEGMENTS = 24;
 
-/** A fully-parsed subpath: ordered pen operations plus anchor points (for the
- * signed-area winding test). */
+/** A parsed subpath as a flat polyline (SVG space, pre Y-flip). */
 interface SubPath {
-  start: Pt;
-  ops: ((pen: PenLike) => PenLike)[];
-  anchors: Pt[];
+  points: Pt[];
 }
 
-/** Split a path `d` string into its command letters and numeric arguments. */
+/** Split a path `d` string into command letters and numeric arguments. */
 function tokenize(d: string): { cmd: string; args: number[] }[] {
   const out: { cmd: string; args: number[] }[] = [];
-  // A command letter, or a number (incl. scientific notation and the compact
-  // SVG forms like "1-2" or ".5.5")
+  // A command letter, or a number (incl. scientific notation and compact forms
+  // like "1-2" or ".5.5")
   const re =
     /([MmLlHhVvCcSsQqTtAaZz])|(-?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?)/g;
   let current: { cmd: string; args: number[] } | null = null;
@@ -76,7 +60,7 @@ const ARITY: Record<string, number> = {
   Z: 0,
 };
 
-/** Signed area of a polygon (shoelace); positive is counter-clockwise. */
+/** Signed area of a 2D ring (shoelace); positive is counter-clockwise. */
 function signedArea(pts: Pt[]): number {
   let a = 0;
   for (let i = 0; i < pts.length; i++) {
@@ -87,10 +71,104 @@ function signedArea(pts: Pt[]): number {
   return a / 2;
 }
 
-/** Parse the path into subpaths of absolute, Y-flipped pen operations. */
+/** Sample a cubic bezier from p0 to p3 (exclusive of p0), appending to `out`. */
+function flattenCubic(p0: Pt, c1: Pt, c2: Pt, p3: Pt, out: Pt[]): void {
+  for (let i = 1; i <= CURVE_SEGMENTS; i++) {
+    const t = i / CURVE_SEGMENTS;
+    const u = 1 - t;
+    const a = u * u * u;
+    const b = 3 * u * u * t;
+    const c = 3 * u * t * t;
+    const d = t * t * t;
+    out.push([
+      a * p0[0] + b * c1[0] + c * c2[0] + d * p3[0],
+      a * p0[1] + b * c1[1] + c * c2[1] + d * p3[1],
+    ]);
+  }
+}
+
+/** Sample a quadratic bezier from p0 to p2 (exclusive of p0). */
+function flattenQuad(p0: Pt, c: Pt, p2: Pt, out: Pt[]): void {
+  for (let i = 1; i <= CURVE_SEGMENTS; i++) {
+    const t = i / CURVE_SEGMENTS;
+    const u = 1 - t;
+    out.push([
+      u * u * p0[0] + 2 * u * t * c[0] + t * t * p2[0],
+      u * u * p0[1] + 2 * u * t * c[1] + t * t * p2[1],
+    ]);
+  }
+}
+
+/**
+ * Sample an SVG elliptical arc (endpoint parameterization, SVG spec F.6.5) from
+ * the current point `p0` to `p1`, appending points (exclusive of p0).
+ */
+function flattenArc(
+  p0: Pt,
+  rxIn: number,
+  ryIn: number,
+  rotDeg: number,
+  large: boolean,
+  sweep: boolean,
+  p1: Pt,
+  out: Pt[],
+): void {
+  let rx = Math.abs(rxIn);
+  let ry = Math.abs(ryIn);
+  if (rx === 0 || ry === 0) {
+    out.push(p1);
+    return;
+  }
+  const phi = (rotDeg * Math.PI) / 180;
+  const cosP = Math.cos(phi);
+  const sinP = Math.sin(phi);
+  const dx = (p0[0] - p1[0]) / 2;
+  const dy = (p0[1] - p1[1]) / 2;
+  const x1p = cosP * dx + sinP * dy;
+  const y1p = -sinP * dx + cosP * dy;
+  // Scale radii up if they can't span the endpoints
+  const lambda = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+  if (lambda > 1) {
+    const s = Math.sqrt(lambda);
+    rx *= s;
+    ry *= s;
+  }
+  const sign = large === sweep ? -1 : 1;
+  const num = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
+  const den = rx * rx * y1p * y1p + ry * ry * x1p * x1p;
+  const co = sign * Math.sqrt(Math.max(0, num / den));
+  const cxp = (co * (rx * y1p)) / ry;
+  const cyp = (co * -(ry * x1p)) / rx;
+  const cx = cosP * cxp - sinP * cyp + (p0[0] + p1[0]) / 2;
+  const cy = sinP * cxp + cosP * cyp + (p0[1] + p1[1]) / 2;
+  const ang = (ux: number, uy: number, vx: number, vy: number) => {
+    const dot = ux * vx + uy * vy;
+    const len = Math.hypot(ux, uy) * Math.hypot(vx, vy);
+    let a = Math.acos(Math.min(1, Math.max(-1, dot / len)));
+    if (ux * vy - uy * vx < 0) a = -a;
+    return a;
+  };
+  const theta0 = ang(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+  let dTheta = ang(
+    (x1p - cxp) / rx,
+    (y1p - cyp) / ry,
+    (-x1p - cxp) / rx,
+    (-y1p - cyp) / ry,
+  );
+  if (!sweep && dTheta > 0) dTheta -= 2 * Math.PI;
+  if (sweep && dTheta < 0) dTheta += 2 * Math.PI;
+  for (let i = 1; i <= CURVE_SEGMENTS; i++) {
+    const t = theta0 + (dTheta * i) / CURVE_SEGMENTS;
+    const ex = cosP * rx * Math.cos(t) - sinP * ry * Math.sin(t) + cx;
+    const ey = sinP * rx * Math.cos(t) + cosP * ry * Math.sin(t) + cy;
+    out.push([ex, ey]);
+  }
+}
+
+/** Parse the path into subpaths of absolute, flattened polylines (SVG space). */
 function parse(d: string): SubPath[] {
   const subpaths: SubPath[] = [];
-  let sub: SubPath | null = null;
+  let pts: Pt[] | null = null;
   let cx = 0;
   let cy = 0;
   let sx = 0;
@@ -98,24 +176,14 @@ function parse(d: string): SubPath[] {
   let lastCubicCtrl: Pt | null = null;
   let lastQuadCtrl: Pt | null = null;
 
-  const P = (x: number, y: number): Pt => [x, -y]; // SVG -> CAD (flip Y)
-
-  const startSub = (x: number, y: number): SubPath => {
-    const s: SubPath = { start: P(x, y), ops: [], anchors: [P(x, y)] };
-    subpaths.push(s);
-    sub = s;
+  const open = (x: number, y: number): Pt[] => {
+    pts = [[x, y]];
+    subpaths.push({ points: pts });
     sx = x;
     sy = y;
-    return s;
+    return pts;
   };
-  // The current subpath, starting one at the current point if a segment command
-  // appears before any moveto (tolerant of malformed paths)
-  const cur = (): SubPath => sub ?? startSub(cx, cy);
-  const emit = (op: (pen: PenLike) => PenLike, anchor: Pt): void => {
-    const s = cur();
-    s.ops.push(op);
-    s.anchors.push(anchor);
-  };
+  const cur = (): Pt[] => pts ?? open(cx, cy);
 
   for (const { cmd, args } of tokenize(d)) {
     const upper = cmd.toUpperCase();
@@ -126,38 +194,33 @@ function parse(d: string): SubPath[] {
       cx = sx;
       cy = sy;
       lastCubicCtrl = lastQuadCtrl = null;
-      sub = null;
+      pts = null;
       continue;
     }
 
-    // Commands repeat when given extra coordinate sets; an extra M repeats as L
     const step = n;
     for (let i = 0; i + step <= args.length; i += step) {
       const a = args.slice(i, i + step);
       if (upper === "M") {
         const x = rel ? cx + a[0] : a[0];
         const y = rel ? cy + a[1] : a[1];
-        if (i === 0) startSub(x, y);
-        else emit((pen) => pen.lineTo(P(x, y)), P(x, y));
+        if (i === 0) open(x, y);
+        else cur().push([x, y]);
         cx = x;
         cy = y;
         lastCubicCtrl = lastQuadCtrl = null;
       } else if (upper === "L") {
-        const x = rel ? cx + a[0] : a[0];
-        const y = rel ? cy + a[1] : a[1];
-        emit((pen) => pen.lineTo(P(x, y)), P(x, y));
-        cx = x;
-        cy = y;
+        cx = rel ? cx + a[0] : a[0];
+        cy = rel ? cy + a[1] : a[1];
+        cur().push([cx, cy]);
         lastCubicCtrl = lastQuadCtrl = null;
       } else if (upper === "H") {
-        const x = rel ? cx + a[0] : a[0];
-        emit((pen) => pen.lineTo(P(x, cy)), P(x, cy));
-        cx = x;
+        cx = rel ? cx + a[0] : a[0];
+        cur().push([cx, cy]);
         lastCubicCtrl = lastQuadCtrl = null;
       } else if (upper === "V") {
-        const y = rel ? cy + a[0] : a[0];
-        emit((pen) => pen.lineTo(P(cx, y)), P(cx, y));
-        cy = y;
+        cy = rel ? cy + a[0] : a[0];
+        cur().push([cx, cy]);
         lastCubicCtrl = lastQuadCtrl = null;
       } else if (upper === "C" || upper === "S") {
         let c1x: number;
@@ -166,7 +229,6 @@ function parse(d: string): SubPath[] {
           c1x = rel ? cx + a[0] : a[0];
           c1y = rel ? cy + a[1] : a[1];
         } else {
-          // S: first control reflects the previous cubic control
           c1x = lastCubicCtrl ? 2 * cx - lastCubicCtrl[0] : cx;
           c1y = lastCubicCtrl ? 2 * cy - lastCubicCtrl[1] : cy;
         }
@@ -175,10 +237,7 @@ function parse(d: string): SubPath[] {
         const c2y = rel ? cy + a[o + 1] : a[o + 1];
         const ex = rel ? cx + a[o + 2] : a[o + 2];
         const ey = rel ? cy + a[o + 3] : a[o + 3];
-        emit(
-          (pen) => pen.cubicBezierCurveTo(P(ex, ey), P(c1x, c1y), P(c2x, c2y)),
-          P(ex, ey),
-        );
+        flattenCubic([cx, cy], [c1x, c1y], [c2x, c2y], [ex, ey], cur());
         lastCubicCtrl = [c2x, c2y];
         lastQuadCtrl = null;
         cx = ex;
@@ -196,23 +255,23 @@ function parse(d: string): SubPath[] {
         const o = upper === "Q" ? 2 : 0;
         const ex = rel ? cx + a[o] : a[o];
         const ey = rel ? cy + a[o + 1] : a[o + 1];
-        emit((pen) => pen.bezierCurveTo(P(ex, ey), P(qx, qy)), P(ex, ey));
+        flattenQuad([cx, cy], [qx, qy], [ex, ey], cur());
         lastQuadCtrl = [qx, qy];
         lastCubicCtrl = null;
         cx = ex;
         cy = ey;
       } else if (upper === "A") {
-        const rx = a[0];
-        const ry = a[1];
-        const rot = a[2];
-        const large = a[3] !== 0;
-        const sweep = a[4] !== 0;
         const ex = rel ? cx + a[5] : a[5];
         const ey = rel ? cy + a[6] : a[6];
-        // Reflecting across Y inverts the sweep direction and negates rotation
-        emit(
-          (pen) => pen.ellipseTo(P(ex, ey), rx, ry, -rot, large, !sweep),
-          P(ex, ey),
+        flattenArc(
+          [cx, cy],
+          a[0],
+          a[1],
+          a[2],
+          a[3] !== 0,
+          a[4] !== 0,
+          [ex, ey],
+          cur(),
         );
         lastCubicCtrl = lastQuadCtrl = null;
         cx = ex;
@@ -220,7 +279,8 @@ function parse(d: string): SubPath[] {
       }
     }
   }
-  return subpaths.filter((s) => s.ops.length > 0);
+  // Drop any subpath too small to form a region
+  return subpaths.filter((s) => s.points.length >= 3);
 }
 
 /**
@@ -233,9 +293,11 @@ export function drawSvgPath(rc: Rc, d: string): Drawing {
     throw new Error("The SVG path has no drawable segments.");
 
   const built = subpaths.map((s) => {
-    let pen = rc.draw(s.start) as unknown as PenLike;
-    for (const op of s.ops) pen = op(pen);
-    return { drawing: pen.close(), area: signedArea(s.anchors) };
+    // Flip Y (SVG down -> CAD up) as we hand points to the pen
+    const flipped: Pt[] = s.points.map(([x, y]) => [x, -y]);
+    let pen = rc.draw(flipped[0]);
+    for (let i = 1; i < flipped.length; i++) pen = pen.lineTo(flipped[i]);
+    return { drawing: pen.close(), area: signedArea(flipped) };
   });
 
   // Largest-area subpath is the outer contour; its winding sign defines "solid".
