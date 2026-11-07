@@ -7,6 +7,7 @@ import {
   difference,
   extrude,
   grid,
+  importSvg,
   polygon,
   rect,
   rectTube,
@@ -186,6 +187,11 @@ describe("2D sketch and sweep API builds an op-graph", () => {
         [5, 8],
       ]).node,
     ).toEqual({ op: "polygon2d", points: [0, 0, 10, 0, 5, 8] });
+  });
+
+  test("importSvg wraps an svg path in a svg2d sketch node", () => {
+    const node = importSvg("M0 0 L10 0 L10 10 Z").node;
+    expect(node).toEqual({ op: "svg2d", path: "M0 0 L10 0 L10 10 Z" });
   });
 
   test("polygon accepts an already-flat point list", () => {

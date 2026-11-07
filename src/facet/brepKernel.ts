@@ -5,6 +5,7 @@ import wasmUrl from "replicad-opencascadejs/wasm?url";
 
 import { KernelError } from "./kernel";
 import { meshToStlBinary } from "./stl";
+import { drawSvgPath } from "./svgPath";
 import { meshTo3mf } from "./threeMf";
 
 import type { Drawing, Shape3D } from "replicad";
@@ -475,6 +476,10 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       // close() joins the last point back to the first, so the ring is implicit
       return { kind: "drawing", drawing: pen.close() };
     }
+    case "svg2d":
+      // Parse the SVG path into a planar drawing (Y-flipped so it reads upright,
+      // opposite-wound subpaths cut as holes)
+      return { kind: "drawing", drawing: drawSvgPath(rc, node.path) };
     case "union2d":
       return drawing2dOp(rc, keep, node.children, (a, b) => a.fuse(b));
     case "difference2d":

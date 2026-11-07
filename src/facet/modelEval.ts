@@ -19,6 +19,7 @@ import {
   difference,
   extrude,
   grid,
+  importSvg,
   intersection,
   polygon,
   rect,
@@ -48,6 +49,7 @@ const modelApi = {
   square,
   rect,
   polygon,
+  importSvg,
   extrude,
   revolve,
 } as const;

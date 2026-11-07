@@ -59,6 +59,7 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         OpNode::Circle2d { .. }
         | OpNode::Rect2d { .. }
         | OpNode::Polygon2d { .. }
+        | OpNode::Svg2d { .. }
         | OpNode::Union2d { .. }
         | OpNode::Difference2d { .. }
         | OpNode::Intersect2d { .. }

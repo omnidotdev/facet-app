@@ -67,6 +67,11 @@ unions:
       polygon2d:
         # flat x,y pairs (p0x, p0y, p1x, p1y, ...); the ring closes implicitly
         points: number[]
+      svg2d:
+        # an SVG path `d` string (M/L/H/V/C/S/Q/T/A/Z); the Y axis is flipped so
+        # the glyph reads upright, and subpaths that wind the opposite way become
+        # holes. A 2D profile, extrude/revolve it like any other sketch
+        path: string
       union2d:
         children: OpNode[]
       difference2d:

@@ -236,6 +236,7 @@ function evalNode(node: OpNode): CSG {
     case "circle2d":
     case "rect2d":
     case "polygon2d":
+    case "svg2d":
     case "union2d":
     case "difference2d":
     case "intersect2d":

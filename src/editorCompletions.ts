@@ -181,6 +181,12 @@ const TOP_LEVEL: Completion[] = [
     info: "A 2D polygon from [x,y] point pairs; the ring closes automatically",
   },
   {
+    label: "importSvg",
+    type: "function",
+    detail: "importSvg(pathData)",
+    info: "A 2D sketch from an SVG path string (an icon/glyph/logo); extrude or revolve it",
+  },
+  {
     label: "extrude",
     type: "function",
     detail: "extrude(sketch, height, { twist, scale })",
