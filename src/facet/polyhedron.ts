@@ -1,11 +1,11 @@
 /**
- * Decoding and triangulation for `polyhedron` (OpenSCAD's polyhedron): an
+ * Decoding and triangulation for `polyhedron` (an explicit mesh in the scripted-CAD convention): an
  * explicit mesh given as a flat list of x,y,z point triples plus a flat,
  * count-prefixed face list. This is shared by all three kernels so a polyhedron
  * decodes and triangulates identically everywhere; the Rust port in
  * `crates/facet-kernel/src/polyhedron.rs` mirrors it step for step.
  *
- * Winding convention (OpenSCAD's): each face lists its vertices so that, viewed
+ * Winding convention (the scripted-CAD standard): each face lists its vertices so that, viewed
  * from OUTSIDE the solid, they run in a consistent rotational order. A flat
  * normal computed as `(p1 - p0) x (p2 - p0)` from that winding therefore points
  * outward. Callers that build a mesh wind each triangle the same way so its

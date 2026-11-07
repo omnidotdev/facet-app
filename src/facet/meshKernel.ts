@@ -138,7 +138,7 @@ function csgCylinder(
 }
 
 /**
- * A truncated cone (OpenSCAD's cylinder(r1, r2, h) taper): a bottom ring at
+ * A truncated cone (the conventional `cylinder(r1, r2, h)` taper): a bottom ring at
  * radius `r1` and a top ring at `r2`, `slices` sides. The top cap is emitted
  * only when `r2 > 0`; when it is zero the top collapses to a sharp apex and the
  * side faces become triangles. The ring winds `[r*cos, -r*sin]` exactly like
@@ -193,7 +193,7 @@ function csgCone(
 }
 
 /**
- * Convex hull (OpenSCAD's hull()) of every child: evaluate each child to CSG,
+ * Convex hull (the conventional `hull()` operation) of every child: evaluate each child to CSG,
  * pour all their vertex positions into one cloud, and wrap the hull triangles
  * back into a solid. `hull3d` returns each triangle wound outward, so the face
  * normal seeds outward and `csgToMesh` reads it flat; the same cloud and the
@@ -242,7 +242,7 @@ function csgHull(children: OpNode[]): CSG {
 const POLYHEDRON_DEGENERATE_EPS = 1e-9;
 
 /**
- * An explicit mesh (OpenSCAD's polyhedron): decode the flat point and face
+ * An explicit mesh (a `polyhedron` in the scripted-CAD convention): decode the flat point and face
  * lists, fan-triangulate each face, and emit one CSG triangle per fan triangle.
  * Each triangle's normal is the flat outward normal from its winding
  * (`(p1 - p0) x (p2 - p0)`), so `csgToMesh` reads a flat per-triangle normal.

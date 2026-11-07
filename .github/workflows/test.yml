@@ -37,6 +37,9 @@ jobs:
       - name: Generate route tree
         run: bun routes:generate
 
+      - name: Competitor names
+        run: bash scripts/check-no-competitor-names.sh
+
       - name: Knip
         run: bun knip
 

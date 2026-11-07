@@ -391,7 +391,7 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
     }
     case "cone": {
       // Draw the (radius, height) profile on XZ and spin it about Z, matching
-      // OpenSCAD's cylinder(r1, r2, h) taper. r2 = 0 collapses the top to a
+      // the conventional cylinder(r1, r2, h) taper. r2 = 0 collapses the top to a
       // sharp apex, so the profile is a triangle instead of a trapezoid
       const z0 = node.center ? -node.h / 2 : 0;
       const z1 = z0 + node.h;
@@ -530,7 +530,7 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
     }
     case "extrude": {
       const drawing = requireDrawing(evalNode(rc, keep, node.child), "Extrude");
-      // Sketch on XY and extrude +Z, matching OpenSCAD's linear_extrude. A twist
+      // Sketch on XY and extrude +Z, matching the conventional linear extrude. A twist
       // (degrees over the height) and an end scale (taper) are optional profile
       // tweaks; omit them when they are the no-op defaults so a straight prism
       // takes the simple path
@@ -551,7 +551,7 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
     case "revolve": {
       const drawing = requireDrawing(evalNode(rc, keep, node.child), "Revolve");
       // Sketch on XZ so the profile's X is the radius and its Y is the height,
-      // then spin about Z: OpenSCAD's rotate_extrude convention. 360 is a full
+      // then spin about Z, the conventional rotate-extrude convention. 360 is a full
       // solid of revolution; a smaller angle leaves a wedge open
       const solid = drawing
         .sketchOnPlane("XZ")
@@ -608,7 +608,7 @@ function requireSolidGeom(
 }
 
 /**
- * Convex hull (OpenSCAD's hull()) of every child. Tessellate each child to a
+ * Convex hull (the conventional `hull()` operation) of every child. Tessellate each child to a
  * mesh and pour all their vertices into one cloud, then compute the hull with
  * the shared `hull3d` (the same routine the mesh and WASM kernels use). Each
  * hull triangle becomes a planar triangular face, and `makeSolid` welds the
@@ -714,7 +714,7 @@ function isFacePlanar(pts: number[][]): boolean {
 }
 
 /**
- * An explicit mesh (OpenSCAD's polyhedron) built as an exact B-rep solid. Each
+ * An explicit mesh (a `polyhedron` in the scripted-CAD convention) built as an exact B-rep solid. Each
  * ORIGINAL face becomes one planar `makePolygon` n-gon, so a planar quad stays a
  * single four-sided face (filletable, STEP-exportable) rather than being split
  * into triangles. A non-planar face has no single planar wire, so it falls back
