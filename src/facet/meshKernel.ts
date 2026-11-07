@@ -1,4 +1,5 @@
 import { CSG, Polygon, Vector, Vertex } from "./csg";
+import { hull3d } from "./hull";
 import { KernelError } from "./kernel";
 import {
   extrudeProfileMesh,
@@ -190,6 +191,49 @@ function csgCone(
   return CSG.fromPolygons(polygons);
 }
 
+/**
+ * Convex hull (OpenSCAD's hull()) of every child: evaluate each child to CSG,
+ * pour all their vertex positions into one cloud, and wrap the hull triangles
+ * back into a solid. `hull3d` returns each triangle wound outward, so the face
+ * normal seeds outward and `csgToMesh` reads it flat; the same cloud and the
+ * same `hull3d` run in the Rust kernel, so both tessellate identically.
+ *
+ * The cloud is de-duplicated by exact coordinate equality first: CSG polygons
+ * repeat each shared vertex, so a sphere child would enter many times over and
+ * make the hull needlessly O(n*F). The Rust `csg_hull` dedups byte-identically
+ * (first occurrence wins), so the seed and triangulation stay bit-identical.
+ */
+function csgHull(children: OpNode[]): CSG {
+  if (!children.length) throw new Error("hull needs at least one child");
+  const seen = new Set<string>();
+  const points: number[][] = [];
+  for (const child of children) {
+    for (const poly of evalNode(child).polygons) {
+      for (const vert of poly.vertices) {
+        // Number.toString round-trips each f64 to a unique shortest string, so
+        // this key is exact f64 equality (and folds +0/-0 like `===`, which the
+        // Rust side matches by canonicalizing a zero coordinate to +0)
+        const key = `${vert.pos.x},${vert.pos.y},${vert.pos.z}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        points.push([vert.pos.x, vert.pos.y, vert.pos.z]);
+      }
+    }
+  }
+  const polygons = hull3d(points).map(([a, b, c]) => {
+    const pa = new Vector(points[a][0], points[a][1], points[a][2]);
+    const pb = new Vector(points[b][0], points[b][1], points[b][2]);
+    const pc = new Vector(points[c][0], points[c][1], points[c][2]);
+    const normal = pb.minus(pa).cross(pc.minus(pa)).unit();
+    return new Polygon([
+      new Vertex(pa, normal),
+      new Vertex(pb, normal),
+      new Vertex(pc, normal),
+    ]);
+  });
+  return CSG.fromPolygons(polygons);
+}
+
 // --- Transforms (map vertex positions, planes recompute on rebuild) ---------
 
 function mapVerts(csg: CSG, fn: (p: Vector) => Vector): CSG {
@@ -299,6 +343,8 @@ function evalNode(node: OpNode): CSG {
       return reduceBool(node.children, (a, b) => a.subtract(b));
     case "intersect":
       return reduceBool(node.children, (a, b) => a.intersect(b));
+    case "hull":
+      return csgHull(node.children);
     // Exact-geometry ops have no mesh/CSG equivalent, so point the user at the
     // kernel that can do them rather than returning wrong geometry
     case "fillet":

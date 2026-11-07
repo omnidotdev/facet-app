@@ -8,6 +8,7 @@ import {
   difference,
   extrude,
   grid,
+  hull,
   importSvg,
   polygon,
   rect,
@@ -91,6 +92,17 @@ describe("authoring API builds an op-graph without computing geometry", () => {
     const a = union(cube(1), sphere(1)).node;
     const b = cube(1).union(sphere(1)).node;
     expect(a).toEqual(b);
+  });
+
+  test("hull collects its children into a hull node", () => {
+    expect(hull(cube(1), sphere(1)).node).toEqual({
+      op: "hull",
+      children: [cube(1).node, sphere(1).node],
+    });
+  });
+
+  test("empty hull throws", () => {
+    expect(() => hull()).toThrow(/at least one shape/);
   });
 
   test("fillet wraps the shape in a fillet node", () => {

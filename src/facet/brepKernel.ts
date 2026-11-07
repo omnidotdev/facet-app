@@ -6,6 +6,7 @@ import wasmUrl from "replicad-opencascadejs/wasm?url";
 // The bundled sans font (Liberation Sans, SIL OFL) that `text()` renders with;
 // Vite hands back its asset URL and replicad's loadFont fetches it on demand
 import fontUrl from "../fonts/LiberationSans-Regular.ttf?url";
+import { hull3d } from "./hull";
 import { KernelError } from "./kernel";
 import { meshToStlBinary } from "./stl";
 import { drawSvgPath } from "./svgPath";
@@ -458,6 +459,8 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       return booleanOp(rc, keep, node.children, (a, b) => a.cut(b));
     case "intersect":
       return booleanOp(rc, keep, node.children, (a, b) => a.intersect(b));
+    case "hull":
+      return brepHull(rc, keep, node.children);
     case "circle2d": {
       // A low segment count is an explicit polygon request (a hexagon), exactly
       // as the cylinder treats it; above that, an exact smooth circle
@@ -599,6 +602,72 @@ function requireSolidGeom(
       `${op} applies to a 3D shape. Extrude or revolve the 2D sketch into a solid first.`,
     );
   return geom;
+}
+
+/**
+ * Convex hull (OpenSCAD's hull()) of every child. Tessellate each child to a
+ * mesh and pour all their vertices into one cloud, then compute the hull with
+ * the shared `hull3d` (the same routine the mesh and WASM kernels use). Each
+ * hull triangle becomes a planar triangular face, and `makeSolid` welds the
+ * faces (coincident at the shared hull vertices) into a closed shell and fixes
+ * it into a solid. That is replicad's documented face-to-solid path, so the
+ * hull stays exact B-rep (filletable, STEP-exportable) rather than dropping to
+ * a display mesh.
+ *
+ * The hull is taken over the children's TESSELLATED meshes (at MESH_TOLERANCE),
+ * so a curved child (sphere, cylinder) yields a planar-faceted approximation of
+ * the true smooth hull, not a smooth surface; a finer tolerance tightens it.
+ */
+function brepHull(rc: Replicad, keep: Keep, children: OpNode[]): Geom {
+  if (!children.length) throw new Error("hull needs at least one child");
+  // De-duplicate by exact coordinate equality: a de-indexed mesh repeats each
+  // vertex per triangle, so a curved child would enter many times over and make
+  // the hull needlessly O(n*F). First occurrence wins
+  const seen = new Set<string>();
+  const points: Array<[number, number, number]> = [];
+  for (const child of children) {
+    const mesh = toMesh(requireSolidGeom(evalNode(rc, keep, child), "Hull"));
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const x = mesh.positions[i];
+      const y = mesh.positions[i + 1];
+      const z = mesh.positions[i + 2];
+      const key = `${x},${y},${z}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      points.push([x, y, z]);
+    }
+  }
+  // Each makePolygon face is an OCCT handle, so register it with localGC like
+  // every other handle in this file; makeSolid consumes them into the solid
+  const faces = hull3d(points).map(([a, b, c]) =>
+    keep(rc.makePolygon([points[a], points[b], points[c]])),
+  );
+  // A degenerate hull (near-flat cloud) can fail to sew or yield an invalid
+  // shell; surface that as an actionable modeling error rather than leaking a
+  // raw OCCT exception or returning a broken solid
+  let solid: Shape3D;
+  try {
+    solid = keep(rc.makeSolid(faces));
+  } catch {
+    throw new BrepModelingError(
+      "The hull couldn't be built into a solid. Add shapes that are not all flat or in a line.",
+    );
+  }
+  const oc = rc.getOC();
+  // BRepCheck_Analyzer is a raw OCCT object, not a replicad handle localGC
+  // tracks, so free it by hand; delete in finally so a throw cannot leak it
+  const analyzer = new oc.BRepCheck_Analyzer(solid.wrapped, true);
+  let valid: boolean;
+  try {
+    valid = analyzer.IsValid();
+  } finally {
+    analyzer.delete();
+  }
+  if (!valid)
+    throw new BrepModelingError(
+      "The hull couldn't be built into a valid solid. Add shapes that are not all flat or in a line.",
+    );
+  return { kind: "brep", shape: solid };
 }
 
 function booleanOp(

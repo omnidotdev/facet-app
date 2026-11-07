@@ -56,6 +56,7 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         OpNode::Union { children } => reduce_bool(children, |a, b| a.union(b)),
         OpNode::Difference { children } => reduce_bool(children, |a, b| a.subtract(b)),
         OpNode::Intersect { children } => reduce_bool(children, |a, b| a.intersect(b)),
+        OpNode::Hull { children } => csg_hull(children),
         // extrude/revolve of a simple profile (circle/rect/polygon) tessellate
         // here; a curved or combined profile has no mesh representation
         OpNode::Extrude { height, twist, scale, child } => match crate::sweep::profile_ring(child) {
@@ -87,6 +88,57 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
                 .to_string(),
         ),
     }
+}
+
+/// Convex hull (OpenSCAD's hull()) of every child: evaluate each child to CSG,
+/// pour all their vertex positions into one cloud, and wrap the hull triangles
+/// back into a solid. The shared `hull3d` matches the TS meshKernel step for
+/// step, and the cloud is identical because the primitives match, so the two
+/// kernels tessellate a hull identically. `hull3d` winds each triangle outward,
+/// so the face normal seeds outward and `to_mesh` reads it flat.
+///
+/// The cloud is de-duplicated by exact coordinate equality first: CSG polygons
+/// repeat each shared vertex, so a sphere child would enter many times over and
+/// make the hull needlessly O(n*F). This matches the TS `csgHull` dedup byte
+/// for byte (first occurrence wins) so the seed and triangulation stay
+/// bit-identical: a zero coordinate is canonicalized to +0 before hashing, so
+/// +0 and -0 fold together exactly as the TS string key does
+fn csg_hull(children: &[OpNode]) -> Result<Csg, String> {
+    if children.is_empty() {
+        return Err("hull needs at least one child".to_string());
+    }
+    let mut seen: std::collections::HashSet<[u64; 3]> = std::collections::HashSet::new();
+    let mut points: Vec<[f64; 3]> = Vec::new();
+    let canon = |v: f64| if v == 0.0 { 0.0 } else { v };
+    for child in children {
+        for poly in &eval_node(child)?.polygons {
+            for vert in &poly.vertices {
+                let key = [
+                    canon(vert.pos.x).to_bits(),
+                    canon(vert.pos.y).to_bits(),
+                    canon(vert.pos.z).to_bits(),
+                ];
+                if seen.insert(key) {
+                    points.push([vert.pos.x, vert.pos.y, vert.pos.z]);
+                }
+            }
+        }
+    }
+    let polygons = crate::hull::hull3d(&points)?
+        .iter()
+        .map(|&[a, b, c]| {
+            let pa = Vec3::new(points[a][0], points[a][1], points[a][2]);
+            let pb = Vec3::new(points[b][0], points[b][1], points[b][2]);
+            let pc = Vec3::new(points[c][0], points[c][1], points[c][2]);
+            let normal = pb.minus(pa).cross(pc.minus(pa)).unit();
+            Polygon::new(vec![
+                Vertex::new(pa, normal),
+                Vertex::new(pb, normal),
+                Vertex::new(pc, normal),
+            ])
+        })
+        .collect();
+    Ok(Csg::from_polygons(polygons))
 }
 
 fn reduce_bool(children: &[OpNode], f: impl Fn(&Csg, &Csg) -> Csg) -> Result<Csg, String> {
@@ -354,6 +406,43 @@ mod tests {
             // Bottom radius 2 sets the X diameter (4), centered height 4 runs -2 to 2 in Z
             assert!((max_x - min_x - 4.0).abs() < 1e-3, "x span was {}", max_x - min_x);
             assert!((max_z - min_z - 4.0).abs() < 1e-3, "z span was {}", max_z - min_z);
+        }
+    }
+
+    /// hull of eight unit cubes at the corners of a 10-unit box must mesh a
+    /// non-empty solid whose bounds are the 11-unit box (extreme points at
+    /// +/-5.5), mirroring the TS meshKernel hull test
+    #[test]
+    fn hull_of_corner_cubes_fills_the_bounding_box() {
+        let mut children = String::new();
+        for x in [-5, 5] {
+            for y in [-5, 5] {
+                for z in [-5, 5] {
+                    if !children.is_empty() {
+                        children.push(',');
+                    }
+                    children.push_str(&format!(
+                        r#"{{"op":"translate","v":[{x},{y},{z}],"child":{{"op":"cube","size":[1,1,1],"center":true}}}}"#
+                    ));
+                }
+            }
+        }
+        let json = format!(r#"{{"op":"hull","children":[{children}]}}"#);
+        let node: OpNode = serde_json::from_str(&json).expect("parse hull graph");
+        let csg = eval_node(&node).expect("evaluate hull");
+        let (positions, _normals) = crate::csg::to_mesh(&csg);
+        assert!(positions.len() / 9 > 0, "expected a positive triangle count");
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for p in positions.chunks(3) {
+            for a in 0..3 {
+                min[a] = min[a].min(p[a]);
+                max[a] = max[a].max(p[a]);
+            }
+        }
+        for a in 0..3 {
+            assert!((min[a] + 5.5).abs() < 1e-4, "min[{a}] was {}", min[a]);
+            assert!((max[a] - 5.5).abs() < 1e-4, "max[{a}] was {}", max[a]);
         }
     }
 

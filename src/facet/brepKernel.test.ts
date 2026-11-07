@@ -440,3 +440,88 @@ describe("OCCT B-rep kernel", () => {
     expect(minX).toBeGreaterThan(-30);
   });
 });
+
+/** Signed volume of a closed triangle mesh via the divergence theorem. */
+function brepMeshVolume(mesh: {
+  positions: Float32Array;
+  triangleCount: number;
+}): number {
+  let v = 0;
+  const p = mesh.positions;
+  for (let t = 0; t < mesh.triangleCount; t++) {
+    const b = t * 9;
+    v +=
+      (p[b] * (p[b + 4] * p[b + 8] - p[b + 5] * p[b + 7]) -
+        p[b + 1] * (p[b + 3] * p[b + 8] - p[b + 5] * p[b + 6]) +
+        p[b + 2] * (p[b + 3] * p[b + 7] - p[b + 4] * p[b + 6])) /
+      6;
+  }
+  return Math.abs(v);
+}
+
+describe("B-rep hull wraps a convex solid around its children", () => {
+  // Eight unit cubes centered at the corners of a 10-unit box; the convex hull
+  // of the cloud is the solid 11-unit box (extreme points at +/-5.5)
+  function cornerCubes(): OpNode {
+    const children: OpNode[] = [];
+    for (const x of [-5, 5])
+      for (const y of [-5, 5])
+        for (const z of [-5, 5])
+          children.push({
+            op: "translate",
+            v: [x, y, z],
+            child: { op: "cube", size: [1, 1, 1], center: true },
+          });
+    return { op: "hull", children };
+  }
+
+  test.skipIf(!rc)("hull of eight corner cubes fills the bounding box", () => {
+    const mesh = evaluateOpGraph(rc!, cornerCubes());
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    const min = [
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+      Number.POSITIVE_INFINITY,
+    ];
+    const max = [
+      Number.NEGATIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ];
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      for (let a = 0; a < 3; a++) {
+        min[a] = Math.min(min[a], mesh.positions[i + a]);
+        max[a] = Math.max(max[a], mesh.positions[i + a]);
+      }
+    }
+    for (let a = 0; a < 3; a++) {
+      expect(min[a]).toBeCloseTo(-5.5, 3);
+      expect(max[a]).toBeCloseTo(5.5, 3);
+    }
+    // The exact solid 11-unit box has volume 11^3 = 1331
+    expect(brepMeshVolume(mesh)).toBeCloseTo(1331, 0);
+  });
+
+  test.skipIf(!rc)("hull of two separated spheres bridges the gap", () => {
+    const sphereAt = (x: number): OpNode => ({
+      op: "translate",
+      v: [x, 0, 0],
+      child: { op: "sphere", r: 3, segments: 16 },
+    });
+    const node: OpNode = { op: "hull", children: [sphereAt(0), sphereAt(20)] };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      minX = Math.min(minX, mesh.positions[i]);
+      maxX = Math.max(maxX, mesh.positions[i]);
+    }
+    // The hull reaches from the left of the near sphere (~ -3) to the right of
+    // the far one (~ 23), bridging the 20-unit gap into one solid
+    expect(minX).toBeLessThan(-2.5);
+    expect(maxX).toBeGreaterThan(22.5);
+    const oneSphere = (4 / 3) * Math.PI * 3 ** 3;
+    expect(brepMeshVolume(mesh)).toBeGreaterThan(2 * oneSphere);
+  });
+});

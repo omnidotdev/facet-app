@@ -59,6 +59,7 @@ export function requiresBrep(node: OpNode): boolean {
     case "union":
     case "difference":
     case "intersect":
+    case "hull":
       return node.children.some(requiresBrep);
     case "cube":
     case "sphere":

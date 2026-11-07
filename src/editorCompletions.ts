@@ -151,6 +151,12 @@ const TOP_LEVEL: Completion[] = [
     info: "Keep only the overlap of shapes",
   },
   {
+    label: "hull",
+    type: "function",
+    detail: "hull(...shapes)",
+    info: "The convex hull wrapping all the shapes (like OpenSCAD's hull)",
+  },
+  {
     label: "grid",
     type: "function",
     detail: "grid(shape, nx, ny, spacing)",

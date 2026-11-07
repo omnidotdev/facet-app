@@ -60,6 +60,12 @@ unions:
         children: OpNode[]
       intersect:
         children: OpNode[]
+      # Convex hull of all its children (OpenSCAD's hull()): gather every
+      # child's vertices into one cloud and wrap the tightest convex solid
+      # around them. Works in every kernel; it tessellates each child, so no
+      # child needs exact geometry on its own
+      hull:
+        children: OpNode[]
       # --- 2D profiles -------------------------------------------------------
       # 2D ops evaluate to a planar drawing (on the XY plane), not a solid.
       # extrude/revolve turn a drawing into a solid; the kernel enforces that an

@@ -6,6 +6,7 @@ import { meshKernel } from "./meshKernel";
 import { meshToStlBinary } from "./stl";
 
 import type { Mesh } from "./kernel";
+import type { OpNode } from "./opgraph";
 
 /** Signed volume of a closed triangle mesh (divergence theorem). */
 function meshVolume(mesh: Mesh): number {
@@ -96,6 +97,57 @@ describe("mesh kernel evaluates the op-graph into geometry", () => {
       meshKernel.evaluate(cone(2, 0, 4, { segments: 32 }).node),
     );
     expect(meshVolume(mesh)).toBeGreaterThan(apexVolume);
+  });
+});
+
+describe("hull wraps a convex solid around its children", () => {
+  // Eight unit cubes centered at the corners of a 10-unit box, so the cloud's
+  // extreme points sit at +/-5.5 on every axis
+  function cornerCubes(): OpNode {
+    const children: OpNode[] = [];
+    for (const x of [-5, 5])
+      for (const y of [-5, 5])
+        for (const z of [-5, 5])
+          children.push({
+            op: "translate",
+            v: [x, y, z],
+            child: { op: "cube", size: [1, 1, 1], center: true },
+          });
+    return { op: "hull", children };
+  }
+
+  test("hull of eight corner cubes fills the bounding box", () => {
+    const mesh = meshKernel.evaluate(cornerCubes());
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    const { min, max } = meshBounds(mesh);
+    for (let axis = 0; axis < 3; axis++) {
+      expect(min[axis]).toBeCloseTo(-5.5, 5);
+      expect(max[axis]).toBeCloseTo(5.5, 5);
+    }
+    // The convex hull is the solid 11-unit box (11^3 = 1331)
+    expect(meshVolume(mesh)).toBeCloseTo(1331, 0);
+  });
+
+  test("hull of two separated spheres bridges the gap", () => {
+    const sphereAt = (x: number): OpNode => ({
+      op: "translate",
+      v: [x, 0, 0],
+      child: { op: "sphere", r: 3, segments: 12 },
+    });
+    const node: OpNode = { op: "hull", children: [sphereAt(0), sphereAt(20)] };
+    const mesh = meshKernel.evaluate(node);
+    const { min, max } = meshBounds(mesh);
+    // The hull spans from the left pole of one sphere to the right of the other
+    expect(min[0]).toBeCloseTo(-3, 5);
+    expect(max[0]).toBeCloseTo(23, 5);
+    // A single sphere (r = 3) is 4/3 pi r^3 ~ 113; the bridged hull holds far
+    // more than the two spheres could as separate solids
+    const oneSphere = (4 / 3) * Math.PI * 3 ** 3;
+    expect(meshVolume(mesh)).toBeGreaterThan(2 * oneSphere);
+  });
+
+  test("hull needs at least one child", () => {
+    expect(() => meshKernel.evaluate({ op: "hull", children: [] })).toThrow();
   });
 });
 

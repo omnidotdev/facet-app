@@ -6,6 +6,7 @@
 //! (exact geometry + STEP export) without changing the op-graph bridge below.
 
 mod csg;
+mod hull;
 mod opgraph;
 mod opgraph_gen;
 mod sweep;

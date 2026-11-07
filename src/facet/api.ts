@@ -327,6 +327,16 @@ export function intersection(...shapes: Shape[]): Shape {
 }
 
 /**
+ * The convex hull of every shape (OpenSCAD's hull()): the tightest convex solid
+ * that contains them all. Great for lofting between profiles or rounding a set
+ * of points into one smooth body.
+ */
+export function hull(...shapes: Shape[]): Shape {
+  if (!shapes.length) throw new Error("hull needs at least one shape");
+  return new Shape({ op: "hull", children: shapes.map((s) => s.node) });
+}
+
+/**
  * Tile a shape into an `nx` by `ny` grid on the XY plane, each copy spaced by
  * `spacing` (a single number for equal x/y, or `[sx, sy]`). The grid is centered
  * on the origin. Returns their union. Useful for tessellations and baseplates

@@ -61,6 +61,9 @@ pub enum OpNode {
     Intersect {
         children: Vec<OpNode>,
     },
+    Hull {
+        children: Vec<OpNode>,
+    },
     Circle2d {
         r: f64,
         segments: i32,

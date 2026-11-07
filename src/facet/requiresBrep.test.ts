@@ -65,6 +65,25 @@ describe("requiresBrep", () => {
     expect(requiresBrep({ op: "shell", thickness: 2, child: cube })).toBe(true);
   });
 
+  test("hull is false when every child needs no B-rep", () => {
+    const graph: OpNode = {
+      op: "hull",
+      children: [cube, { op: "sphere", r: 5, segments: 32 }],
+    };
+    expect(requiresBrep(graph)).toBe(false);
+  });
+
+  test("hull is true when any child needs B-rep", () => {
+    const graph: OpNode = {
+      op: "hull",
+      children: [
+        { op: "fillet", radius: 1, child: cube },
+        { op: "sphere", r: 5, segments: 32 },
+      ],
+    };
+    expect(requiresBrep(graph)).toBe(true);
+  });
+
   test("recurses through a single-child transform", () => {
     const graph: OpNode = {
       op: "translate",

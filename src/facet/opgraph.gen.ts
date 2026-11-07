@@ -16,6 +16,7 @@ export type OpNode =
   | { op: "union"; children: OpNode[] }
   | { op: "difference"; children: OpNode[] }
   | { op: "intersect"; children: OpNode[] }
+  | { op: "hull"; children: OpNode[] }
   | { op: "circle2d"; r: number; segments: number }
   | { op: "rect2d"; size: [number, number]; center: boolean }
   | { op: "polygon2d"; points: number[] }
