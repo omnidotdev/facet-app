@@ -21,6 +21,13 @@ pub enum OpNode {
         segments: i32,
         center: bool,
     },
+    Cone {
+        r1: f64,
+        r2: f64,
+        h: f64,
+        segments: i32,
+        center: bool,
+    },
     Translate {
         v: [f64; 3],
         child: Box<OpNode>,

@@ -6,6 +6,7 @@ export type OpNode =
   | { op: "cube"; size: [number, number, number]; center: boolean }
   | { op: "sphere"; r: number; segments: number }
   | { op: "cylinder"; r: number; h: number; segments: number; center: boolean }
+  | { op: "cone"; r1: number; r2: number; h: number; segments: number; center: boolean }
   | { op: "translate"; v: [number, number, number]; child: OpNode }
   | { op: "rotate"; deg: [number, number, number]; child: OpNode }
   | { op: "scale"; v: [number, number, number]; child: OpNode }

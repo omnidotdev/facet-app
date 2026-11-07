@@ -63,6 +63,7 @@ export function requiresBrep(node: OpNode): boolean {
     case "cube":
     case "sphere":
     case "cylinder":
+    case "cone":
       return false;
   }
 }

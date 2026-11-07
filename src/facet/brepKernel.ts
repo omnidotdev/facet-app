@@ -387,6 +387,21 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
         shape: keep(rc.makeCylinder(node.r, node.h, [0, 0, z0], [0, 0, 1])),
       };
     }
+    case "cone": {
+      // Draw the (radius, height) profile on XZ and spin it about Z, matching
+      // OpenSCAD's cylinder(r1, r2, h) taper. r2 = 0 collapses the top to a
+      // sharp apex, so the profile is a triangle instead of a trapezoid
+      const z0 = node.center ? -node.h / 2 : 0;
+      const z1 = z0 + node.h;
+      let pen = rc.draw([0, z0]).lineTo([node.r1, z0]);
+      if (node.r2 > 0) pen = pen.lineTo([node.r2, z1]);
+      pen = pen.lineTo([0, z1]);
+      const solid = pen
+        .close()
+        .sketchOnPlane("XZ")
+        .revolve("Z", { angle: 360 }) as Shape3D;
+      return { kind: "brep", shape: keep(solid) };
+    }
     case "translate": {
       const child = requireSolidGeom(evalNode(rc, keep, node.child), "Move");
       if (child.kind === "mesh")

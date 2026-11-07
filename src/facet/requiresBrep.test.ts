@@ -10,6 +10,16 @@ describe("requiresBrep", () => {
   test("is false for a lone primitive", () => {
     expect(requiresBrep(cube)).toBe(false);
     expect(requiresBrep({ op: "sphere", r: 5, segments: 32 })).toBe(false);
+    expect(
+      requiresBrep({
+        op: "cone",
+        r1: 2,
+        r2: 1,
+        h: 4,
+        segments: 32,
+        center: true,
+      }),
+    ).toBe(false);
   });
 
   test("is false for a pure boolean graph of primitives", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { cube, cylinder, sphere } from "./api";
+import { cone, cube, cylinder, sphere } from "./api";
 import { meshBounds } from "./kernel";
 import { meshKernel } from "./meshKernel";
 import { meshToStlBinary } from "./stl";
@@ -70,6 +70,32 @@ describe("mesh kernel evaluates the op-graph into geometry", () => {
     const holeArea = 0.5 * 64 * 5 ** 2 * Math.sin((2 * Math.PI) / 64); // inscribed 64-gon
     const expected = 20 ** 3 - holeArea * 20;
     expect(meshVolume(meshKernel.evaluate(node))).toBeCloseTo(expected, -2);
+  });
+
+  test("a sharp-apex cone tessellates to a solid with the right bounds", () => {
+    const mesh = meshKernel.evaluate(cone(2, 0, 4, { segments: 32 }).node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    const { min, max } = meshBounds(mesh);
+    // Bottom radius 2 sets the X/Y diameter, centered height 4 runs -2 to 2 in Z
+    expect(max[0] - min[0]).toBeCloseTo(4, 3);
+    expect(max[2] - min[2]).toBeCloseTo(4, 3);
+    // r1 ^ 2 * pi * h / 3 bounds an inscribed 32-gon cone from above
+    expect(meshVolume(mesh)).toBeGreaterThan(0);
+    expect(meshVolume(mesh)).toBeLessThan((Math.PI * 2 ** 2 * 4) / 3);
+  });
+
+  test("a truncated cone tessellates to a solid with the right bounds", () => {
+    const mesh = meshKernel.evaluate(cone(2, 1, 4, { segments: 32 }).node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    const { min, max } = meshBounds(mesh);
+    // The wider bottom radius 2 sets the X diameter, centered height 4 in Z
+    expect(max[0] - min[0]).toBeCloseTo(4, 3);
+    expect(max[2] - min[2]).toBeCloseTo(4, 3);
+    // A frustum holds more volume than the sharp-apex cone of the same base
+    const apexVolume = meshVolume(
+      meshKernel.evaluate(cone(2, 0, 4, { segments: 32 }).node),
+    );
+    expect(meshVolume(mesh)).toBeGreaterThan(apexVolume);
   });
 });
 

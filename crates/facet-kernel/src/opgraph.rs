@@ -31,6 +31,9 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         OpNode::Cylinder { r, h, segments, center } => {
             Ok(csg_cylinder(*r, *h, *center, segment_count(*segments)))
         }
+        OpNode::Cone { r1, r2, h, segments, center } => {
+            Ok(csg_cone(*r1, *r2, *h, *center, segment_count(*segments)))
+        }
         OpNode::Translate { v, child } => {
             Ok(map_verts(&eval_node(child)?, |p| p.plus(Vec3::new(v[0], v[1], v[2]))))
         }
@@ -249,6 +252,52 @@ fn csg_cylinder(r: f64, h: f64, center: bool, slices: u32) -> Csg {
     Csg::from_polygons(polygons)
 }
 
+/// A truncated cone (OpenSCAD's cylinder(r1, r2, h) taper): a bottom ring at
+/// radius `r1` and a top ring at `r2`, `slices` sides. The top cap is emitted
+/// only when `r2 > 0`; a zero top collapses to a sharp apex and the side faces
+/// become triangles. Mirrors the TS meshKernel `csgCone` exactly, including the
+/// `[r*cos, -r*sin]` winding, so a cone with r1 == r2 coincides with a cylinder
+fn csg_cone(r1: f64, r2: f64, h: f64, center: bool, slices: u32) -> Csg {
+    // The winding, cap, and apex logic here is duplicated across csg_cone and
+    // csg_cylinder in both Rust and TS (four copies); keep all four geometrically
+    // identical so a tweak to one is mirrored everywhere
+    let z0 = if center { -h / 2.0 } else { 0.0 };
+    let z1 = z0 + h;
+    let axis_x = Vec3::new(1.0, 0.0, 0.0);
+    let axis_y = Vec3::new(0.0, -1.0, 0.0);
+    let axis_z = Vec3::new(0.0, 0.0, 1.0);
+    let bottom = Vertex::new(Vec3::new(0.0, 0.0, z0), axis_z.negated());
+    let top = Vertex::new(Vec3::new(0.0, 0.0, z1), axis_z);
+    // A point on the ring at a given radius and height; the per-vertex normal is
+    // only a seed for CSG clipping, as each face reads flat from its winding
+    let ring = |radius: f64, z: f64, slice: f64| -> Vertex {
+        let angle = slice * std::f64::consts::TAU;
+        let out = axis_x.times(angle.cos()).plus(axis_y.times(angle.sin()));
+        Vertex::new(out.times(radius).plus(Vec3::new(0.0, 0.0, z)), out)
+    };
+    let mut polygons: Vec<Polygon> = Vec::new();
+    for i in 0..slices {
+        let t0 = i as f64 / slices as f64;
+        let t1 = (i + 1) as f64 / slices as f64;
+        let b0 = ring(r1, z0, t0);
+        let b1 = ring(r1, z0, t1);
+        // Bottom cap always, wound like the cylinder's start cap
+        polygons.push(Polygon::new(vec![bottom, b0, b1]));
+        if r2 > 0.0 {
+            let u0 = ring(r2, z1, t0);
+            let u1 = ring(r2, z1, t1);
+            // Side quad wound like the cylinder: bottom t1, bottom t0, top t0, top t1
+            polygons.push(Polygon::new(vec![b1, b0, u0, u1]));
+            // Top cap only when the top ring has area
+            polygons.push(Polygon::new(vec![top, u1, u0]));
+        } else {
+            // Sharp apex: the side is a triangle up to the single top point
+            polygons.push(Polygon::new(vec![b1, b0, top]));
+        }
+    }
+    Csg::from_polygons(polygons)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -280,6 +329,31 @@ mod tests {
                 .err()
                 .expect("B-rep-only op must be rejected");
             assert!(err.contains("B-rep kernel"), "unexpected message: {err}");
+        }
+    }
+
+    /// csg_cone must tessellate to a non-empty solid with the expected X/Z
+    /// bounds for both a sharp apex (r2 = 0) and a truncated frustum (r2 > 0),
+    /// mirroring the TS meshKernel cone tests
+    #[test]
+    fn cone_meshes_apex_and_frustum_with_correct_bounds() {
+        for (r1, r2) in [(2.0_f64, 0.0_f64), (2.0, 1.0)] {
+            let csg = csg_cone(r1, r2, 4.0, true, 32);
+            let (positions, _normals) = crate::csg::to_mesh(&csg);
+            assert!(positions.len() / 9 > 0, "expected a positive triangle count");
+            let mut min_x = f32::INFINITY;
+            let mut max_x = f32::NEG_INFINITY;
+            let mut min_z = f32::INFINITY;
+            let mut max_z = f32::NEG_INFINITY;
+            for p in positions.chunks(3) {
+                min_x = min_x.min(p[0]);
+                max_x = max_x.max(p[0]);
+                min_z = min_z.min(p[2]);
+                max_z = max_z.max(p[2]);
+            }
+            // Bottom radius 2 sets the X diameter (4), centered height 4 runs -2 to 2 in Z
+            assert!((max_x - min_x - 4.0).abs() < 1e-3, "x span was {}", max_x - min_x);
+            assert!((max_z - min_z - 4.0).abs() < 1e-3, "z span was {}", max_z - min_z);
         }
     }
 

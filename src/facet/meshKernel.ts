@@ -13,6 +13,15 @@ import type { OpNode, Vec3 } from "./opgraph";
 
 // --- Primitive solids as CSG polygon sets -----------------------------------
 
+/**
+ * Clamp a `segments` value to a safe positive loop count, mirroring the Rust
+ * kernel's `segment_count` (`n.max(1) as u32`) so a zero or negative count
+ * yields the same ring count in both kernels instead of diverging.
+ */
+function segmentCount(n: number): number {
+  return Math.max(1, Math.floor(n));
+}
+
 function csgCube(center: Vec3, radius: Vec3): CSG {
   const c = new Vector(center[0], center[1], center[2]);
   const faces: Array<[number[], Vec3]> = [
@@ -126,6 +135,61 @@ function csgCylinder(
   return CSG.fromPolygons(polygons);
 }
 
+/**
+ * A truncated cone (OpenSCAD's cylinder(r1, r2, h) taper): a bottom ring at
+ * radius `r1` and a top ring at `r2`, `slices` sides. The top cap is emitted
+ * only when `r2 > 0`; when it is zero the top collapses to a sharp apex and the
+ * side faces become triangles. The ring winds `[r*cos, -r*sin]` exactly like
+ * the cylinder, so a cone with r1 == r2 coincides with a cylinder.
+ */
+function csgCone(
+  r1: number,
+  r2: number,
+  h: number,
+  center: boolean,
+  slices: number,
+): CSG {
+  // The winding, cap, and apex logic here is duplicated across csgCone and
+  // csgCylinder in both TS and Rust (four copies); keep all four geometrically
+  // identical so a tweak to one is mirrored everywhere
+  const z0 = center ? -h / 2 : 0;
+  const z1 = z0 + h;
+  const axisX = new Vector(1, 0, 0);
+  const axisY = new Vector(0, -1, 0);
+  const axisZ = new Vector(0, 0, 1);
+  const bottom = new Vertex(new Vector(0, 0, z0), axisZ.negated());
+  const top = new Vertex(new Vector(0, 0, z1), axisZ);
+  // A point on the ring at a given radius and height. The per-vertex normal is
+  // only a seed for CSG clipping; csgToMesh recomputes a flat face normal from
+  // the winding, so each face reads flat regardless
+  const ring = (radius: number, z: number, slice: number): Vertex => {
+    const angle = slice * Math.PI * 2;
+    const out = axisX.times(Math.cos(angle)).plus(axisY.times(Math.sin(angle)));
+    return new Vertex(out.times(radius).plus(new Vector(0, 0, z)), out);
+  };
+  const polygons: Polygon[] = [];
+  for (let i = 0; i < slices; i++) {
+    const t0 = i / slices;
+    const t1 = (i + 1) / slices;
+    const b0 = ring(r1, z0, t0);
+    const b1 = ring(r1, z0, t1);
+    // Bottom cap always, wound like the cylinder's start cap
+    polygons.push(new Polygon([bottom, b0, b1]));
+    if (r2 > 0) {
+      const u0 = ring(r2, z1, t0);
+      const u1 = ring(r2, z1, t1);
+      // Side quad wound like the cylinder: bottom t1, bottom t0, top t0, top t1
+      polygons.push(new Polygon([b1, b0, u0, u1]));
+      // Top cap only when the top ring has area
+      polygons.push(new Polygon([top, u1, u0]));
+    } else {
+      // Sharp apex: the side is a triangle up to the single top point
+      polygons.push(new Polygon([b1, b0, top]));
+    }
+  }
+  return CSG.fromPolygons(polygons);
+}
+
 // --- Transforms (map vertex positions, planes recompute on rebuild) ---------
 
 function mapVerts(csg: CSG, fn: (p: Vector) => Vector): CSG {
@@ -202,7 +266,20 @@ function evalNode(node: OpNode): CSG {
         Math.max(2, Math.round(node.segments / 2)),
       );
     case "cylinder":
-      return csgCylinder(node.r, node.h, node.center, node.segments);
+      return csgCylinder(
+        node.r,
+        node.h,
+        node.center,
+        segmentCount(node.segments),
+      );
+    case "cone":
+      return csgCone(
+        node.r1,
+        node.r2,
+        node.h,
+        node.center,
+        segmentCount(node.segments),
+      );
     case "translate":
       return mapVerts(evalNode(node.child), (p) =>
         p.plus(new Vector(node.v[0], node.v[1], node.v[2])),

@@ -127,6 +127,12 @@ const TOP_LEVEL: Completion[] = [
     info: "A cylinder of radius r and height h. Centered by default",
   },
   {
+    label: "cone",
+    type: "function",
+    detail: "cone(r1, r2, h, { center, segments })",
+    info: "A cone or taper; r2 = 0 is a sharp apex, r2 > 0 a truncated cone. Centered by default",
+  },
+  {
     label: "union",
     type: "function",
     detail: "union(...shapes)",

@@ -220,6 +220,27 @@ export function cylinder(
   });
 }
 
+/**
+ * A cone or taper: bottom radius `r1`, top radius `r2`, height `h`. `r2 = 0`
+ * (the default) is a sharp apex; a positive `r2` makes a truncated cone
+ * (OpenSCAD's cylinder(r1, r2, h)). Centered on the origin by default.
+ */
+export function cone(
+  r1 = 1,
+  r2 = 0,
+  h = 1,
+  opts: { center?: boolean; segments?: number } = {},
+): Shape {
+  return new Shape({
+    op: "cone",
+    r1,
+    r2,
+    h,
+    segments: opts.segments ?? 32,
+    center: opts.center ?? true,
+  });
+}
+
 // --- 2D sketches ------------------------------------------------------------
 
 /** A 2D circle of radius `r`. A low `segments` count makes a regular polygon. */

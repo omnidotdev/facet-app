@@ -108,6 +108,63 @@ describe("OCCT B-rep kernel", () => {
     expect(maxY - minY).toBeGreaterThan(19);
   });
 
+  test.skipIf(!rc)("revolves a sharp-apex cone (r2 = 0)", () => {
+    const node: OpNode = {
+      op: "cone",
+      r1: 2,
+      r2: 0,
+      h: 4,
+      segments: 32,
+      center: true,
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+    expect(mesh.normals.length).toBe(mesh.triangleCount * 9);
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      minX = Math.min(minX, mesh.positions[i]);
+      maxX = Math.max(maxX, mesh.positions[i]);
+      minZ = Math.min(minZ, mesh.positions[i + 2]);
+      maxZ = Math.max(maxZ, mesh.positions[i + 2]);
+    }
+    // Bottom radius 2 spans the full diameter in X, and centered height 4 runs
+    // from -2 to 2 in Z
+    expect(maxX - minX).toBeCloseTo(4, 1);
+    expect(maxZ - minZ).toBeCloseTo(4, 1);
+  });
+
+  test.skipIf(!rc)("revolves a truncated cone (r2 > 0)", () => {
+    const node: OpNode = {
+      op: "cone",
+      r1: 2,
+      r2: 1,
+      h: 4,
+      segments: 32,
+      center: true,
+    };
+    const mesh = evaluateOpGraph(rc!, node);
+    expect(mesh.triangleCount).toBeGreaterThan(0);
+    expect(mesh.positions.length).toBe(mesh.triangleCount * 9);
+    expect(mesh.normals.length).toBe(mesh.triangleCount * 9);
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      minX = Math.min(minX, mesh.positions[i]);
+      maxX = Math.max(maxX, mesh.positions[i]);
+      minZ = Math.min(minZ, mesh.positions[i + 2]);
+      maxZ = Math.max(maxZ, mesh.positions[i + 2]);
+    }
+    // The wider bottom radius 2 sets the X diameter, height 4 centered in Z
+    expect(maxX - minX).toBeCloseTo(4, 1);
+    expect(maxZ - minZ).toBeCloseTo(4, 1);
+  });
+
   test.skipIf(!rc)("falls back to a mesh for a non-uniform scale", () => {
     const node: OpNode = {
       op: "scale",

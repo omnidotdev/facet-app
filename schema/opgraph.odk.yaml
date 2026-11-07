@@ -28,6 +28,14 @@ unions:
         h: number
         segments: integer
         center: boolean
+      # Truncated cone / taper: bottom radius r1, top radius r2 (r2 = 0 is a
+      # sharp apex), height h, tessellated with `segments` sides like cylinder
+      cone:
+        r1: number
+        r2: number
+        h: number
+        segments: integer
+        center: boolean
       translate:
         v: number[3]
         child: OpNode

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   circle,
+  cone,
   cube,
   cylinder,
   difference,
@@ -32,6 +33,17 @@ describe("authoring API builds an op-graph without computing geometry", () => {
       op: "cube",
       size: [2, 4, 6],
       center: false,
+    });
+  });
+
+  test("cone carries its radii, height, and defaults", () => {
+    expect(cone(2, 1, 4).node).toEqual({
+      op: "cone",
+      r1: 2,
+      r2: 1,
+      h: 4,
+      segments: 32,
+      center: true,
     });
   });
 
