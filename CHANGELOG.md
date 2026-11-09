@@ -1,5 +1,11 @@
 # @omnidotdev/facet
 
+## 0.2.1
+
+### Patch Changes
+
+- [#87](https://github.com/omnidotdev/facet-app/pull/87) [`25df57e`](https://github.com/omnidotdev/facet-app/commit/25df57eb67d6ad78b41b2025e18484b8e7b01977) Thanks [@coopbri](https://github.com/coopbri)! - Version the desktop installers from the single source of truth. The release version sync wrote `src-tauri/Cargo.toml` but not `src-tauri/tauri.conf.json`, whose `version` drives the bundle and the app's reported version, so a tagged release could ship installers still carrying the previous number. The sync now updates both, keeping the tag, the installers, and the in-app version in lockstep.
+
 ## 0.2.0
 
 ### Minor Changes
