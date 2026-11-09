@@ -5,14 +5,17 @@
 # the committed generated files (src/facet/opgraph.gen.ts,
 # crates/facet-kernel/src/opgraph_gen.rs) and never runs ODK.
 #
-# ODK is not published, so build the CLI from master and point this at it:
-#   git clone https://github.com/omnidotdev/odk && cd odk
-#   cargo build --release -p odk-cli   # or: cargo install --path odk-cli
-# Then run with ODK set to the binary (or put `odk` on PATH):
+# ODK is published, so install the pinned CLI from crates.io. The `odk` binary
+# is the Rust `odk-cli` crate; the npm `@omnidotdev/odk` package is a different
+# TypeSpec tool and does not provide `generate`:
+#   cargo install odk-cli@0.1.2   # requires rustc >= 1.96 (wasmtime deps)
+# Then run with `odk` on PATH, or point ODK at the binary:
+#   bun opgraph:generate
 #   ODK=/path/to/odk bun opgraph:generate
 #
 # ODK emits variants and fields in schema declaration order and is byte-stable
-# across runs, so regenerating with an unchanged schema produces no diff.
+# across runs, so regenerating an unchanged schema produces no diff (verified
+# byte-identical against odk-cli 0.1.2 on 2026-11-09)
 set -euo pipefail
 
 # Run from the repo root regardless of the caller's cwd (direct ./ invocation
