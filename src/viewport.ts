@@ -250,7 +250,14 @@ export class Viewport {
       const comma = url.indexOf(",");
       if (comma < 0 || !url.startsWith("data:image/png")) return null;
       const data = url.slice(comma + 1);
-      return data.length > 0 ? { mediaType: "image/png", data } : null;
+      // Guard a blank/empty capture: a 0-size canvas or a browser that did not
+      // composite the WebGPU surface yields a tiny near-uniform PNG. Treat that
+      // as "no capture" so the critique loop degrades to a no-op rather than
+      // critiquing an empty image (a real rendered part is many KB of base64)
+      const MIN_CAPTURE_BYTES = 1024;
+      return data.length >= MIN_CAPTURE_BYTES
+        ? { mediaType: "image/png", data }
+        : null;
     } catch {
       return null;
     }
