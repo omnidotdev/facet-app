@@ -481,6 +481,12 @@ body,
   color: var(--text);
 }
 
+/* Remaining monthly credit balance, shown inline in the panel description */
+.ai-balance {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* Transient confirmation after the dialog closes on a successful generation */
 .ai-toast {
   position: fixed;
