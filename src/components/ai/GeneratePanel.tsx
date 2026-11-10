@@ -10,6 +10,7 @@ import {
   classifyGenerateError,
   formatGeneratedToast,
   formatSpentNote,
+  withProvenanceHeader,
 } from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
 import { isAuthConfigured, signOut } from "@/lib/auth/session";
@@ -168,7 +169,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
           createdTab = true;
           studio.openGeneratedTab(nameFromPrompt(trimmed));
         }
-        return studio.loadCode(code);
+        // Stamp the prompt + date into the editor copy so the model is
+        // self-documenting; the raw code (no header) is what the repair loop
+        // feeds back to the gateway, so generation stays clean
+        return studio.loadCode(withProvenanceHeader(code, trimmed));
       },
     };
 
@@ -181,9 +185,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       setOutOfCredits(false);
       setError(null);
       setSpent(null);
-      setToast(
-        formatGeneratedToast(result.usage.credits, result.repairs, hasByok),
-      );
+      setToast(formatGeneratedToast(result.usage.credits, hasByok));
       setPrompt("");
       handleOpenChange(false);
       setBusy(false);
