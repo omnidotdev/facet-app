@@ -38,6 +38,40 @@ describe("fetchCapabilities", () => {
     expect(caps).toEqual({ signedIn: true, managedGeneration: true });
   });
 
+  test("parses the monthly credit balance when present", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    global.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          signedIn: true,
+          managedGeneration: true,
+          credits: { used: 10, cap: 100, remaining: 90 },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const caps = await fetchCapabilities(async () => "tok");
+    expect(caps.credits).toEqual({ used: 10, cap: 100, remaining: 90 });
+  });
+
+  test("omits a malformed or partial balance rather than showing a broken one", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    global.fetch = (async () =>
+      new Response(
+        // missing `remaining`, so the balance is not fully formed
+        JSON.stringify({
+          signedIn: true,
+          managedGeneration: true,
+          credits: { used: 10, cap: 100 },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const caps = await fetchCapabilities(async () => "tok");
+    expect(caps.credits).toBeUndefined();
+    expect(caps.managedGeneration).toBe(true);
+  });
+
   test("omits the auth header when there is no token", async () => {
     process.env.VITE_FACET_API_URL = API_URL;
     const seen: { auth: string | null } = { auth: "unset" };

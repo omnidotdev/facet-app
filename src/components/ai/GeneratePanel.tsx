@@ -18,6 +18,7 @@ import { useAuthSession } from "@/lib/auth/useAuthSession";
 import { nameFromPrompt } from "@/tabs";
 
 import type { RefObject } from "react";
+import type { CreditBalance } from "@/ai/capabilities";
 import type { ModelRunner } from "@/ai/repair";
 import type { StudioHandle } from "@/FacetStudio";
 
@@ -95,6 +96,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // generation (the server's env allowlist), so the panel is shown only to
   // permitted users rather than to everyone with a 403 after the fact
   const [managedAllowed, setManagedAllowed] = useState<boolean | null>(null);
+  // The signed-in user's monthly managed credit balance, so a per-generation
+  // cost has context ("N left") instead of a bare number. null until known or
+  // when not applicable (signed out, BYOK, or the meter was unavailable)
+  const [credits, setCredits] = useState<CreditBalance | null>(null);
 
   const { signedIn } = useAuthSession();
 
@@ -106,12 +111,15 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     if (!authConfigured) return;
     if (!signedIn) {
       setManagedAllowed(false);
+      setCredits(null);
       return;
     }
     let active = true;
     setManagedAllowed(null);
     fetchCapabilities().then((caps) => {
-      if (active) setManagedAllowed(caps.managedGeneration);
+      if (!active) return;
+      setManagedAllowed(caps.managedGeneration);
+      setCredits(caps.credits ?? null);
     });
     return () => {
       active = false;
@@ -185,6 +193,18 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       setOutOfCredits(false);
       setError(null);
       setSpent(null);
+      // Keep the shown balance fresh after a managed spend, no re-fetch needed
+      if (!hasByok) {
+        setCredits((c) =>
+          c
+            ? {
+                used: c.used + result.usage.credits,
+                cap: c.cap,
+                remaining: Math.max(0, c.remaining - result.usage.credits),
+              }
+            : c,
+        );
+      }
       setToast(formatGeneratedToast(result.usage.credits, hasByok));
       setPrompt("");
       handleOpenChange(false);
@@ -272,6 +292,13 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
               Synapse
             </a>
             , Omni's AI router.
+            {credits ? (
+              <span className="ai-balance">
+                {" · "}
+                {credits.remaining} credit{credits.remaining === 1 ? "" : "s"}{" "}
+                left this month
+              </span>
+            ) : null}
           </>
         }
         prompt={prompt}
