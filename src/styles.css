@@ -219,6 +219,62 @@
 }
 
 /*
+ * Theme the Sigil/Thornberry SEMANTIC tokens with Facet's Studio brand, so every
+ * shared component (the command palette, the Describe-a-part panel) renders in
+ * Facet's blue/orange theme instead of Sigil's default violet/neutral.
+ *
+ * Why here and not in facet.css: Thornberry dialogs/popovers portal to <body>,
+ * OUTSIDE the `.facet-app` subtree, so the Studio tokens scoped there never reach
+ * them. The canonical, downstream-friendly fix is to set the semantic layer on
+ * :root (shared components theme purely through these tokens, never hardcoded
+ * colors), leaving the raw base/primary SCALES above intact. Any downstream
+ * product themes the same way: point the semantic tokens at its brand. These
+ * values mirror the Facet palette in facet.css (.facet-app) and must stay in
+ * sync with it; the Studio surfaces still read their own --bg/--text/--accent.
+ */
+:root {
+  --background: #efe9dd;
+  --foreground: #172a3f;
+  --card: #e7e2d8;
+  --card-foreground: #172a3f;
+  --popover: #e7e2d8;
+  --popover-foreground: #172a3f;
+  --primary: #c8611f;
+  --primary-foreground: #fff6ee;
+  --secondary: #ded6c6;
+  --secondary-foreground: #172a3f;
+  --muted: #ded6c6;
+  --muted-foreground: #5f6f80;
+  --accent: #ded6c6;
+  --accent-foreground: #172a3f;
+  --destructive: #b4451f;
+  --border: #cabfa8;
+  --input: #cabfa8;
+  --ring: #c8611f;
+}
+
+[data-theme="dark"] {
+  --background: #0d2033;
+  --foreground: #e7e2d8;
+  --card: #122a43;
+  --card-foreground: #e7e2d8;
+  --popover: #122a43;
+  --popover-foreground: #e7e2d8;
+  --primary: #dd6e33;
+  --primary-foreground: #241206;
+  --secondary: #17324c;
+  --secondary-foreground: #e7e2d8;
+  --muted: #17324c;
+  --muted-foreground: #8ba3bd;
+  --accent: #17324c;
+  --accent-foreground: #e7e2d8;
+  --destructive: #ef8f7a;
+  --border: #24405c;
+  --input: #24405c;
+  --ring: #dd6e33;
+}
+
+/*
  * Only the border/ring default the Thornberry components need. Facet paints its
  * own backgrounds per surface (.facet-app, .facet-landing), so body is left
  * untouched here to preserve Facet's existing look rather than applying the
