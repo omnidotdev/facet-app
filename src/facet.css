@@ -943,12 +943,20 @@ body,
   justify-content: center;
   padding: 16px;
 }
+/*
+ * Theme the dialog through the Sigil SEMANTIC tokens (defined on :root in
+ * styles.css), never the .facet-app-scoped Studio tokens (--panel/--accent/...).
+ * Ark can portal the dialog to <body>, outside .facet-app, where the Studio
+ * tokens are undefined; the semantic tokens resolve everywhere, so the dialog
+ * themes correctly whether it renders inline or portaled. Values mirror the
+ * Studio palette, so this is visually identical today and robust tomorrow
+ */
 .fx-dialog {
   width: 100%;
   max-width: 420px;
   padding: 18px 20px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--popover);
+  border: 1px solid var(--border);
   border-radius: 10px;
   box-shadow: 0 16px 48px rgb(0 0 0 / 40%);
 }
@@ -961,13 +969,13 @@ body,
 .fx-dialog-title {
   font-size: 15px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--popover-foreground);
 }
 .fx-dialog-desc {
   margin: 10px 0 0;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--muted);
+  color: var(--muted-foreground);
 }
 .fx-dialog-actions {
   display: flex;
@@ -977,28 +985,28 @@ body,
 }
 .fx-dialog-btn {
   padding: 7px 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: var(--panel-2);
-  color: var(--text);
+  background: var(--secondary);
+  color: var(--secondary-foreground);
   font: inherit;
   cursor: pointer;
 }
 .fx-dialog-btn:hover {
-  border-color: var(--accent);
+  border-color: var(--primary);
 }
 .fx-dialog-btn.danger {
-  background: var(--err);
-  border-color: var(--err);
+  background: var(--destructive);
+  border-color: var(--destructive);
   color: #fff;
 }
 .fx-dialog-btn.danger:hover {
   filter: brightness(1.08);
 }
 .fx-dialog-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
 }
 @keyframes fx-fade-in {
   from {
