@@ -67,6 +67,11 @@ export interface StudioHandle {
    * generation lands in its own tab instead of overwriting the current model.
    */
   openGeneratedTab: (name: string) => void;
+  /**
+   * Capture the current 3D view as a PNG for the AI critique loop, or null when
+   * the viewport is not running (no WebGPU) or capture is unsupported.
+   */
+  capture: () => { mediaType: "image/png"; data: string } | null;
 }
 
 /**
@@ -132,6 +137,8 @@ export default function FacetStudio() {
 
   const editorMount = useRef<HTMLDivElement>(null);
   const viewportMount = useRef<HTMLDivElement>(null);
+  // The live Viewport instance, so the AI handle can capture the current render
+  const viewportRef = useRef<Viewport | null>(null);
   const paramsMount = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
   const kernelRef = useRef<HTMLSelectElement>(null);
@@ -332,6 +339,7 @@ export default function FacetStudio() {
           error: "The Studio is not ready yet.",
         }),
       openGeneratedTab,
+      capture: () => viewportRef.current?.capture() ?? null,
     };
   });
 
@@ -361,6 +369,7 @@ export default function FacetStudio() {
     const initialTheme = getTheme();
 
     const viewport = new Viewport(viewportMount.current!, initialTheme);
+    viewportRef.current = viewport;
     const kernels: Record<string, Kernel> = { ts: meshKernel };
     let activeKernel: Kernel = meshKernel;
     let activeKernelKey = "ts";

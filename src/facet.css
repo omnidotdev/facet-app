@@ -477,6 +477,18 @@ body,
   color: var(--text);
 }
 
+/* The vision critic's suggested refinement when a result misses the request */
+.ai-critique {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.ai-critique-label {
+  font-weight: 600;
+  color: var(--accent);
+}
+
 /* Remaining monthly credit balance, shown inline in the panel description */
 .ai-balance {
   font-variant-numeric: tabular-nums;

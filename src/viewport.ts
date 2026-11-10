@@ -226,6 +226,43 @@ export class Viewport {
     this.render();
   };
 
+  /**
+   * Capture the current view as a PNG, for the AI render-and-critique loop (hand
+   * the result to a vision model). Draws a fresh frame first, then reads the
+   * WebGPU canvas via `toDataURL`. Returns null when the viewport is not running
+   * (notice shown / no WebGPU device) or capture is unsupported.
+   *
+   * NOTE: reading a WebGPU canvas with `toDataURL` depends on the browser
+   * compositing the swapchain into a readable surface, which modern Chrome does
+   * but is not guaranteed everywhere; a blank result means that fallback did not
+   * fire. The robust path is to render this frame into an offscreen texture with
+   * COPY_SRC usage, `copyTextureToBuffer` (bytesPerRow 256-aligned), `mapAsync`
+   * the bytes, swap BGRA->RGBA when the preferred format is bgra8unorm, and
+   * encode via an OffscreenCanvas. Swap to that if the simple read proves blank
+   * in the field. Verify on a real GPU - headless WebGPU is unreliable
+   */
+  capture(): { mediaType: "image/png"; data: string } | null {
+    if (this.disposed || !this.ready || !this.canvas) return null;
+    // force a fresh frame so the canvas holds the current geometry
+    this.render();
+    try {
+      const url = this.canvas.toDataURL("image/png");
+      const comma = url.indexOf(",");
+      if (comma < 0 || !url.startsWith("data:image/png")) return null;
+      const data = url.slice(comma + 1);
+      // Guard a blank/empty capture: a 0-size canvas or a browser that did not
+      // composite the WebGPU surface yields a tiny near-uniform PNG. Treat that
+      // as "no capture" so the critique loop degrades to a no-op rather than
+      // critiquing an empty image (a real rendered part is many KB of base64)
+      const MIN_CAPTURE_BYTES = 1024;
+      return data.length >= MIN_CAPTURE_BYTES
+        ? { mediaType: "image/png", data }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   private render(): void {
     if (this.disposed) return;
     const { root, mesh, grid, orbit } = this;

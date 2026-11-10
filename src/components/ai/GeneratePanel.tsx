@@ -2,6 +2,7 @@ import { AiDescribePanel } from "@omnidotdev/thornberry/ai-describe-panel";
 import { useEffect, useState } from "react";
 
 import { fetchCapabilities } from "@/ai/capabilities";
+import { critiqueModel } from "@/ai/critique";
 import {
   PANEL_COPY,
   PROMPT_SUGGESTIONS,
@@ -100,6 +101,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // cost has context ("N left") instead of a bare number. null until known or
   // when not applicable (signed out, BYOK, or the meter was unavailable)
   const [credits, setCredits] = useState<CreditBalance | null>(null);
+  // The vision critic's suggested fix when a generated result does not match the
+  // request. Null when the result looked right, capture was unavailable, or the
+  // critique could not run; set keeps the panel open to show the suggestion
+  const [critiqueFix, setCritiqueFix] = useState<string | null>(null);
 
   const { signedIn } = useAuthSession();
 
@@ -165,6 +170,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     setError(null);
     setSpent(null);
     setOutOfCredits(false);
+    setCritiqueFix(null);
 
     // Generate into a fresh tab so the current model is never overwritten. The
     // tab is created lazily on the first code that comes back, so a 401/402
@@ -206,9 +212,35 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         );
       }
       setToast(formatGeneratedToast(result.usage.credits, hasByok));
+
+      // Ground the result: critique the render and, if it misses the request,
+      // surface the model's suggested fix. Best-effort - a capture or critique
+      // failure never blocks or fails the generation (it degrades to today's
+      // behavior). Only runs when the viewport can be captured
+      let fix: string | null = null;
+      try {
+        const image = studio.capture();
+        if (image) {
+          const verdict = await critiqueModel(
+            trimmed,
+            studio.getCode(),
+            image,
+            hasByok ? { byokKey } : {},
+          );
+          if (!verdict.ok && verdict.suggestedFix) fix = verdict.suggestedFix;
+        }
+      } catch {
+        // critique is advisory; a failure never affects the generation
+      }
+
+      setBusy(false);
+      if (fix) {
+        // keep the panel open so the user sees the suggested refinement
+        setCritiqueFix(fix);
+        return;
+      }
       setPrompt("");
       handleOpenChange(false);
-      setBusy(false);
       return;
     }
 
@@ -249,10 +281,16 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // Error, any billed-but-failed spend, and the upgrade funnel share the panel's
   // notice slot; the panel renders whatever node it is handed
   const notice =
-    error || spent || (outOfCredits && UPGRADE_URL) ? (
+    error || spent || critiqueFix || (outOfCredits && UPGRADE_URL) ? (
       <div className="ai-notice">
         {error ? <p role="alert">{error}</p> : null}
         {spent ? <p className="ai-spent">{spent}</p> : null}
+        {critiqueFix ? (
+          <p className="ai-critique">
+            <span className="ai-critique-label">Suggested refinement:</span>{" "}
+            {critiqueFix}
+          </p>
+        ) : null}
         {outOfCredits && UPGRADE_URL ? (
           <a
             className="ai-upgrade"
