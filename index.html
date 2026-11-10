@@ -2,6 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- No-flash theme guard: stamp data-theme on <html> BEFORE first paint so
+         the design tokens (which switch on [data-theme]) resolve to the right
+         theme immediately, with no flash of the light default before the app
+         hydrates. Must mirror getInitialTheme() in src/theme.ts: saved choice,
+         else OS preference, else dark -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("facet-theme");
+          if (t !== "light" && t !== "dark") {
+            t = window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+          }
+          document.documentElement.dataset.theme = t;
+        } catch (e) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
     <!-- viewport-fit=cover so env(safe-area-inset-*) reports real values on iOS/
          notched devices (required for safe-area padding on fixed nav bars, etc.) -->
     <meta

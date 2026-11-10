@@ -1,33 +1,29 @@
 /*
- * Studio tokens are scoped to the .facet-app subtree (every consumer lives
- * under it) rather than :root, so names like --accent and --muted do not
- * clobber the Sigil/Thornberry design tokens defined on :root in styles.css
- * that the shared command palette resolves against.
+ * Studio token aliases, scoped to the .facet-app subtree. The Studio UI reads
+ * these short names (--bg/--panel/--accent/...), but they are now ALIASES of
+ * the Sigil SEMANTIC tokens defined on :root in styles.css, which already
+ * switch light/dark via [data-theme]. So the palette has ONE source of truth
+ * (the semantic layer) and the two can no longer drift out of sync; previously
+ * both layers hardcoded the same hexes and a comment warned they "must stay in
+ * sync". The names stay .facet-app-scoped on purpose, so --accent/--muted keep
+ * their Studio meaning here without clobbering the Sigil tokens on :root. Only
+ * --ok (success green) has no semantic equivalent, so it stays explicit
  */
 .facet-app {
-  --accent: #dd6e33;
-  --accent-ink: #241206;
-  --bg: #0d2033;
-  --panel: #122a43;
-  --panel-2: #17324c;
-  --text: #e7e2d8;
-  --muted: #8ba3bd;
-  --line: #24405c;
+  --accent: var(--primary);
+  --accent-ink: var(--primary-foreground);
+  --bg: var(--background);
+  --panel: var(--card);
+  --panel-2: var(--secondary);
+  --text: var(--foreground);
+  --muted: var(--muted-foreground);
+  --line: var(--border);
+  --err: var(--destructive);
   --ok: #7fd6a3;
-  --err: #ef8f7a;
 }
 
 [data-theme="light"] .facet-app {
-  --accent: #c8611f;
-  --accent-ink: #fff6ee;
-  --bg: #efe9dd;
-  --panel: #e7e2d8;
-  --panel-2: #ded6c6;
-  --text: #172a3f;
-  --muted: #5f6f80;
-  --line: #cabfa8;
   --ok: #2f7d4f;
-  --err: #b4451f;
 }
 
 html,
