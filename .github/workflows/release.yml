@@ -2,15 +2,21 @@ name: Release 🚀
 
 # Changesets-driven, matching the fleet convention (no manual tags): a push to
 # master runs the Changesets action, which opens/updates the "Version Packages"
-# PR from pending changesets. Merging that PR bumps the version and lands a
-# commit titled "Version Packages", which gates the build job below so the
-# desktop installers are cut automatically on each release.
+# PR from pending changesets. Merging that PR bumps the version and lands a commit
+# whose subject starts with "Version Packages", which gates the release jobs below.
+# A single draft release is created first, every platform's installers upload into
+# it, and it is published only once all builds succeed, so a release is never left
+# split across duplicate drafts.
 on:
   push:
     branches: [master]
   workflow_dispatch:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   release:
@@ -44,18 +50,68 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  create-release:
+    name: Create draft release 📦
+    needs: release
+    # Run on the commit that merges the Version Packages PR (its subject starts with
+    # "Version Packages"; startsWith, not contains, so an unrelated commit that only
+    # mentions the phrase cannot trigger a build), or on a manual dispatch
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Version Packages'))
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.create.outputs.result }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      # The release version, already bumped by the merged Version Packages PR
+      - name: Read version
+        id: version
+        shell: bash
+        run: echo "version=$(bun --print "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Create one draft release up front so every matrix build job uploads into the
+      # same release. Previously each job let tauri-action create its own release,
+      # and they raced into duplicate drafts with the installers split across them.
+      # Reuse an existing release for this tag if one is already present (a re-run).
+      - name: Create draft release
+        id: create
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const version = '${{ steps.version.outputs.version }}'
+            const tag = `v${version}`
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            })
+            const existing = releases.find((r) => r.tag_name === tag)
+            if (existing) return String(existing.id)
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Facet ${tag}`,
+              draft: true,
+              prerelease: false,
+            })
+            return String(data.id)
+
   build:
     name: Build ${{ matrix.platform }} 🛠️
-    needs: release
-    # Build installers on the commit that merges the Version Packages PR, or on a
-    # manual dispatch (to re-cut a release whose automatic build failed)
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, 'Version Packages'))
+    needs: create-release
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         # One native build per OS. Each runner bundles the installers for its own
-        # host target: macOS .dmg, Windows .msi, Linux AppImage + .deb.
+        # host target: macOS .dmg, Windows .msi, Linux AppImage + .deb + .rpm.
         platform: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
     steps:
@@ -83,16 +139,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # The release version, already bumped by the merged Version Packages PR
-      - name: Read version
-        id: version
-        shell: bash
-        run: echo "version=$(bun --print "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-
       # No separate route-generation step: tauri-action runs tauri.conf.json's
       # beforeBuildCommand (bun run build = tsr generate && tsc && vite build), so
       # the gitignored route tree (src/routeTree.gen.ts) is generated inside the build.
-      - name: Build and release Facet
+      - name: Build and upload installers
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -117,25 +167,42 @@ jobs:
           # tauri.conf.json bundle.windows.certificateThumbprint (or an external
           # signing command). No certs or keys are committed to this repo.
         with:
-          tagName: v${{ steps.version.outputs.version }}
-          releaseName: Facet v${{ steps.version.outputs.version }}
-          releaseDraft: true
+          # Upload into the single draft release created above instead of creating a
+          # release per matrix job (which raced into duplicate drafts).
+          releaseId: ${{ needs.create-release.outputs.release_id }}
 
-      # Publish the prebuilt GUI package (facet-bin) to the AUR. Linux only, and
-      # a no-op until AUR_SSH_PRIVATE_KEY is set, so the macOS/Windows matrix legs
-      # skip it and nothing runs before Brian registers the package + adds the key.
-      # Runs after tauri-action so the release assets (Facet_<version>_amd64.deb)
-      # exist. NOTE: the release is created as a draft above; the public asset URL
-      # that the checksum step curls only resolves once the release is published,
-      # so publish the release (or flip releaseDraft to false) for this to succeed.
+  publish-release:
+    name: Publish release 🚀
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Flip the draft to a published release and mark it latest, now that every
+      # platform's installers have uploaded. Publishing creates the git tag.
+      - name: Publish release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.create-release.outputs.release_id }},
+              draft: false,
+              make_latest: 'true',
+            })
+
+      # Publish the prebuilt GUI package (facet-bin) to the AUR. A no-op until
+      # AUR_SSH_PRIVATE_KEY is set, so nothing runs before the package is registered
+      # and the key is added. Runs after the release is published above, so the
+      # public asset URLs the checksum step curls already resolve.
       - name: Publish to AUR
-        if: matrix.platform == 'ubuntu-latest' && env.AUR_SSH_PRIVATE_KEY != ''
+        if: env.AUR_SSH_PRIVATE_KEY != ''
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          VERSION: ${{ needs.create-release.outputs.version }}
         shell: bash
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-
           mkdir -p ~/.ssh
           echo "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
