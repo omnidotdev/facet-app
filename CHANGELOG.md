@@ -1,5 +1,31 @@
 # @omnidotdev/facet
 
+## 0.3.0
+
+### Minor Changes
+
+- [#96](https://github.com/omnidotdev/facet-app/pull/96) [`e8cfde4`](https://github.com/omnidotdev/facet-app/commit/e8cfde42b597595e1904f48598f0142eca6b02f2) Thanks [@coopbri](https://github.com/coopbri)! - Auto-refine a generation the vision critic judges off, instead of showing the user the raw critique. After a "Describe a part" miss, the Studio regenerates once with the critic's suggestion (bounded to one pass, best-effort, and it keeps the good first model if the refine itself fails) and shows a plain "Refining for accuracy" status. Removes the under-the-hood "Suggested refinement" instruction text (an implementation-detail leak) and fixes the notice contrast. The generate client and the generate-and-run loop now forward a `refine` (`{ code, suggestion }`) to the gateway's new refine path.
+
+- [#95](https://github.com/omnidotdev/facet-app/pull/95) [`6a7e911`](https://github.com/omnidotdev/facet-app/commit/6a7e911135425694fab2ed5dbd332fefc02417b1) Thanks [@coopbri](https://github.com/coopbri)! - Ground AI generation with a vision critique. After a successful "Describe a part" generation, the Studio captures the 3D render and sends it to the gateway's `/critique` route; when the vision model judges the result does not match the request, its suggested refinement is surfaced in the panel so the user can act on it instead of accepting a wrong part. Best-effort and gated: if the viewport cannot be captured (no WebGPU) or the critique fails, it degrades silently to the prior generate-and-run behavior. Adds `Viewport.capture()`, a `StudioHandle.capture`, the `/critique` client, and a pure bounded auto-refine loop (for a later pass).
+
+- [#97](https://github.com/omnidotdev/facet-app/pull/97) [`a04fb7a`](https://github.com/omnidotdev/facet-app/commit/a04fb7a4d8641a5d01dd76e1108844332e922133) Thanks [@coopbri](https://github.com/coopbri)! - Add an "Import art" Studio control that brings an SVG or image into a new tab as an extruded part. An SVG (file or URL) is parsed directly; a raster (PNG/JPG/...) is traced to an outline in the browser. The art is normalized (scaled and centered) and dropped in as a runnable `importSvg` snippet.
+
+  Under it: a dependency-free raster vectorizer (`traceImageData`, `src/facet/traceImage.ts`) thresholds a bitmap to an ink mask and traces the ink/background boundary along the pixel grid into closed, oriented SVG contours (holes included, via opposite winding), and an art normalizer (`normalizePathData`/`buildImportSnippet`, `src/facet/importArt.ts`). URL import goes through the gateway's guarded proxy; file import works offline.
+
+- [#97](https://github.com/omnidotdev/facet-app/pull/97) [`a04fb7a`](https://github.com/omnidotdev/facet-app/commit/a04fb7a4d8641a5d01dd76e1108844332e922133) Thanks [@coopbri](https://github.com/coopbri)! - `importSvg` now accepts a whole `<svg>…</svg>` document, not just a single path `d` string, so an SVG file can be pasted in directly. Every `<path>` plus the basic shapes (`<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`) is imported, with element and nested-group `transform` attributes (`translate`/`scale`/`rotate`/`matrix`/`skew`) baked into the coordinates. A bare `d` string still works unchanged. `viewBox`, CSS/`style`, `<use>`, gradients and text are not interpreted, and the authored coordinates are used as-is, so `.scale(...)`/`.translate(...)` the result to size and place it.
+
+  The code editor also soft-wraps long lines now, so a pasted SVG path or other long literal stays readable instead of forcing horizontal scroll.
+
+### Patch Changes
+
+- [#91](https://github.com/omnidotdev/facet-app/pull/91) [`dd4af8a`](https://github.com/omnidotdev/facet-app/commit/dd4af8adf0ea6d07f5a7d246d9a011ba8a1c540e) Thanks [@coopbri](https://github.com/coopbri)! - Show the remaining monthly AI credit balance in the Describe-a-part panel ("N credits left this month"), so the per-generation credit cost has context instead of being a bare number. The balance comes from the gateway's capability probe, updates after each generation without a re-fetch, and is simply omitted when unavailable.
+
+- [#89](https://github.com/omnidotdev/facet-app/pull/89) [`0282c24`](https://github.com/omnidotdev/facet-app/commit/0282c241645697f8055679dcd4c68663f221924e) Thanks [@coopbri](https://github.com/coopbri)! - Make AI-generated models self-documenting and de-jargon the generation copy. Generated code now opens with a provenance header recording that Facet AI wrote it, the date, and the prompt it came from, so the model explains itself and survives export. The success toast no longer surfaces the internal "repair" loop (an implementation detail with no user meaning); it reports only the credit cost.
+
+- [#89](https://github.com/omnidotdev/facet-app/pull/89) [`0282c24`](https://github.com/omnidotdev/facet-app/commit/0282c241645697f8055679dcd4c68663f221924e) Thanks [@coopbri](https://github.com/coopbri)! - Version the desktop installers from the single source of truth. The release version sync wrote `src-tauri/Cargo.toml` but not `src-tauri/tauri.conf.json`, whose `version` drives the bundle and the app's reported version, so a tagged release could ship installers still carrying the previous number. The sync now updates both, keeping the tag, the installers, and the in-app version in lockstep.
+
+- [#92](https://github.com/omnidotdev/facet-app/pull/92) [`c4175a4`](https://github.com/omnidotdev/facet-app/commit/c4175a4ca8faf44a7af1768fb35fc306f8134ad4) Thanks [@coopbri](https://github.com/coopbri)! - Theme the shared Thornberry components (the command palette and the Describe-a-part panel) with Facet's Studio palette. These components render through a portal to `<body>`, outside the `.facet-app` subtree, so they were falling back to Sigil's default violet/neutral tokens instead of Facet's blue/orange theme. The Sigil semantic tokens are now set to Facet's brand on `:root` (light) and `[data-theme="dark"]` (dark) so every shared component inherits the Studio look; the components already theme purely through those tokens, so this is the canonical, downstream-friendly fix.
+
 ## 0.2.1
 
 ### Patch Changes
