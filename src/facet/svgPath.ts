@@ -283,18 +283,205 @@ function parse(d: string): SubPath[] {
   return subpaths.filter((s) => s.points.length >= 3);
 }
 
+// --- Full-SVG ingestion ------------------------------------------------------
+// Beyond a bare path `d`, accept a whole <svg> document: every <path> plus the
+// basic shapes (<rect>/<circle>/<ellipse>/<line>/<polyline>/<polygon>), with
+// element and nested-group `transform` attributes baked into the coordinates.
+// `viewBox`, CSS/`style`, `<use>`, gradients and text are not interpreted; the
+// authored user-space coordinates are used as-is (scale in Facet as needed).
+
+/** A 2D affine transform as the SVG [a, b, c, d, e, f] tuple. */
+type Mat = [number, number, number, number, number, number];
+const IDENTITY: Mat = [1, 0, 0, 1, 0, 0];
+
+/** Compose two affine transforms so `compose(m, n)` applies n then m to a point. */
+function compose(m: Mat, n: Mat): Mat {
+  return [
+    m[0] * n[0] + m[2] * n[1],
+    m[1] * n[0] + m[3] * n[1],
+    m[0] * n[2] + m[2] * n[3],
+    m[1] * n[2] + m[3] * n[3],
+    m[0] * n[4] + m[2] * n[5] + m[4],
+    m[1] * n[4] + m[3] * n[5] + m[5],
+  ];
+}
+
+/** Apply an affine transform to a point. */
+function applyMat(m: Mat, [x, y]: Pt): Pt {
+  return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+}
+
+/** Parse an SVG `transform` attribute (a list of functions) into one matrix. */
+function parseTransform(value: string): Mat {
+  let acc: Mat = IDENTITY;
+  const re = /([a-zA-Z]+)\s*\(([^)]*)\)/g;
+  let m: RegExpExecArray | null = re.exec(value);
+  while (m !== null) {
+    const name = m[1];
+    const a = m[2]
+      .split(/[\s,]+/)
+      .filter((s) => s.length > 0)
+      .map(Number);
+    let t: Mat = IDENTITY;
+    if (name === "translate") t = [1, 0, 0, 1, a[0] ?? 0, a[1] ?? 0];
+    else if (name === "scale") t = [a[0] ?? 1, 0, 0, a[1] ?? a[0] ?? 1, 0, 0];
+    else if (name === "matrix" && a.length === 6)
+      t = [a[0], a[1], a[2], a[3], a[4], a[5]];
+    else if (name === "rotate") {
+      const r = ((a[0] ?? 0) * Math.PI) / 180;
+      const cos = Math.cos(r);
+      const sin = Math.sin(r);
+      const rot: Mat = [cos, sin, -sin, cos, 0, 0];
+      if (a.length >= 3) {
+        const cx = a[1];
+        const cy = a[2];
+        t = compose(compose([1, 0, 0, 1, cx, cy], rot), [1, 0, 0, 1, -cx, -cy]);
+      } else t = rot;
+    } else if (name === "skewX")
+      t = [1, 0, Math.tan(((a[0] ?? 0) * Math.PI) / 180), 1, 0, 0];
+    else if (name === "skewY")
+      t = [1, Math.tan(((a[0] ?? 0) * Math.PI) / 180), 0, 1, 0, 0];
+    acc = compose(acc, t);
+    m = re.exec(value);
+  }
+  return acc;
+}
+
+/** Read an attribute's value from a tag's attribute text (double or single quoted). */
+function attr(attrs: string, name: string): string | null {
+  const m = attrs.match(
+    new RegExp(`${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, "i"),
+  );
+  return m ? (m[2] ?? m[3] ?? "") : null;
+}
+
+/** Numeric attribute, defaulting to 0 (or a given fallback). */
+function num(attrs: string, name: string, fallback = 0): number {
+  const v = attr(attrs, name);
+  if (v === null) return fallback;
+  const n = Number.parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** Convert a basic shape element to an equivalent path `d`, or null if unsupported. */
+function shapeToPathData(tag: string, attrs: string): string | null {
+  switch (tag) {
+    case "path":
+      return attr(attrs, "d");
+    case "rect": {
+      const x = num(attrs, "x");
+      const y = num(attrs, "y");
+      const w = num(attrs, "width");
+      const h = num(attrs, "height");
+      if (w <= 0 || h <= 0) return null;
+      // Corner radii are ignored (sharp corners); adequate for icon import
+      return `M${x} ${y}H${x + w}V${y + h}H${x}Z`;
+    }
+    case "circle": {
+      const cx = num(attrs, "cx");
+      const cy = num(attrs, "cy");
+      const r = num(attrs, "r");
+      if (r <= 0) return null;
+      return `M${cx - r} ${cy}A${r} ${r} 0 1 0 ${cx + r} ${cy}A${r} ${r} 0 1 0 ${cx - r} ${cy}Z`;
+    }
+    case "ellipse": {
+      const cx = num(attrs, "cx");
+      const cy = num(attrs, "cy");
+      const rx = num(attrs, "rx");
+      const ry = num(attrs, "ry");
+      if (rx <= 0 || ry <= 0) return null;
+      return `M${cx - rx} ${cy}A${rx} ${ry} 0 1 0 ${cx + rx} ${cy}A${rx} ${ry} 0 1 0 ${cx - rx} ${cy}Z`;
+    }
+    case "line": {
+      // A zero-area segment: kept for completeness, dropped later for want of a region
+      const x1 = num(attrs, "x1");
+      const y1 = num(attrs, "y1");
+      const x2 = num(attrs, "x2");
+      const y2 = num(attrs, "y2");
+      return `M${x1} ${y1}L${x2} ${y2}`;
+    }
+    case "polyline":
+    case "polygon": {
+      const raw = attr(attrs, "points");
+      if (!raw) return null;
+      const nums = raw
+        .split(/[\s,]+/)
+        .filter((s) => s.length > 0)
+        .map(Number);
+      if (nums.length < 4) return null;
+      let d = `M${nums[0]} ${nums[1]}`;
+      for (let i = 2; i + 1 < nums.length; i += 2)
+        d += `L${nums[i]} ${nums[i + 1]}`;
+      return tag === "polygon" ? `${d}Z` : d;
+    }
+    default:
+      return null;
+  }
+}
+
 /**
- * Build a replicad `Drawing` from an SVG path `d` string. Throws when the path
- * yields no drawable region.
+ * Walk an SVG document, baking each element's (and its ancestor groups')
+ * transform into flattened, absolute polylines in SVG space.
+ */
+function parseSvgDocument(svg: string): Pt[][] {
+  const out: Pt[][] = [];
+  const stack: Mat[] = [IDENTITY];
+  const tagRe = /<(\/?)([a-zA-Z][\w:-]*)([^>]*?)(\/?)>/g;
+  let m: RegExpExecArray | null = tagRe.exec(svg);
+  while (m !== null) {
+    const closing = m[1] === "/";
+    const tag = m[2].toLowerCase();
+    const attrs = m[3];
+    const selfClose = m[4] === "/";
+    const isContainer = tag === "g" || tag === "svg";
+
+    if (closing) {
+      if (isContainer && stack.length > 1) stack.pop();
+    } else {
+      const own = (() => {
+        const tv = attr(attrs, "transform");
+        return tv ? parseTransform(tv) : IDENTITY;
+      })();
+      const cumulative = compose(stack[stack.length - 1], own);
+      if (isContainer) {
+        if (!selfClose) stack.push(cumulative);
+      } else {
+        const d = shapeToPathData(tag, attrs);
+        if (d) {
+          for (const sp of parse(d))
+            out.push(sp.points.map((p) => applyMat(cumulative, p)));
+        }
+      }
+    }
+    m = tagRe.exec(svg);
+  }
+  return out;
+}
+
+/**
+ * Turn either a bare path `d` string or a full `<svg>` document into flattened,
+ * absolute, transform-baked polylines in SVG space (Y still points down). The
+ * entry point both the kernel and tests use; exported so the ingestion can be
+ * exercised without the B-rep kernel.
+ */
+export function collectSubpaths(input: string): Pt[][] {
+  if (!input.trimStart().startsWith("<"))
+    return parse(input).map((s) => s.points);
+  return parseSvgDocument(input);
+}
+
+/**
+ * Build a replicad `Drawing` from an SVG path `d` string OR a whole `<svg>`
+ * document. Throws when the input yields no drawable region.
  */
 export function drawSvgPath(rc: Rc, d: string): Drawing {
-  const subpaths = parse(d);
-  if (subpaths.length === 0)
+  const polys = collectSubpaths(d);
+  if (polys.length === 0)
     throw new Error("The SVG path has no drawable segments.");
 
-  const built = subpaths.map((s) => {
+  const built = polys.map((points) => {
     // Flip Y (SVG down -> CAD up) as we hand points to the pen
-    const flipped: Pt[] = s.points.map(([x, y]) => [x, -y]);
+    const flipped: Pt[] = points.map(([x, y]) => [x, -y]);
     let pen = rc.draw(flipped[0]);
     for (let i = 1; i < flipped.length; i++) pen = pen.lineTo(flipped[i]);
     return { drawing: pen.close(), area: signedArea(flipped) };

@@ -154,6 +154,11 @@ export function createEditor(
     theme: themeExtension(opts.theme),
     completionSources: [facetApiCompletions],
     guardDoubleClick: "swallow-dblclick",
+    // Soft-wrap long lines so a pasted SVG path or other very long literal stays
+    // readable instead of forcing horizontal scroll. (Delivered via the extras
+    // compartment against the current thornberry pin; migrate to the lib's
+    // first-class `lineWrapping` option once that release is picked up.)
+    extensions: [EditorView.lineWrapping],
   });
 
   return {
