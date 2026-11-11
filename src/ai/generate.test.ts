@@ -150,6 +150,23 @@ describe("generateModel", () => {
     });
   });
 
+  test("forwards refine (prior code + critic suggestion) on a refine call", async () => {
+    const lastCall = stubFetch(
+      ok({ code: "better", usage: { credits: 1, costCents: 1 } }),
+    );
+
+    await generateModel("scorpio symbol", {
+      ...managed,
+      refine: { code: "return cube(10);", suggestion: "add a curved tail" },
+    });
+
+    const body = JSON.parse(lastCall().init.body as string);
+    expect(body).toEqual({
+      prompt: "scorpio symbol",
+      refine: { code: "return cube(10);", suggestion: "add a curved tail" },
+    });
+  });
+
   test("throws a clear error when the gateway URL is unset", async () => {
     delete process.env.VITE_FACET_API_URL;
     stubFetch(ok({ code: "x", usage: { credits: 0, costCents: 0 } }));

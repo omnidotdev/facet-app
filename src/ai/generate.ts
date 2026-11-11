@@ -36,11 +36,23 @@ export interface GeneratePrevious {
   error: string;
 }
 
+/**
+ * The prior code and the render critic's suggestion, fed back for a refine pass.
+ * Distinct from `previous`: the code ran cleanly but a render of it did not match
+ * the request, so this carries a visual improvement, not a thrown error
+ */
+export interface GenerateRefine {
+  code: string;
+  suggestion: string;
+}
+
 export interface GenerateOptions {
   /** A user-supplied Synapse key. When set, the gateway bills the caller. */
   byokKey?: string;
   /** Prior failed code plus its error, present only on a repair attempt. */
   previous?: GeneratePrevious;
+  /** Prior code plus the critic's suggestion, present only on a refine pass. */
+  refine?: GenerateRefine;
   /** Repair attempt counter (0 for the first generation). */
   attempt?: number;
   /**
@@ -74,6 +86,7 @@ export async function generateModel(
 
   const body: Record<string, unknown> = { prompt };
   if (opts.previous) body.previous = opts.previous;
+  if (opts.refine) body.refine = opts.refine;
   if (typeof opts.attempt === "number") body.attempt = opts.attempt;
 
   return client.post<GenerateResult>("generate", body, {
