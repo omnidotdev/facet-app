@@ -188,4 +188,34 @@ describe("generateAndRun", () => {
     expect(calls[0]?.opts.byokKey).toBe("sk-user");
     expect(calls[1]?.opts.byokKey).toBe("sk-user");
   });
+
+  test("forwards refine on the initial generate call (a critic-driven pass)", async () => {
+    const { fn, calls } = fakeGenerate(["return better();"]);
+    const runner = fakeRunner([{ ok: true }]);
+
+    await generateAndRun("scorpio symbol", runner, {
+      generate: fn,
+      refine: { code: "return cube(10);", suggestion: "add a curved tail" },
+    });
+
+    expect(calls[0]?.opts.refine).toEqual({
+      code: "return cube(10);",
+      suggestion: "add a curved tail",
+    });
+  });
+
+  test("a kernel-error repair during a refine pass drops refine for previous", async () => {
+    // Once the refined code throws, the active concern is the error: the repair
+    // call carries `previous` (code + error), never the stale refine suggestion
+    const { fn, calls } = fakeGenerate(["broken", "fixed"]);
+    const runner = fakeRunner([{ ok: false, error: "boom" }, { ok: true }]);
+
+    await generateAndRun("scorpio symbol", runner, {
+      generate: fn,
+      refine: { code: "return cube(10);", suggestion: "add a curved tail" },
+    });
+
+    expect(calls[1]?.opts.refine).toBeUndefined();
+    expect(calls[1]?.opts.previous).toEqual({ code: "broken", error: "boom" });
+  });
 });

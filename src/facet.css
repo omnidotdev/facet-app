@@ -477,16 +477,38 @@ body,
   color: var(--text);
 }
 
-/* The vision critic's suggested refinement when a result misses the request */
-.ai-critique {
+/* Status shown while an automatic refine pass regenerates a result the vision
+   critic judged off. Plain, readable, and self-explanatory: the user never sees
+   the critique itself, only that the model is improving the result */
+.ai-refining {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--muted);
+  color: var(--text);
 }
-.ai-critique-label {
-  font-weight: 600;
-  color: var(--accent);
+.ai-refining::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: ai-refining-pulse 1s ease-in-out infinite;
+}
+@keyframes ai-refining-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-refining::before {
+    animation: none;
+  }
 }
 
 /* Remaining monthly credit balance, shown inline in the panel description */

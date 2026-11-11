@@ -32,6 +32,12 @@ export interface GenerateAndRunOptions {
   byokKey?: string;
   /** Injectable gateway client, defaulting to the real one (for tests). */
   generate?: typeof generateModel;
+  /**
+   * A render-critic refine pass: the prior code plus the critic's suggestion.
+   * Forwarded only to the initial generate call; once the refined code throws a
+   * kernel error, the repair loop takes over with `previous` instead
+   */
+  refine?: { code: string; suggestion: string };
   /** Repair attempts after the first generation. */
   maxAttempts?: number;
   /**
@@ -94,7 +100,10 @@ export async function generateAndRun(
   };
 
   try {
-    let result = await generate(prompt, { ...byok });
+    let result = await generate(prompt, {
+      ...byok,
+      ...(opts.refine ? { refine: opts.refine } : {}),
+    });
     bill(result.usage);
     touched = true;
     let outcome = await runner.loadCode(result.code);

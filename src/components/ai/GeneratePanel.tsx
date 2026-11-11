@@ -101,10 +101,11 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // cost has context ("N left") instead of a bare number. null until known or
   // when not applicable (signed out, BYOK, or the meter was unavailable)
   const [credits, setCredits] = useState<CreditBalance | null>(null);
-  // The vision critic's suggested fix when a generated result does not match the
-  // request. Null when the result looked right, capture was unavailable, or the
-  // critique could not run; set keeps the panel open to show the suggestion
-  const [critiqueFix, setCritiqueFix] = useState<string | null>(null);
+  // True while an automatic refine pass is in flight: the vision critic found
+  // the first result did not match the request, so the model is regenerating
+  // with the critic's guidance. The user sees a plain status, never the
+  // under-the-hood critique, and gets a better model rather than instructions
+  const [refining, setRefining] = useState(false);
 
   const { signedIn } = useAuthSession();
 
@@ -143,6 +144,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       setError(null);
       setSpent(null);
       setOutOfCredits(false);
+      setRefining(false);
     }
   };
 
@@ -170,7 +172,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     setError(null);
     setSpent(null);
     setOutOfCredits(false);
-    setCritiqueFix(null);
+    setRefining(false);
 
     // Generate into a fresh tab so the current model is never overwritten. The
     // tab is created lazily on the first code that comes back, so a 401/402
@@ -199,25 +201,17 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       setOutOfCredits(false);
       setError(null);
       setSpent(null);
-      // Keep the shown balance fresh after a managed spend, no re-fetch needed
-      if (!hasByok) {
-        setCredits((c) =>
-          c
-            ? {
-                used: c.used + result.usage.credits,
-                cap: c.cap,
-                remaining: Math.max(0, c.remaining - result.usage.credits),
-              }
-            : c,
-        );
-      }
-      setToast(formatGeneratedToast(result.usage.credits, hasByok));
+
+      // Accumulate spend across the initial generation and an optional refine,
+      // so the balance and toast reflect the true total
+      let totalCredits = result.usage.credits;
 
       // Ground the result: critique the render and, if it misses the request,
-      // surface the model's suggested fix. Best-effort - a capture or critique
-      // failure never blocks or fails the generation (it degrades to today's
-      // behavior). Only runs when the viewport can be captured
-      let fix: string | null = null;
+      // automatically refine once (regenerate with the critic's guidance) so the
+      // user gets a better model instead of under-the-hood instructions. Fully
+      // best-effort: a capture, critique, or refine failure degrades to the first
+      // good result and never blocks, fails, or discards it. Only runs when the
+      // viewport can be captured
       try {
         const image = studio.capture();
         if (image) {
@@ -227,18 +221,42 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
             image,
             hasByok ? { byokKey } : {},
           );
-          if (!verdict.ok && verdict.suggestedFix) fix = verdict.suggestedFix;
+          if (!verdict.ok && verdict.suggestedFix) {
+            setRefining(true);
+            const refined = await generateAndRun(trimmed, runner, {
+              ...(hasByok ? { byokKey } : {}),
+              // Keep the good first model if the refine itself fails, rather
+              // than leaving the user with worse or broken code
+              restorePriorOnFailure: true,
+              refine: {
+                code: studio.getCode(),
+                suggestion: verdict.suggestedFix,
+              },
+            });
+            if (refined.usage) totalCredits += refined.usage.credits;
+            setRefining(false);
+          }
         }
       } catch {
-        // critique is advisory; a failure never affects the generation
+        // grounding is advisory; a failure never affects the generation
+        setRefining(false);
       }
 
-      setBusy(false);
-      if (fix) {
-        // keep the panel open so the user sees the suggested refinement
-        setCritiqueFix(fix);
-        return;
+      // Keep the shown balance fresh after the managed spend, no re-fetch needed
+      if (!hasByok) {
+        setCredits((c) =>
+          c
+            ? {
+                used: c.used + totalCredits,
+                cap: c.cap,
+                remaining: Math.max(0, c.remaining - totalCredits),
+              }
+            : c,
+        );
       }
+      setToast(formatGeneratedToast(totalCredits, hasByok));
+
+      setBusy(false);
       setPrompt("");
       handleOpenChange(false);
       return;
@@ -281,15 +299,12 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // Error, any billed-but-failed spend, and the upgrade funnel share the panel's
   // notice slot; the panel renders whatever node it is handed
   const notice =
-    error || spent || critiqueFix || (outOfCredits && UPGRADE_URL) ? (
+    error || spent || refining || (outOfCredits && UPGRADE_URL) ? (
       <div className="ai-notice">
         {error ? <p role="alert">{error}</p> : null}
         {spent ? <p className="ai-spent">{spent}</p> : null}
-        {critiqueFix ? (
-          <p className="ai-critique">
-            <span className="ai-critique-label">Suggested refinement:</span>{" "}
-            {critiqueFix}
-          </p>
+        {refining ? (
+          <p className="ai-refining">Refining for accuracy...</p>
         ) : null}
         {outOfCredits && UPGRADE_URL ? (
           <a
