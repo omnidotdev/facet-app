@@ -893,6 +893,39 @@ body,
   font-weight: 600;
 }
 
+/* Import art dropdown: file + URL import of SVG/image as an extruded part */
+.facet-app .import-dropdown {
+  min-width: 280px;
+  gap: 6px;
+}
+.facet-app .import-url-row {
+  display: flex;
+  gap: 6px;
+  padding: 2px;
+}
+.facet-app .import-url-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 7px 9px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+}
+.facet-app .import-hint {
+  margin: 2px 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.facet-app .import-error {
+  margin: 0 4px;
+  color: #d9574e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 /* Settings menu: preferences (kernel, theme, export format) in a gear dropdown */
 .facet-app .settings-menu {
   position: relative;

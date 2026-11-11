@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import GeneratePanel from "@/components/ai/GeneratePanel";
 import AccountControl from "@/components/auth/AccountControl";
 import ExamplesMenu from "@/components/ExamplesMenu";
+import ImportArtButton from "@/components/ImportArtButton";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
@@ -790,6 +791,7 @@ export default function FacetStudio() {
         <span className="tag">code CAD · write code, get geometry</span>
         <div className="header-controls">
           <GeneratePanel handle={studioHandle} />
+          <ImportArtButton handle={studioHandle} />
           <ExamplesMenu
             names={Object.keys(examples)}
             current={currentExample}

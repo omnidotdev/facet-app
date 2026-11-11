@@ -320,12 +320,18 @@ export function polygon(points: [number, number][] | number[]): Sketch {
 }
 
 /**
- * A 2D sketch from an SVG path `d` string (an icon, a glyph, a logo outline).
- * The Y axis is flipped so the art reads upright, and opposite-wound subpaths
- * become holes. Extrude or revolve the result like any other sketch.
+ * A 2D sketch from SVG art (an icon, a glyph, a logo outline). Accepts either a
+ * bare path `d` string, or a whole `<svg>…</svg>` document (every `<path>` plus
+ * `<rect>`/`<circle>`/`<ellipse>`/`<line>`/`<polyline>`/`<polygon>`, with element
+ * and nested-group `transform` attributes baked in), so an SVG file can be pasted
+ * in directly. The Y axis is flipped so the art reads upright, and opposite-wound
+ * subpaths become holes. `viewBox`, CSS/`style`, `<use>`, gradients and text are
+ * not interpreted, and the authored coordinates are used as-is, so `.scale(...)`
+ * or `.translate(...)` the result to size and place it. Extrude or revolve it
+ * like any other sketch.
  */
-export function importSvg(path: string): Sketch {
-  return new Sketch({ op: "svg2d", path });
+export function importSvg(svg: string): Sketch {
+  return new Sketch({ op: "svg2d", path: svg });
 }
 
 /**

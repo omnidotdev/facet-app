@@ -201,8 +201,8 @@ const TOP_LEVEL: Completion[] = [
   {
     label: "importSvg",
     type: "function",
-    detail: "importSvg(pathData)",
-    info: "A 2D sketch from an SVG path string (an icon/glyph/logo); extrude or revolve it",
+    detail: "importSvg(svg)",
+    info: "A 2D sketch from SVG art: a path `d` string OR a whole <svg> document (paths + basic shapes + transforms). Extrude or revolve it",
   },
   {
     label: "text",
