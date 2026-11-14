@@ -1,5 +1,11 @@
 # @omnidotdev/facet
 
+## 0.4.0
+
+### Minor Changes
+
+- [#100](https://github.com/omnidotdev/facet-app/pull/100) [`e85ad8a`](https://github.com/omnidotdev/facet-app/commit/e85ad8aef5a3c69a7eb36135a4f0b675ae2ec810) Thanks [@coopbri](https://github.com/coopbri)! - Show the pooled Omni credit balance in the describe-a-part panel, labeled as shared across Omni and formatted with the shared credit helper. After each managed generation the panel refetches the balance instead of subtracting locally, and the credits a generation spent come from the balance change. The out-of-credits state now links to buy credits.
+
 ## 0.3.0
 
 ### Minor Changes
