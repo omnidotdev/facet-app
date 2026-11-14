@@ -9,6 +9,8 @@ import {
   SYNAPSE_KEY_URL,
   billingHubUrl,
   classifyGenerateError,
+  creditsSpent,
+  formatBalance,
   formatGeneratedToast,
   formatSpentNote,
   withProvenanceHeader,
@@ -27,9 +29,9 @@ import type { StudioHandle } from "@/FacetStudio";
 // only in the no-auth (local/dev) fallback; signed-in users never paste a key
 const BYOK_STORAGE_KEY = "facet:ai-byok-key:v1";
 
-// Funnel out-of-credits users to the shared Omni billing hub for Facet Pro.
+// Funnel out-of-credits users to the shared Omni billing hub to buy credits.
 // Null when VITE_ACCOUNT_URL is unset, so the CTA is simply omitted
-const UPGRADE_URL = billingHubUrl(import.meta.env.VITE_ACCOUNT_URL);
+const BUY_CREDITS_URL = billingHubUrl(import.meta.env.VITE_ACCOUNT_URL);
 
 interface GeneratePanelProps {
   /** The Studio's editor + run handle, populated after its setup effect runs. */
@@ -85,21 +87,21 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Credits billed by a failed-but-charged managed attempt, shown in the dialog
+  // Credits a failed-but-charged managed attempt took off the balance
   const [spent, setSpent] = useState<string | null>(null);
   // A short confirmation shown after the dialog closes on a successful generate
   const [toast, setToast] = useState<string | null>(null);
   const [byokOpen, setByokOpen] = useState(false);
   const [byokKey, setByokKey] = useState(loadByokKey);
-  // Set when a managed call comes back 402, to surface the upgrade funnel
+  // Set when a managed call comes back 402, to surface the buy-credits link
   const [outOfCredits, setOutOfCredits] = useState(false);
   // null while unknown; the gateway says whether this user may use managed
   // generation (the server's env allowlist), so the panel is shown only to
   // permitted users rather than to everyone with a 403 after the fact
   const [managedAllowed, setManagedAllowed] = useState<boolean | null>(null);
-  // The signed-in user's monthly managed credit balance, so a per-generation
-  // cost has context ("N left") instead of a bare number. null until known or
-  // when not applicable (signed out, BYOK, or the meter was unavailable)
+  // The signed-in user's pooled Omni credit balance (shared across products),
+  // so a per-generation cost has context. null until known or when not
+  // applicable (signed out, BYOK, or the balance could not be read)
   const [credits, setCredits] = useState<CreditBalance | null>(null);
   // True while an automatic refine pass is in flight: the vision critic found
   // the first result did not match the request, so the model is regenerating
@@ -137,6 +139,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const hasByok = byokAllowed && byokKey.trim().length > 0;
   const canGenerate = authConfigured ? signedIn : hasByok;
 
+  // Re-read the pooled balance after a managed attempt (the gateway debits it,
+  // never local math) and return it for the spent-credits figure
+  const refreshBalance = async (): Promise<number | null> => {
+    const caps = await fetchCapabilities();
+    setCredits(caps.credits ?? null);
+    return caps.credits?.balance ?? null;
+  };
+
   // Close and clear the transient per-attempt state so a reopen starts clean
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -173,6 +183,9 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     setSpent(null);
     setOutOfCredits(false);
     setRefining(false);
+    // The balance before this generation, so what it spent can be read off the
+    // balance change afterwards
+    const balanceBefore = credits?.balance ?? null;
 
     // Generate into a fresh tab so the current model is never overwritten. The
     // tab is created lazily on the first code that comes back, so a 401/402
@@ -202,10 +215,6 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       setError(null);
       setSpent(null);
 
-      // Accumulate spend across the initial generation and an optional refine,
-      // so the balance and toast reflect the true total
-      let totalCredits = result.usage.credits;
-
       // Ground the result: critique the render and, if it misses the request,
       // automatically refine once (regenerate with the critic's guidance) so the
       // user gets a better model instead of under-the-hood instructions. Fully
@@ -223,7 +232,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
           );
           if (!verdict.ok && verdict.suggestedFix) {
             setRefining(true);
-            const refined = await generateAndRun(trimmed, runner, {
+            await generateAndRun(trimmed, runner, {
               ...(hasByok ? { byokKey } : {}),
               // Keep the good first model if the refine itself fails, rather
               // than leaving the user with worse or broken code
@@ -233,7 +242,6 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
                 suggestion: verdict.suggestedFix,
               },
             });
-            if (refined.usage) totalCredits += refined.usage.credits;
             setRefining(false);
           }
         }
@@ -242,19 +250,12 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         setRefining(false);
       }
 
-      // Keep the shown balance fresh after the managed spend, no re-fetch needed
-      if (!hasByok) {
-        setCredits((c) =>
-          c
-            ? {
-                used: c.used + totalCredits,
-                cap: c.cap,
-                remaining: Math.max(0, c.remaining - totalCredits),
-              }
-            : c,
-        );
-      }
-      setToast(formatGeneratedToast(totalCredits, hasByok));
+      // Refresh the pooled balance after the managed spend; what this
+      // generation (plus any refine) cost is the balance change
+      const spentCredits = hasByok
+        ? null
+        : creditsSpent(balanceBefore, await refreshBalance());
+      setToast(formatGeneratedToast(spentCredits, hasByok));
 
       setBusy(false);
       setPrompt("");
@@ -262,13 +263,12 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       return;
     }
 
-    // A failed managed attempt may still have billed; surface what it cost so
-    // the spend is never silent (BYOK reports zero, so nothing shows)
-    setSpent(
-      result.usage && result.usage.credits > 0
-        ? formatSpentNote(result.usage.credits)
-        : null,
-    );
+    // A failed managed attempt may still have billed; surface what the balance
+    // went down by so the spend is never silent (BYOK never touches credits)
+    const failedSpend = hasByok
+      ? null
+      : creditsSpent(balanceBefore, await refreshBalance());
+    setSpent(failedSpend ? formatSpentNote(failedSpend) : null);
     switch (classifyGenerateError(result.httpStatus)) {
       case "signIn":
         // The session expired or was revoked mid-use. Clear it so the header
@@ -296,24 +296,24 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // server-side regardless of what the UI shows
   if (authConfigured && !(signedIn && managedAllowed)) return null;
 
-  // Error, any billed-but-failed spend, and the upgrade funnel share the panel's
-  // notice slot; the panel renders whatever node it is handed
+  // Error, any billed-but-failed spend, and the buy-credits link share the
+  // panel's notice slot; the panel renders whatever node it is handed
   const notice =
-    error || spent || refining || (outOfCredits && UPGRADE_URL) ? (
+    error || spent || refining || (outOfCredits && BUY_CREDITS_URL) ? (
       <div className="ai-notice">
         {error ? <p role="alert">{error}</p> : null}
         {spent ? <p className="ai-spent">{spent}</p> : null}
         {refining ? (
           <p className="ai-refining">Refining for accuracy...</p>
         ) : null}
-        {outOfCredits && UPGRADE_URL ? (
+        {outOfCredits && BUY_CREDITS_URL ? (
           <a
             className="ai-upgrade"
-            href={UPGRADE_URL}
+            href={BUY_CREDITS_URL}
             target="_blank"
             rel="noopener noreferrer"
           >
-            Upgrade workspace
+            {PANEL_COPY.buyCredits}
           </a>
         ) : null}
       </div>
@@ -348,8 +348,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
             {credits ? (
               <span className="ai-balance">
                 {" · "}
-                {credits.remaining} credit{credits.remaining === 1 ? "" : "s"}{" "}
-                left this month
+                {formatBalance(credits.balance)}
               </span>
             ) : null}
           </>

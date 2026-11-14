@@ -6,6 +6,8 @@ import {
   SYNAPSE_KEY_URL,
   billingHubUrl,
   classifyGenerateError,
+  creditsSpent,
+  formatBalance,
   formatGeneratedToast,
   formatSpentNote,
   resolvePanelMode,
@@ -84,6 +86,14 @@ describe("classifyGenerateError", () => {
   });
 });
 
+describe("out-of-credits copy", () => {
+  test("tells the user to buy credits, with no monthly-cap or workspace framing", () => {
+    expect(PANEL_COPY.outOfCredits).toMatch(/buy more credits/i);
+    expect(PANEL_COPY.outOfCredits).not.toMatch(/month|workspace|upgrade/i);
+    expect(PANEL_COPY.buyCredits).toBe("Buy credits");
+  });
+});
+
 describe("billingHubUrl", () => {
   test("a 402 funnels to the account hub's Facet billing page", () => {
     // 402 is the out-of-credits status the panel surfaces the upgrade CTA for
@@ -107,7 +117,7 @@ describe("billingHubUrl", () => {
 });
 
 describe("formatGeneratedToast", () => {
-  test("managed shows the total credits spent", () => {
+  test("managed shows the credits the balance went down by", () => {
     expect(formatGeneratedToast(3, false)).toBe("Generated · 3 credits");
   });
 
@@ -115,17 +125,49 @@ describe("formatGeneratedToast", () => {
     expect(formatGeneratedToast(1, false)).toBe("Generated · 1 credit");
   });
 
+  test("large figures are locale-grouped", () => {
+    expect(formatGeneratedToast(1234, false)).toBe("Generated · 1,234 credits");
+  });
+
+  test("an unknown or unchanged balance shows no credit figure", () => {
+    expect(formatGeneratedToast(null, false)).toBe("Generated");
+    expect(formatGeneratedToast(0, false)).toBe("Generated");
+  });
+
   test("the internal repair loop is never surfaced to the user", () => {
     // "repair" is an implementation detail with no user model; show cost only
-    expect(formatGeneratedToast(9, false)).toBe("Generated · 9 credits");
     expect(formatGeneratedToast(9, false)).not.toContain("repair");
   });
 
   test("BYOK never shows a credit count (billed to the caller)", () => {
-    expect(formatGeneratedToast(0, true)).toBe(
+    expect(formatGeneratedToast(null, true)).toBe(
       "Generated with your Synapse key",
     );
     expect(formatGeneratedToast(5, true)).not.toContain("credit");
+  });
+});
+
+describe("creditsSpent", () => {
+  test("is the drop in the pooled balance across a generation", () => {
+    expect(creditsSpent(120, 112)).toBe(8);
+  });
+
+  test("is null when either balance is unknown", () => {
+    expect(creditsSpent(null, 112)).toBeNull();
+    expect(creditsSpent(120, null)).toBeNull();
+  });
+
+  test("is null when the balance did not go down (e.g. a top-up landed)", () => {
+    expect(creditsSpent(120, 120)).toBeNull();
+    expect(creditsSpent(120, 500)).toBeNull();
+  });
+});
+
+describe("formatBalance", () => {
+  test("shows whole credits, labeled as shared across Omni", () => {
+    expect(formatBalance(1234)).toBe("1,234 credits · shared across Omni");
+    expect(formatBalance(1)).toBe("1 credit · shared across Omni");
+    expect(formatBalance(0)).toBe("0 credits · shared across Omni");
   });
 });
 
@@ -193,8 +235,7 @@ describe("BYOK is framed as a Synapse key", () => {
     expect(PANEL_COPY.byokPlaceholder).toContain("Synapse");
   });
 
-  test("the credit-path prompts offer BYOK as the escape hatch", () => {
+  test("the sign-in prompt offers BYOK as the escape hatch", () => {
     expect(PANEL_COPY.signInPrompt).toContain("Synapse key");
-    expect(PANEL_COPY.outOfCredits).toContain("Synapse key");
   });
 });

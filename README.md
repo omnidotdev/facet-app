@@ -22,12 +22,12 @@ AI generation is optional and off by default. To enable the "Describe a part" pa
 - `VITE_FACET_API_URL`: the Facet AI gateway base URL. When unset, the panel is hidden and the app stays a pure local CAD tool.
 - `VITE_AUTH_BASE_URL`: the Omni identity base URL, used to sign in for managed (metered) generation. Bring-your-own-key generation needs no sign-in.
 - `VITE_AUTH_CLIENT_ID`: optional override for Facet's public OAuth client id. The app defaults to the id registered with Gatekeeper (baked into the source like `aspen-editor`, since it is public and stable, not a secret), so production needs nothing. Managed sign-in runs Authorization Code + PKCE in the browser with redirect URI `<origin>/auth/callback`. Set this only to point a non-production build at a different client.
-- `VITE_ACCOUNT_URL`: the shared Omni account hub base URL. When set, an out-of-credits user sees an "Upgrade workspace" CTA that links to the hub's Facet billing page. When unset, the CTA is hidden.
+- `VITE_ACCOUNT_URL`: the shared Omni account hub base URL. When set, an out-of-credits user sees a "Buy credits" link to the hub's billing page. When unset, the CTA is hidden.
 
 Both generation paths run through the [Synapse](https://synapse.omni.dev) AI router:
 
-- **Managed** (signed in): uses Facet's Synapse key and is metered against your monthly Facet credits.
-- **Bring your own key** (no account): paste your own [Synapse key](https://synapse.omni.dev) in the panel. Generation is billed to your own Synapse account, bypasses the Facet credit meter, and needs no sign-in. The key is kept only in your browser and sent over TLS to the gateway per request, never stored on Facet's servers.
+- **Managed** (signed in): uses a Facet-scoped Synapse key provisioned for you, billed to your Omni credit balance. That balance is one pool shared across every Omni product (1 credit = $0.01); the panel shows it, labeled "shared across Omni". When it runs out, generation is blocked until you buy more credits.
+- **Bring your own key** (no account): paste your own [Synapse key](https://synapse.omni.dev) in the panel. Generation is billed to your own Synapse account, never touches your Omni credits, and needs no sign-in. The key is kept only in your browser and sent over TLS to the gateway per request, never stored on Facet's servers.
 
 ## Run
 

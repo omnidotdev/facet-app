@@ -55,9 +55,7 @@ describe("generateModel", () => {
   });
 
   test("POSTs JSON to the gateway /generate with the prompt", async () => {
-    const lastCall = stubFetch(
-      ok({ code: "return cube(10);", usage: { credits: 2, costCents: 1.3 } }),
-    );
+    const lastCall = stubFetch(ok({ code: "return cube(10);" }));
 
     const result = await generateModel("a 10mm cube", managed);
 
@@ -70,13 +68,12 @@ describe("generateModel", () => {
     const body = JSON.parse(call.init.body as string);
     expect(body).toEqual({ prompt: "a 10mm cube" });
     expect(result.code).toBe("return cube(10);");
-    expect(result.usage).toEqual({ credits: 2, costCents: 1.3 });
+    // billing is the gateway's: no locally computed credit figure comes back
+    expect(result).toEqual({ code: "return cube(10);" });
   });
 
   test("attaches a Bearer token on the managed path", async () => {
-    const lastCall = stubFetch(
-      ok({ code: "x", usage: { credits: 1, costCents: 1 } }),
-    );
+    const lastCall = stubFetch(ok({ code: "x" }));
 
     await generateModel("a part", managed);
 
@@ -87,9 +84,7 @@ describe("generateModel", () => {
     let called = false;
     globalThis.fetch = (() => {
       called = true;
-      return Promise.resolve(
-        ok({ code: "x", usage: { credits: 0, costCents: 0 } }),
-      );
+      return Promise.resolve(ok({ code: "x" }));
     }) as unknown as typeof fetch;
 
     try {
@@ -103,9 +98,7 @@ describe("generateModel", () => {
   });
 
   test("a BYOK call sends no Authorization header and stays anonymous", async () => {
-    const lastCall = stubFetch(
-      ok({ code: "x", usage: { credits: 0, costCents: 0 } }),
-    );
+    const lastCall = stubFetch(ok({ code: "x" }));
 
     // A token getter that would throw if consulted proves BYOK never resolves one
     await generateModel("a gear", {
@@ -122,9 +115,7 @@ describe("generateModel", () => {
 
   test("strips a trailing slash from the base URL", async () => {
     process.env.VITE_FACET_API_URL = `${API_URL}/`;
-    const lastCall = stubFetch(
-      ok({ code: "x", usage: { credits: 1, costCents: 1 } }),
-    );
+    const lastCall = stubFetch(ok({ code: "x" }));
 
     await generateModel("hi", managed);
 
@@ -132,9 +123,7 @@ describe("generateModel", () => {
   });
 
   test("forwards previous + attempt on a repair call", async () => {
-    const lastCall = stubFetch(
-      ok({ code: "fixed", usage: { credits: 1, costCents: 1 } }),
-    );
+    const lastCall = stubFetch(ok({ code: "fixed" }));
 
     await generateModel("a bracket", {
       ...managed,
@@ -151,9 +140,7 @@ describe("generateModel", () => {
   });
 
   test("forwards refine (prior code + critic suggestion) on a refine call", async () => {
-    const lastCall = stubFetch(
-      ok({ code: "better", usage: { credits: 1, costCents: 1 } }),
-    );
+    const lastCall = stubFetch(ok({ code: "better" }));
 
     await generateModel("scorpio symbol", {
       ...managed,
@@ -169,7 +156,7 @@ describe("generateModel", () => {
 
   test("throws a clear error when the gateway URL is unset", async () => {
     delete process.env.VITE_FACET_API_URL;
-    stubFetch(ok({ code: "x", usage: { credits: 0, costCents: 0 } }));
+    stubFetch(ok({ code: "x" }));
 
     await expect(generateModel("anything")).rejects.toThrow(/not configured/i);
   });

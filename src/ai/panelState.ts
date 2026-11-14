@@ -1,3 +1,5 @@
+import { formatCredits } from "@omnidotdev/providers/billing";
+
 /**
  * Pure state logic for the "Describe a part" panel, kept out of the component
  * so it can be unit-tested without a DOM. The panel renders one of three modes
@@ -37,7 +39,7 @@ export const resolvePanelMode = ({
  * How the panel should react to a failed generation, derived from the gateway's
  * HTTP status (carried on the typed GenerateError):
  * - `signIn`: 401, the managed path needs an identity
- * - `outOfCredits`: 402, the monthly credit cap is reached
+ * - `outOfCredits`: 402, the user's pooled credit balance is empty
  * - `generic`: anything else, shown as the message the gateway already returned
  */
 export type GenerateErrorAction = "signIn" | "outOfCredits" | "generic";
@@ -54,9 +56,10 @@ export const classifyGenerateError = (
 /**
  * Where a user mints their own Synapse key for BYOK generation.
  *
- * Both generation paths run through the Synapse AI router: managed uses Facet's
- * server-side Synapse key (metered against Facet credits), BYOK uses the
- * caller's own Synapse key (billed to them, no meter, no sign-in). The key is
+ * Both generation paths run through the Synapse AI router: managed uses a
+ * Facet-scoped key provisioned for the signed-in user (billed to their pooled
+ * Omni credits), BYOK uses the caller's own Synapse key (billed to them, no
+ * credits, no sign-in). The key is
  * NOT a raw provider key: the gateway forwards it to Synapse with Synapse's
  * provider-prefixed model id, so only a Synapse key resolves
  */
@@ -71,9 +74,11 @@ export const PANEL_COPY = {
   /** Shown on a 401: the managed path needs an Omni identity. */
   signInPrompt:
     "Sign in to use managed generation, or add your own Synapse key below.",
-  /** Shown on a 402: the monthly managed credit cap is reached. */
+  /** Shown on a 402: the user's pooled credit balance is empty. */
   outOfCredits:
-    "You are out of AI credits for this month. Upgrade your workspace plan for more, or add your own Synapse key below.",
+    "You are out of AI credits. Buy more credits to keep generating.",
+  /** The out-of-credits call to action, linking to the account hub */
+  buyCredits: "Buy credits",
   /** The collapsible BYOK section toggle. */
   byokToggle: "Use your own Synapse key",
   /** The BYOK key input placeholder. */
@@ -84,12 +89,12 @@ export const PANEL_COPY = {
 const FACET_PRODUCT_ID = "facet";
 
 /**
- * Resolve the shared Omni billing hub URL that funnels an out-of-credits user
- * to Facet Pro, or null when no account hub is configured.
+ * Resolve the shared Omni billing hub URL where an out-of-credits user buys
+ * more credits, or null when no account hub is configured.
  *
  * Facet dogfoods the fleet's billing: the account hub (account.omni.dev) owns
- * billing across every Omni product, so an upgrade is a link out to it rather
- * than a bespoke in-app checkout. Returns null when `VITE_ACCOUNT_URL` is unset
+ * billing and the pooled credit balance across every Omni product, so a top-up
+ * is a link out to it rather than a bespoke in-app checkout. Returns null when `VITE_ACCOUNT_URL` is unset
  * so the caller simply omits the CTA and the panel still works
  */
 export const billingHubUrl = (
@@ -101,26 +106,46 @@ export const billingHubUrl = (
   return `${base}/billing?product=${FACET_PRODUCT_ID}`;
 };
 
-/** Pluralize a credit count for display, e.g. "1 credit", "3 credits". */
-const formatCredits = (credits: number): string =>
-  `${credits} credit${credits === 1 ? "" : "s"}`;
+/** A whole credit count with its unit, e.g. "1 credit", "1,234 credits" */
+const creditCount = (credits: number): string =>
+  `${formatCredits(credits)} credit${credits === 1 ? "" : "s"}`;
+
+/**
+ * The pooled balance for display, labeled as shared: one Aether balance per
+ * billing account funds AI across every Omni product, not just Facet
+ */
+export const formatBalance = (balance: number): string =>
+  `${creditCount(balance)} · shared across Omni`;
+
+/**
+ * Credits a generation spent, read from the pooled balance before and after it
+ * (never computed locally). Null when either balance is unknown or the balance
+ * did not go down (the gateway may not have settled yet, or a top-up landed)
+ */
+export const creditsSpent = (
+  before: number | null,
+  after: number | null,
+): number | null => {
+  if (before === null || after === null) return null;
+  return before > after ? before - after : null;
+};
 
 /**
  * Confirmation shown (as a toast) after a successful generation, once the
  * dialog has closed so the user sees their new model.
  *
- * BYOK bills the caller's own Synapse account, not Facet credits, so it never
- * shows a credit count. The managed path shows the total credits the generation
- * cost. The internal repair loop is deliberately NOT surfaced: "repair" is an
- * implementation detail a user has no model for, so the toast reports only the
- * cost, never the attempt count
+ * BYOK bills the caller's own Synapse account, not Omni credits, so it never
+ * shows a credit count. The managed path shows what the balance went down by
+ * when that is known. The internal repair loop is deliberately NOT surfaced:
+ * "repair" is an implementation detail a user has no model for, so the toast
+ * reports only the cost, never the attempt count
  */
 export const formatGeneratedToast = (
-  credits: number,
+  spent: number | null,
   byok: boolean,
 ): string => {
   if (byok) return "Generated with your Synapse key";
-  return `Generated · ${formatCredits(credits)}`;
+  return spent ? `Generated · ${creditCount(spent)}` : "Generated";
 };
 
 /**
@@ -143,12 +168,12 @@ export const withProvenanceHeader = (code: string, prompt: string): string => {
 };
 
 /**
- * Note shown in the dialog when a generation failed but still billed credits:
- * the managed path is charged per attempt even when the model never renders,
- * so the spend is surfaced rather than silent.
+ * Note shown in the dialog when a generation failed but the balance still went
+ * down: the managed path is charged per attempt even when the model never
+ * renders, so the spend is surfaced rather than silent.
  */
 export const formatSpentNote = (credits: number): string =>
-  `${formatCredits(credits)} spent.`;
+  `${creditCount(credits)} spent.`;
 
 /**
  * Starter prompts offered in an empty Describe-a-part dialog. Plain-English
