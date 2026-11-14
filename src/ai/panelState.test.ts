@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  BALANCE_CAPTION,
   PANEL_COPY,
   PROMPT_SUGGESTIONS,
   SYNAPSE_KEY_URL,
@@ -9,7 +10,9 @@ import {
   creditsSpent,
   formatBalance,
   formatGeneratedToast,
+  formatPerPartEstimate,
   formatSpentNote,
+  phaseLabel,
   resolvePanelMode,
   withProvenanceHeader,
 } from "./panelState";
@@ -118,15 +121,19 @@ describe("billingHubUrl", () => {
 
 describe("formatGeneratedToast", () => {
   test("managed shows the credits the balance went down by", () => {
-    expect(formatGeneratedToast(3, false)).toBe("Generated · 3 credits");
+    expect(formatGeneratedToast(3, false)).toBe("Generated (3 credits)");
   });
 
   test("a single credit is not pluralized", () => {
-    expect(formatGeneratedToast(1, false)).toBe("Generated · 1 credit");
+    expect(formatGeneratedToast(1, false)).toBe("Generated (1 credit)");
   });
 
   test("large figures are locale-grouped", () => {
-    expect(formatGeneratedToast(1234, false)).toBe("Generated · 1,234 credits");
+    expect(formatGeneratedToast(1234, false)).toBe("Generated (1,234 credits)");
+  });
+
+  test("carries no middot separator", () => {
+    expect(formatGeneratedToast(3, false)).not.toContain("·");
   });
 
   test("an unknown or unchanged balance shows no credit figure", () => {
@@ -164,10 +171,46 @@ describe("creditsSpent", () => {
 });
 
 describe("formatBalance", () => {
-  test("shows whole credits, labeled as shared across Omni", () => {
-    expect(formatBalance(1234)).toBe("1,234 credits · shared across Omni");
-    expect(formatBalance(1)).toBe("1 credit · shared across Omni");
-    expect(formatBalance(0)).toBe("0 credits · shared across Omni");
+  test("shows whole credits as a bare figure, with no separator", () => {
+    expect(formatBalance(1234)).toBe("1,234 credits");
+    expect(formatBalance(1)).toBe("1 credit");
+    expect(formatBalance(0)).toBe("0 credits");
+    expect(formatBalance(1234)).not.toContain("·");
+  });
+
+  test("the shared-pool context is a separate caption", () => {
+    expect(BALANCE_CAPTION).toBe("shared across Omni");
+  });
+});
+
+describe("formatPerPartEstimate", () => {
+  test("estimates from the last actual spend (self-calibrating)", () => {
+    expect(formatPerPartEstimate(11)).toBe("about 11 credits per part");
+    expect(formatPerPartEstimate(1)).toBe("about 1 credit per part");
+  });
+
+  test("falls back to a soft range before any run, and on a non-positive value", () => {
+    expect(formatPerPartEstimate(null)).toBe("usually a few credits per part");
+    expect(formatPerPartEstimate(0)).toBe("usually a few credits per part");
+  });
+
+  test("carries no middot separator", () => {
+    expect(formatPerPartEstimate(11)).not.toContain("·");
+  });
+});
+
+describe("phaseLabel", () => {
+  test("gives a plain status for each step, with no trailing ellipsis", () => {
+    expect(phaseLabel("generating")).toBe("Generating your part");
+    expect(phaseLabel("checking")).toBe("Checking the render");
+    expect(phaseLabel("refining")).toBe("Refining for accuracy");
+    for (const phase of ["generating", "checking", "refining"] as const) {
+      expect(phaseLabel(phase)).not.toContain("...");
+    }
+  });
+
+  test("never exposes the under-the-hood critic", () => {
+    expect(phaseLabel("checking").toLowerCase()).not.toContain("critiqu");
   });
 });
 
