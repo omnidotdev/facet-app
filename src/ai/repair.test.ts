@@ -38,26 +38,20 @@ function fakeGenerate(codes: string[]) {
     calls.push({ prompt, opts });
     const code = codes[Math.min(i, codes.length - 1)];
     i += 1;
-    return Promise.resolve({
-      code: code ?? "",
-      usage: { credits: 3, costCents: 2.5 },
-    });
+    return Promise.resolve({ code: code ?? "" });
   };
   return { fn, calls };
 }
 
 describe("generateAndRun", () => {
-  test("generates, runs once, and returns usage on success", async () => {
+  test("generates, runs once, and reports success", async () => {
     const { fn, calls } = fakeGenerate(["return cube(10);"]);
     const runner = fakeRunner([{ ok: true }]);
 
     const result = await generateAndRun("a cube", runner, { generate: fn });
 
-    expect(result).toEqual({
-      status: "ok",
-      usage: { credits: 3, costCents: 2.5 },
-      repairs: 0,
-    });
+    // no credit figure: spend comes from the balance change, never local math
+    expect(result).toEqual({ status: "ok", repairs: 0 });
     expect(calls).toHaveLength(1);
     expect(calls[0]?.opts.previous).toBeUndefined();
     expect(runner.loaded).toEqual(["return cube(10);"]);
@@ -73,11 +67,7 @@ describe("generateAndRun", () => {
     const result = await generateAndRun("a bracket", runner, { generate: fn });
 
     expect(result.status).toBe("ok");
-    // Both the initial call and the one repair billed, so usage is the sum
-    expect(result).toMatchObject({
-      usage: { credits: 6, costCents: 5 },
-      repairs: 1,
-    });
+    expect(result).toMatchObject({ repairs: 1 });
     expect(calls).toHaveLength(2);
     expect(calls[1]?.opts.attempt).toBe(1);
     expect(calls[1]?.opts.previous).toEqual({
@@ -100,8 +90,6 @@ describe("generateAndRun", () => {
     expect(result.status).toBe("error");
     expect(result).toMatchObject({
       message: expect.stringMatching(/try rephrasing/i),
-      // All three attempts billed, so the failed run still reports its cost
-      usage: { credits: 9, costCents: 7.5 },
       repairs: MAX_REPAIR_ATTEMPTS,
     });
     // Initial + 2 repairs = 3 generate calls, attempts 1 and 2

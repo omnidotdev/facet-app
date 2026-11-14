@@ -6,20 +6,21 @@
  * yes/no does. Fails closed (no capability) on any error.
  */
 
-/** The signed-in user's monthly managed-credit balance. */
+/**
+ * The signed-in user's real credit balance: ONE pooled Aether balance per
+ * billing account, shared across every Omni product, in whole display credits
+ * (already converted and rounded down by the gateway). Facet keeps no ledger
+ */
 export interface CreditBalance {
-  used: number;
-  cap: number;
-  remaining: number;
+  balance: number;
 }
 
 export interface Capabilities {
   signedIn: boolean;
   managedGeneration: boolean;
-  /**
-   * Monthly managed credit balance, present only for a user who can actually
-   * spend managed credits (so a per-generation cost has context: "N left").
-   */
+  /** The user's Facet tier (e.g. "free", "pro"), present for a managed user */
+  tier?: string;
+  /** The pooled credit balance, present only when the gateway could read it */
   credits?: CreditBalance;
 }
 
@@ -46,19 +47,24 @@ export async function fetchCapabilities(
       headers,
     });
     if (!res.ok) return NONE;
-    const data = (await res.json()) as Partial<Capabilities> & {
-      credits?: Partial<CreditBalance>;
+    const data = (await res.json()) as {
+      signedIn?: unknown;
+      managedGeneration?: unknown;
+      tier?: unknown;
+      credits?: { balance?: unknown };
     };
-    // Only trust a fully-formed balance; a partial or absent one is omitted so
-    // the panel simply shows no balance rather than a broken one
-    const c = data.credits;
+    // Only trust a finite numeric balance; anything else is omitted so the
+    // panel simply shows no balance rather than a broken one
+    const balance = data.credits?.balance;
     const credits =
-      c && typeof c.cap === "number" && typeof c.remaining === "number"
-        ? { used: Number(c.used) || 0, cap: c.cap, remaining: c.remaining }
+      typeof balance === "number" && Number.isFinite(balance)
+        ? { balance }
         : undefined;
+    const tier = typeof data.tier === "string" ? data.tier : undefined;
     return {
       signedIn: Boolean(data.signedIn),
       managedGeneration: Boolean(data.managedGeneration),
+      ...(tier ? { tier } : {}),
       ...(credits ? { credits } : {}),
     };
   } catch {

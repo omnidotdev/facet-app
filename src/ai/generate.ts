@@ -19,15 +19,12 @@ import {
 /** The shared gateway error, re-exported under Facet's historical name. */
 export { GatewayError as GenerateError };
 
-/** Metered cost for a managed generation. BYOK calls report zero. */
-export interface GenerateUsage {
-  credits: number;
-  costCents: number;
-}
-
+/**
+ * A generation's output. No credit figure comes back: the Synapse gateway
+ * debits the user's pooled balance, and the panel reads the refreshed balance
+ */
 export interface GenerateResult {
   code: string;
-  usage: GenerateUsage;
 }
 
 /** The prior code and its run error, fed back to the gateway for a repair pass. */
