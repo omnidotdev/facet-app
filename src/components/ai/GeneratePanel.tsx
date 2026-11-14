@@ -4,15 +4,19 @@ import { useEffect, useState } from "react";
 import { fetchCapabilities } from "@/ai/capabilities";
 import { critiqueModel } from "@/ai/critique";
 import {
+  BALANCE_CAPTION,
   PANEL_COPY,
   PROMPT_SUGGESTIONS,
   SYNAPSE_KEY_URL,
+  SYNAPSE_URL,
   billingHubUrl,
   classifyGenerateError,
+  creditCount,
   creditsSpent,
-  formatBalance,
   formatGeneratedToast,
+  formatPerPartEstimate,
   formatSpentNote,
+  phaseLabel,
   withProvenanceHeader,
 } from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
@@ -22,12 +26,18 @@ import { nameFromPrompt } from "@/tabs";
 
 import type { RefObject } from "react";
 import type { CreditBalance } from "@/ai/capabilities";
+import type { GeneratePhase } from "@/ai/panelState";
 import type { ModelRunner } from "@/ai/repair";
 import type { StudioHandle } from "@/FacetStudio";
 
 // Kept out of our servers: a BYOK Synapse key lives only in this browser. Used
 // only in the no-auth (local/dev) fallback; signed-in users never paste a key
 const BYOK_STORAGE_KEY = "facet:ai-byok-key:v1";
+
+// What the user's last managed generation actually debited, remembered per
+// browser so the panel can show an honest, self-calibrating "about N credits
+// per part" estimate instead of a hardcoded guess. Per-device only, never sent
+const LAST_SPEND_STORAGE_KEY = "facet:ai-last-spend:v1";
 
 // Funnel out-of-credits users to the shared Omni billing hub to buy credits.
 // Null when VITE_ACCOUNT_URL is unset, so the CTA is simply omitted
@@ -54,6 +64,26 @@ function persistByokKey(value: string): void {
     else localStorage.removeItem(BYOK_STORAGE_KEY);
   } catch {
     // Private mode or storage disabled; the key still works for this session
+  }
+}
+
+/** Read the last managed spend, tolerating private mode or disabled storage. */
+function loadLastSpend(): number | null {
+  try {
+    const raw = localStorage.getItem(LAST_SPEND_STORAGE_KEY);
+    const value = raw === null ? Number.NaN : Number.parseInt(raw, 10);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember the last managed spend for the per-part estimate, best-effort. */
+function persistLastSpend(credits: number): void {
+  try {
+    localStorage.setItem(LAST_SPEND_STORAGE_KEY, String(credits));
+  } catch {
+    // Private mode or storage disabled; the estimate just stays on its fallback
   }
 }
 
@@ -103,11 +133,15 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // so a per-generation cost has context. null until known or when not
   // applicable (signed out, BYOK, or the balance could not be read)
   const [credits, setCredits] = useState<CreditBalance | null>(null);
-  // True while an automatic refine pass is in flight: the vision critic found
-  // the first result did not match the request, so the model is regenerating
-  // with the critic's guidance. The user sees a plain status, never the
-  // under-the-hood critique, and gets a better model rather than instructions
-  const [refining, setRefining] = useState(false);
+  // Which step of a managed generation is in flight, surfaced as a live status
+  // beside the spinner so a multi-call run reads as progress: "generating", then
+  // "checking" (the vision model grounds the result against the render), then
+  // "refining" if that check wants a better pass. The user never sees the
+  // under-the-hood critique, only a plain status. null when idle
+  const [phase, setPhase] = useState<GeneratePhase | null>(null);
+  // What the user's last generation actually debited, for the honest per-part
+  // estimate shown in the panel footer (self-calibrating, never a hardcoded guess)
+  const [lastSpend, setLastSpend] = useState<number | null>(loadLastSpend);
 
   const { signedIn } = useAuthSession();
 
@@ -154,7 +188,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       setError(null);
       setSpent(null);
       setOutOfCredits(false);
-      setRefining(false);
+      setPhase(null);
     }
   };
 
@@ -182,7 +216,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     setError(null);
     setSpent(null);
     setOutOfCredits(false);
-    setRefining(false);
+    setPhase("generating");
     // The balance before this generation, so what it spent can be read off the
     // balance change afterwards
     const balanceBefore = credits?.balance ?? null;
@@ -222,6 +256,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       // good result and never blocks, fails, or discards it. Only runs when the
       // viewport can be captured
       try {
+        setPhase("checking");
         const image = studio.capture();
         if (image) {
           const verdict = await critiqueModel(
@@ -231,7 +266,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
             hasByok ? { byokKey } : {},
           );
           if (!verdict.ok && verdict.suggestedFix) {
-            setRefining(true);
+            setPhase("refining");
             await generateAndRun(trimmed, runner, {
               ...(hasByok ? { byokKey } : {}),
               // Keep the good first model if the refine itself fails, rather
@@ -242,12 +277,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
                 suggestion: verdict.suggestedFix,
               },
             });
-            setRefining(false);
           }
         }
       } catch {
         // grounding is advisory; a failure never affects the generation
-        setRefining(false);
       }
 
       // Refresh the pooled balance after the managed spend; what this
@@ -255,8 +288,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       const spentCredits = hasByok
         ? null
         : creditsSpent(balanceBefore, await refreshBalance());
+      // Remember a real spend so the per-part estimate self-calibrates
+      if (spentCredits) {
+        setLastSpend(spentCredits);
+        persistLastSpend(spentCredits);
+      }
       setToast(formatGeneratedToast(spentCredits, hasByok));
 
+      setPhase(null);
       setBusy(false);
       setPrompt("");
       handleOpenChange(false);
@@ -284,6 +323,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       default:
         setError(result.message);
     }
+    setPhase(null);
     setBusy(false);
   };
 
@@ -297,15 +337,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   if (authConfigured && !(signedIn && managedAllowed)) return null;
 
   // Error, any billed-but-failed spend, and the buy-credits link share the
-  // panel's notice slot; the panel renders whatever node it is handed
+  // panel's notice slot; the panel renders whatever node it is handed. The live
+  // generation status is NOT here: it rides the panel's pendingLabel so it shows
+  // beside the spinner, right where the user is waiting
   const notice =
-    error || spent || refining || (outOfCredits && BUY_CREDITS_URL) ? (
+    error || spent || (outOfCredits && BUY_CREDITS_URL) ? (
       <div className="ai-notice">
         {error ? <p role="alert">{error}</p> : null}
         {spent ? <p className="ai-spent">{spent}</p> : null}
-        {refining ? (
-          <p className="ai-refining">Refining for accuracy...</p>
-        ) : null}
         {outOfCredits && BUY_CREDITS_URL ? (
           <a
             className="ai-upgrade"
@@ -317,6 +356,21 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
           </a>
         ) : null}
       </div>
+    ) : undefined;
+
+  // The strategic footer slot: what the user weighs right before spending. The
+  // pooled balance (prominent), its shared-across-Omni context (a quiet
+  // caption), and an honest per-part estimate drawn from the last real spend.
+  // Managed only; BYOK bills the caller's own account, so credits do not apply
+  const meta =
+    !hasByok && credits ? (
+      <span className="ai-meta">
+        <span className="ai-meta-primary">
+          <span className="ai-credits">{creditCount(credits.balance)}</span>
+          <span className="ai-meta-caption">{BALANCE_CAPTION}</span>
+        </span>
+        <span className="ai-estimate">{formatPerPartEstimate(lastSpend)}</span>
+      </span>
     ) : undefined;
 
   return (
@@ -341,16 +395,15 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         description={
           <>
             Generation runs through{" "}
-            <a href={SYNAPSE_KEY_URL} target="_blank" rel="noopener noreferrer">
+            <a
+              className="ai-router-link"
+              href={SYNAPSE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               Synapse
             </a>
             , Omni's AI router.
-            {credits ? (
-              <span className="ai-balance">
-                {" · "}
-                {formatBalance(credits.balance)}
-              </span>
-            ) : null}
           </>
         }
         prompt={prompt}
@@ -360,6 +413,8 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         onPickSuggestion={setPrompt}
         onGenerate={() => void onGenerate()}
         isPending={busy}
+        pendingLabel={phase ? phaseLabel(phase) : undefined}
+        meta={meta}
         notice={notice}
         byok={
           byokAllowed

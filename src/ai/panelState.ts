@@ -66,6 +66,38 @@ export const classifyGenerateError = (
 export const SYNAPSE_KEY_URL = "https://synapse.omni.dev";
 
 /**
+ * The Synapse product page, linked from the panel's "generation runs through
+ * Synapse" line so the router is a visible, clickable part of the flow rather
+ * than opaque plumbing. Same host as the key dashboard today, kept as its own
+ * constant so the description link and the BYOK key link can diverge later
+ */
+export const SYNAPSE_URL = "https://synapse.omni.dev";
+
+/**
+ * The steps of a managed generation, surfaced to the user as a live status so a
+ * multi-call run (generate, then a vision check of the render, then an optional
+ * refine) reads as progress instead of one long frozen spinner.
+ */
+export type GeneratePhase = "generating" | "checking" | "refining";
+
+/**
+ * The plain-English status shown beside the spinner for each phase. No trailing
+ * ellipsis; the spinner already carries the "in progress" sense. The vision
+ * critique is framed as "checking the render", never exposing the under-the-hood
+ * critic, and the refine is framed as improving accuracy
+ */
+export const phaseLabel = (phase: GeneratePhase): string => {
+  switch (phase) {
+    case "generating":
+      return "Generating your part";
+    case "checking":
+      return "Checking the render";
+    case "refining":
+      return "Refining for accuracy";
+  }
+};
+
+/**
  * User-facing panel copy, kept here so it is covered by tests and cannot
  * silently regress to the old (wrong) "provider key" framing. Generic and
  * user-safe; terminology is "workspace", never "organization"
@@ -107,15 +139,32 @@ export const billingHubUrl = (
 };
 
 /** A whole credit count with its unit, e.g. "1 credit", "1,234 credits" */
-const creditCount = (credits: number): string =>
+export const creditCount = (credits: number): string =>
   `${formatCredits(credits)} credit${credits === 1 ? "" : "s"}`;
 
 /**
- * The pooled balance for display, labeled as shared: one Aether balance per
- * billing account funds AI across every Omni product, not just Facet
+ * The pooled balance for display: just the number and its unit. One Aether
+ * balance per billing account funds AI across every Omni product, not just
+ * Facet; that context is BALANCE_CAPTION, rendered as a separate caption rather
+ * than joined on with a separator, so the panel can place the figure and its
+ * note in their own strategic spots
  */
-export const formatBalance = (balance: number): string =>
-  `${creditCount(balance)} · shared across Omni`;
+export const formatBalance = (balance: number): string => creditCount(balance);
+
+/** Caption clarifying the balance is one pool shared across every Omni product */
+export const BALANCE_CAPTION = "shared across Omni";
+
+/**
+ * An honest per-run cost hint, phrased as an estimate. Based on what the user's
+ * LAST managed generation actually debited, so it self-calibrates to the real
+ * model and loop cost instead of a hardcoded number that silently drifts when
+ * the model or critique budget changes. Falls back to a soft range before any
+ * run has happened. Null-safe
+ */
+export const formatPerPartEstimate = (lastSpend: number | null): string =>
+  lastSpend && lastSpend > 0
+    ? `about ${creditCount(lastSpend)} per part`
+    : "usually a few credits per part";
 
 /**
  * Credits a generation spent, read from the pooled balance before and after it
@@ -145,7 +194,7 @@ export const formatGeneratedToast = (
   byok: boolean,
 ): string => {
   if (byok) return "Generated with your Synapse key";
-  return spent ? `Generated · ${creditCount(spent)}` : "Generated";
+  return spent ? `Generated (${creditCount(spent)})` : "Generated";
 };
 
 /**

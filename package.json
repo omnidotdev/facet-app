@@ -50,7 +50,7 @@
     "@codemirror/view": "^6.43.13",
     "@lezer/highlight": "^1.2.3",
     "@omnidotdev/providers": "github:omnidotdev/providers#25a67e59c191999133808fc0c2f0bfbb3b7c4519",
-    "@omnidotdev/thornberry": "github:omnidotdev/thornberry#b41f0c8e9e9237e2959534fcdfa01c23a0f021aa",
+    "@omnidotdev/thornberry": "github:omnidotdev/thornberry#606a5fd1a6f4466b1b69951625d1fe4b74e827fb",
     "@tanstack/react-router": "^1.170.38",
     "@tauri-apps/api": "~2.11",
     "@tauri-apps/plugin-deep-link": "~2.4",
