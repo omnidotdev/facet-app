@@ -36,6 +36,13 @@ export interface GenerateAndRunOptions {
    * kernel error, the repair loop takes over with `previous` instead
    */
   refine?: { code: string; suggestion: string };
+  /**
+   * The generation chain id to continue, so a refine pass driven from outside
+   * (the panel re-enters with the critic's suggestion) stays correlated to the
+   * original draft in telemetry. Omit on a first generation (the gateway mints
+   * one, returned on the result)
+   */
+  generationId?: string;
   /** Repair attempts after the first generation. */
   maxAttempts?: number;
   /**
@@ -49,13 +56,15 @@ export interface GenerateAndRunOptions {
 }
 
 export type GenerateAndRunResult =
-  | { status: "ok"; repairs: number }
+  | { status: "ok"; repairs: number; generationId?: string }
   | {
       status: "error";
       message: string;
       httpStatus?: number;
       /** Repair attempts made before the failure (calls - 1), when any call went out */
       repairs?: number;
+      /** The chain id, when a first generation returned one before the failure */
+      generationId?: string;
     };
 
 /**
@@ -82,13 +91,20 @@ export async function generateAndRun(
   // Count the calls that went out, so a failure reports how many attempts ran
   let calls = 0;
 
+  // The generation chain id: a caller-supplied one (a refine re-entry) until
+  // the first result returns the gateway's, so every call in this loop (and the
+  // disposition the caller later reports) correlates to one generation
+  let chainId = opts.generationId;
+
   try {
     let result = await generate(prompt, {
       ...byok,
       ...(opts.refine ? { refine: opts.refine } : {}),
+      ...(chainId ? { generationId: chainId } : {}),
     });
     calls += 1;
     touched = true;
+    chainId = result.generationId ?? chainId;
     let outcome = await runner.loadCode(result.code);
 
     let attempt = 0;
@@ -98,8 +114,10 @@ export async function generateAndRun(
         ...byok,
         previous: { code: result.code, error: outcome.error ?? "" },
         attempt,
+        ...(chainId ? { generationId: chainId } : {}),
       });
       calls += 1;
+      chainId = result.generationId ?? chainId;
       outcome = await runner.loadCode(result.code);
     }
 
@@ -112,10 +130,15 @@ export async function generateAndRun(
         status: "error",
         message: COULD_NOT_GENERATE,
         repairs: calls - 1,
+        ...(chainId ? { generationId: chainId } : {}),
       };
     }
 
-    return { status: "ok", repairs: calls - 1 };
+    return {
+      status: "ok",
+      repairs: calls - 1,
+      ...(chainId ? { generationId: chainId } : {}),
+    };
   } catch (err) {
     // A thrown gateway error carries a generic, user-safe message; anything
     // else is internal and must never reach the user
@@ -131,8 +154,9 @@ export async function generateAndRun(
     // Carry the gateway status (401/402) so the caller can prompt sign-in or an
     // upgrade; a non-GenerateError throw has no status and stays generic
     const httpStatus = err instanceof GenerateError ? err.status : undefined;
+    const chain = chainId ? { generationId: chainId } : {};
     return calls > 0
-      ? { status: "error", message, httpStatus, repairs: calls - 1 }
-      : { status: "error", message, httpStatus };
+      ? { status: "error", message, httpStatus, repairs: calls - 1, ...chain }
+      : { status: "error", message, httpStatus, ...chain };
   }
 }

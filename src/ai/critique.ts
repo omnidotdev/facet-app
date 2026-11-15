@@ -27,6 +27,8 @@ export interface Critique {
 export interface CritiqueOptions {
   /** A user-supplied Synapse key. When set, the gateway bills the caller. */
   byokKey?: string;
+  /** The generation chain id this critique belongs to, for telemetry correlation. */
+  generationId?: string;
   /** Resolve the managed-path bearer token, or null when signed out. */
   getAccessToken?: () => Promise<string | null>;
 }
@@ -52,9 +54,8 @@ export async function critiqueModel(
     getAccessToken: opts.getAccessToken ?? defaultGetAccessToken,
   });
 
-  return client.post<Critique>(
-    "critique",
-    { prompt, code, image },
-    { byokKey: opts.byokKey },
-  );
+  const body: Record<string, unknown> = { prompt, code, image };
+  if (opts.generationId) body.generationId = opts.generationId;
+
+  return client.post<Critique>("critique", body, { byokKey: opts.byokKey });
 }
