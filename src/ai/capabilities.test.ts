@@ -60,6 +60,23 @@ describe("fetchCapabilities", () => {
     });
   });
 
+  test("parses the AI training-data consent flag when present", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    global.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          signedIn: true,
+          managedGeneration: true,
+          aiTrainingConsent: true,
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const caps = await fetchCapabilities(async () => "tok");
+    expect(caps.aiTrainingConsent).toBe(true);
+    expect(caps.managedGeneration).toBe(true);
+  });
+
   test("ignores the retired monthly-cap shape", async () => {
     process.env.VITE_FACET_API_URL = API_URL;
     global.fetch = (async () =>

@@ -22,6 +22,12 @@ export interface Capabilities {
   tier?: string;
   /** The pooled credit balance, present only when the gateway could read it */
   credits?: CreditBalance;
+  /**
+   * Whether the user has opted in to sharing their prompts and generated models
+   * as AI training data (default off). Present for a managed user; drives the
+   * account menu's consent toggle
+   */
+  aiTrainingConsent?: boolean;
 }
 
 const NONE: Capabilities = { signedIn: false, managedGeneration: false };
@@ -52,6 +58,7 @@ export async function fetchCapabilities(
       managedGeneration?: unknown;
       tier?: unknown;
       credits?: { balance?: unknown };
+      aiTrainingConsent?: unknown;
     };
     // Only trust a finite numeric balance; anything else is omitted so the
     // panel simply shows no balance rather than a broken one
@@ -61,11 +68,17 @@ export async function fetchCapabilities(
         ? { balance }
         : undefined;
     const tier = typeof data.tier === "string" ? data.tier : undefined;
+    // Only a real boolean drives the toggle; absence leaves it off and hidden
+    const aiTrainingConsent =
+      typeof data.aiTrainingConsent === "boolean"
+        ? data.aiTrainingConsent
+        : undefined;
     return {
       signedIn: Boolean(data.signedIn),
       managedGeneration: Boolean(data.managedGeneration),
       ...(tier ? { tier } : {}),
       ...(credits ? { credits } : {}),
+      ...(aiTrainingConsent !== undefined ? { aiTrainingConsent } : {}),
     };
   } catch {
     return NONE;
