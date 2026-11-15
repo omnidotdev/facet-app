@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { fetchCapabilities } from "@/ai/capabilities";
+import { setAiTrainingConsent } from "@/ai/consent";
 import { isAuthConfigured, signIn, signOut } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
 import { fetchUserInfo, initialsFrom } from "@/lib/auth/userInfo";
@@ -9,6 +11,10 @@ import type { UserInfo } from "@/lib/auth/userInfo";
 // The shared Omni account hub, where a user manages their profile, billing, and
 // Synapse keys. Null when unset, so the "Manage account" item is simply omitted
 const ACCOUNT_URL = import.meta.env.VITE_ACCOUNT_URL;
+
+// Omni's privacy policy, where the AI training-data terms the toggle opts into
+// are described in full
+const PRIVACY_URL = "https://omni.dev/legal/privacy";
 
 /**
  * Standard Omni account control for the Studio header, the single entry point
@@ -25,6 +31,11 @@ const AccountControl = () => {
   const { signedIn } = useAuthSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  // Whether this user can use managed generation (so the AI data-sharing toggle
+  // is relevant) and their current opt-in, loaded from the gateway on sign-in
+  const [managedGeneration, setManagedGeneration] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [savingConsent, setSavingConsent] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Load the profile (name/email/avatar) from userinfo once signed in, so the
@@ -32,11 +43,20 @@ const AccountControl = () => {
   useEffect(() => {
     if (!signedIn) {
       setUserInfo(null);
+      setManagedGeneration(false);
+      setConsent(false);
       return;
     }
     let active = true;
     fetchUserInfo().then((info) => {
       if (active) setUserInfo(info);
+    });
+    // The data-sharing toggle is shown only to users who can use managed
+    // generation; its initial state is the gateway's record of their opt-in
+    fetchCapabilities().then((caps) => {
+      if (!active) return;
+      setManagedGeneration(caps.managedGeneration);
+      setConsent(Boolean(caps.aiTrainingConsent));
     });
     return () => {
       active = false;
@@ -44,6 +64,22 @@ const AccountControl = () => {
   }, [signedIn]);
 
   const initials = userInfo ? initialsFrom(userInfo) : "";
+
+  // Persist a consent change optimistically, reverting if the gateway rejects
+  // it. Turning it off also erases the user's stored samples server-side
+  const onToggleConsent = async () => {
+    if (savingConsent) return;
+    const next = !consent;
+    setConsent(next);
+    setSavingConsent(true);
+    try {
+      setConsent(await setAiTrainingConsent(next));
+    } catch {
+      setConsent(!next);
+    } finally {
+      setSavingConsent(false);
+    }
+  };
 
   // Close the menu on an outside click, like a native menu
   useEffect(() => {
@@ -118,6 +154,33 @@ const AccountControl = () => {
               {userInfo.email ? (
                 <span className="account-email">{userInfo.email}</span>
               ) : null}
+            </div>
+          ) : null}
+          {managedGeneration ? (
+            <div className="account-consent">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={consent}
+                className="account-consent-toggle"
+                onClick={() => void onToggleConsent()}
+                disabled={savingConsent}
+              >
+                <span className="account-consent-label">
+                  Help improve Facet's AI
+                </span>
+                <span className="account-consent-switch" aria-hidden>
+                  <span className="account-consent-knob" />
+                </span>
+              </button>
+              <p className="account-consent-desc">
+                Share your prompts and generated models so generation keeps
+                getting better. Off by default; turn it off anytime to stop and
+                delete what you shared.{" "}
+                <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer">
+                  Privacy policy
+                </a>
+              </p>
             </div>
           ) : null}
           {ACCOUNT_URL ? (
