@@ -154,6 +154,27 @@ describe("generateModel", () => {
     });
   });
 
+  test("forwards generationId when continuing a chain (refine/repair re-entry)", async () => {
+    const lastCall = stubFetch(ok({ code: "better" }));
+
+    await generateModel("scorpio symbol", {
+      ...managed,
+      generationId: "gen-abc-123",
+      refine: { code: "return cube(10);", suggestion: "add a tail" },
+    });
+
+    const body = JSON.parse(lastCall().init.body as string);
+    expect(body.generationId).toBe("gen-abc-123");
+  });
+
+  test("returns the gateway's generationId for the caller to correlate", async () => {
+    stubFetch(ok({ code: "return cube(10);", generationId: "gen-xyz-9" }));
+
+    const result = await generateModel("a cube", managed);
+
+    expect(result.generationId).toBe("gen-xyz-9");
+  });
+
   test("throws a clear error when the gateway URL is unset", async () => {
     delete process.env.VITE_FACET_API_URL;
     stubFetch(ok({ code: "x" }));

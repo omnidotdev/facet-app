@@ -206,4 +206,55 @@ describe("generateAndRun", () => {
     expect(calls[1]?.opts.refine).toBeUndefined();
     expect(calls[1]?.opts.previous).toEqual({ code: "broken", error: "boom" });
   });
+
+  test("captures the gateway's generationId and returns it", async () => {
+    const calls: Array<{ opts: GenerateOptions }> = [];
+    const fn = (_p: string, opts: GenerateOptions = {}) => {
+      calls.push({ opts });
+      return Promise.resolve({
+        code: "return cube(10);",
+        generationId: "gen-1",
+      });
+    };
+    const runner = fakeRunner([{ ok: true }]);
+
+    const result = await generateAndRun("a cube", runner, { generate: fn });
+
+    expect(result).toMatchObject({ status: "ok", generationId: "gen-1" });
+  });
+
+  test("threads the captured generationId onto a repair re-entry", async () => {
+    const calls: Array<{ opts: GenerateOptions }> = [];
+    const codes = ["broken", "fixed"];
+    let i = 0;
+    const fn = (_p: string, opts: GenerateOptions = {}) => {
+      calls.push({ opts });
+      const code = codes[Math.min(i, codes.length - 1)] ?? "";
+      i += 1;
+      // only the first call mints the id; the re-entry must carry it back
+      return Promise.resolve(
+        i === 1 ? { code, generationId: "gen-1" } : { code },
+      );
+    };
+    const runner = fakeRunner([{ ok: false, error: "boom" }, { ok: true }]);
+
+    const result = await generateAndRun("a bracket", runner, { generate: fn });
+
+    expect(result).toMatchObject({ status: "ok", generationId: "gen-1" });
+    expect(calls[0]?.opts.generationId).toBeUndefined();
+    expect(calls[1]?.opts.generationId).toBe("gen-1");
+  });
+
+  test("forwards a caller-supplied generationId on the first call (refine re-entry)", async () => {
+    const { fn, calls } = fakeGenerate(["return better();"]);
+    const runner = fakeRunner([{ ok: true }]);
+
+    await generateAndRun("scorpio symbol", runner, {
+      generate: fn,
+      generationId: "gen-from-panel",
+      refine: { code: "return cube(10);", suggestion: "add a tail" },
+    });
+
+    expect(calls[0]?.opts.generationId).toBe("gen-from-panel");
+  });
 });

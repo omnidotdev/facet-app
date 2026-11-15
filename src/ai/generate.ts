@@ -25,6 +25,12 @@ export { GatewayError as GenerateError };
  */
 export interface GenerateResult {
   code: string;
+  /**
+   * The id of this generation chain, minted by the gateway. Echo it on a refine
+   * or repair re-entry (and on a disposition report) so the whole loop
+   * correlates in telemetry. Absent only against an older gateway
+   */
+  generationId?: string;
 }
 
 /** The prior code and its run error, fed back to the gateway for a repair pass. */
@@ -52,6 +58,12 @@ export interface GenerateOptions {
   refine?: GenerateRefine;
   /** Repair attempt counter (0 for the first generation). */
   attempt?: number;
+  /**
+   * The chain id to continue, echoed from a prior result so a refine or repair
+   * re-entry stays one correlated generation. Omit on a first generation (the
+   * gateway mints one and returns it)
+   */
+  generationId?: string;
   /**
    * Resolve the managed-path bearer token, or null when signed out. Injectable
    * for tests; defaults to the Omni session getter. Never called for a BYOK
@@ -85,6 +97,7 @@ export async function generateModel(
   if (opts.previous) body.previous = opts.previous;
   if (opts.refine) body.refine = opts.refine;
   if (typeof opts.attempt === "number") body.attempt = opts.attempt;
+  if (opts.generationId) body.generationId = opts.generationId;
 
   return client.post<GenerateResult>("generate", body, {
     byokKey: opts.byokKey,

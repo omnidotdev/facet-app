@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { fetchCapabilities } from "@/ai/capabilities";
 import { critiqueModel } from "@/ai/critique";
+import { reportDisposition } from "@/ai/disposition";
 import {
   BALANCE_CAPTION,
   PANEL_COPY,
@@ -249,6 +250,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       setError(null);
       setSpent(null);
 
+      // The gateway's id for this generation chain, threaded through the critique
+      // and any refine so the whole loop, and the kept signal below, correlate
+      const generationId = result.generationId;
+
       // Ground the result: critique the render and, if it misses the request,
       // automatically refine once (regenerate with the critic's guidance) so the
       // user gets a better model instead of under-the-hood instructions. Fully
@@ -263,12 +268,17 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
             trimmed,
             studio.getCode(),
             image,
-            hasByok ? { byokKey } : {},
+            {
+              ...(hasByok ? { byokKey } : {}),
+              ...(generationId ? { generationId } : {}),
+            },
           );
           if (!verdict.ok && verdict.suggestedFix) {
             setPhase("refining");
             await generateAndRun(trimmed, runner, {
               ...(hasByok ? { byokKey } : {}),
+              // Keep the same chain id so the refine pass correlates to the draft
+              ...(generationId ? { generationId } : {}),
               // Keep the good first model if the refine itself fails, rather
               // than leaving the user with worse or broken code
               restorePriorOnFailure: true,
@@ -282,6 +292,11 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       } catch {
         // grounding is advisory; a failure never affects the generation
       }
+
+      // The human-in-the-loop label: the result was applied and left in the
+      // editor, so record it as kept, correlated to the generation. Pure
+      // telemetry: fire-and-forget, never blocks or fails the generation
+      void reportDisposition(generationId, "kept", hasByok ? { byokKey } : {});
 
       // Refresh the pooled balance after the managed spend; what this
       // generation (plus any refine) cost is the balance change
