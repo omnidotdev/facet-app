@@ -45,7 +45,7 @@ export const resolvePanelMode = ({
 
 /**
  * What a signed-in user may do with managed generation:
- * - `managed`: a paying customer (Facet Pro, or a workspace with Omni credits)
+ * - `managed`: a paying customer (Facet Pro, or a workspace with AI credits)
  * - `paymentRequired`: signed in but not a customer yet, so the panel opens in
  *   its paid-access state (buy credits, upgrade, or use their own key)
  * - `none`: no managed access at all, so the panel stays hidden
@@ -88,7 +88,7 @@ export const refreshedAccess = (
  * HTTP status and stable error code (carried on the typed GenerateError):
  * - `signIn`: 401, the managed path needs an identity (or a fresh sign-in)
  * - `paymentRequired`: 402 with `payment_required`, the user is not a paying
- *   customer yet (no Facet Pro and no Omni credits bought)
+ *   customer yet (no Facet Pro and no AI credits bought)
  * - `outOfCredits`: 402 otherwise, a customer's pooled credit balance is empty
  * - `planRequired`: 403, the workspace's plan does not include this
  * - `usageLimit`: 429, a usage limit was reached
@@ -251,7 +251,7 @@ export const createThrottle = (
  *
  * Both generation paths run through the Synapse AI router: managed uses a
  * Facet-scoped key provisioned for the signed-in user (billed to their pooled
- * Omni credits), BYOK uses the caller's own Synapse key (billed to them, no
+ * AI credits), BYOK uses the caller's own Synapse key (billed to them, no
  * credits, no sign-in). The key is
  * NOT a raw provider key: the gateway forwards it to Synapse with Synapse's
  * provider-prefixed model id, so only a Synapse key resolves
@@ -303,7 +303,7 @@ export const PANEL_COPY = {
    * The paid-access state: a signed-in user who is not a paying customer yet.
    * The Buy credits, Upgrade to Pro, and own-key options sit right below it
    */
-  paymentRequired: "AI generation uses Omni credits.",
+  paymentRequired: "Generation uses AI credits.",
   /** Shown on a 402: the user's pooled credit balance is empty. */
   outOfCredits:
     "You are out of AI credits. Buy more credits to keep generating.",
@@ -408,20 +408,21 @@ export const studioReturnUrl = (
 };
 
 /** A whole credit count with its unit, e.g. "1 credit", "1,234 credits" */
-export const creditCount = (credits: number): string =>
+const creditCount = (credits: number): string =>
   `${formatCredits(credits)} credit${credits === 1 ? "" : "s"}`;
 
 /**
- * The pooled balance for display: just the number and its unit. One Aether
+ * The pooled balance for display: just the number and its unit (AI credits). One Aether
  * balance per billing account funds AI across every Omni product, not just
  * Facet; that context is BALANCE_CAPTION, rendered as a separate caption rather
  * than joined on with a separator, so the panel can place the figure and its
  * note in their own strategic spots
  */
-export const formatBalance = (balance: number): string => creditCount(balance);
+export const formatBalance = (balance: number): string =>
+  `${formatCredits(balance)} AI credit${balance === 1 ? "" : "s"}`;
 
 /** Caption clarifying the balance is one pool shared across every Omni product */
-export const BALANCE_CAPTION = "shared across Omni";
+export const BALANCE_CAPTION = "shared across Omni products";
 
 /**
  * An honest per-run cost hint, phrased as an estimate. Based on what the user's
@@ -452,7 +453,7 @@ export const creditsSpent = (
  * Confirmation shown (as a toast) after a successful generation, once the
  * dialog has closed so the user sees their new model.
  *
- * BYOK bills the caller's own Synapse account, not Omni credits, so it never
+ * BYOK bills the caller's own Synapse account, not AI credits, so it never
  * shows a credit count. The managed path shows what the balance went down by
  * when that is known. The internal repair loop is deliberately NOT surfaced:
  * "repair" is an implementation detail a user has no model for, so the toast
