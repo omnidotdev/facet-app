@@ -1,5 +1,8 @@
 import { createManagedAiAuth } from "@omnidotdev/providers/ai-client";
 
+import { createReauthNotice } from "@/lib/auth/reauth";
+import { AUTH_SCOPE, createScopedTokenStore } from "@/lib/auth/scope";
+
 import type {
   KeyValueStore,
   NativeAuthAdapter,
@@ -43,7 +46,7 @@ const NOOP_STORE: KeyValueStore = {
 };
 
 const hasWindow = typeof window !== "undefined";
-const tokenStore: KeyValueStore =
+const baseTokenStore: KeyValueStore =
   typeof localStorage !== "undefined" ? localStorage : NOOP_STORE;
 const flowStore: KeyValueStore =
   typeof sessionStorage !== "undefined" ? sessionStorage : NOOP_STORE;
@@ -62,6 +65,21 @@ const native: NativeAuthAdapter = {
   },
 };
 
+// The "sign in again" prompt, raised when a session is dropped because it can
+// no longer use managed generation
+const reauth = createReauthNotice();
+
+// Record the granted scope with the token, and treat a stored session without
+// the `organization` scope (every session from before it was requested) as
+// signed out: facet-api bills the personal workspace it reads from that scope's
+// claim, so such a token can never generate
+const scoped = createScopedTokenStore({
+  store: baseTokenStore,
+  tokenKey: TOKEN_KEY,
+  requestedScope: AUTH_SCOPE,
+  onStale: reauth.flag,
+});
+
 const auth = createManagedAiAuth({
   authBaseUrl: AUTH_BASE_URL,
   clientId: CLIENT_ID,
@@ -70,10 +88,13 @@ const auth = createManagedAiAuth({
   resolveRedirectUri: () => `${window.location.origin}/auth/callback`,
   resolveReturnTo: () => window.location.href,
   navigate: (url) => window.location.assign(url),
-  tokenStore,
+  tokenStore: scoped.store,
   flowStore,
   tokenKey: TOKEN_KEY,
   flowKey: FLOW_KEY,
+  // `organization` carries the personal workspace facet-api bills
+  scope: AUTH_SCOPE,
+  fetchImpl: scoped.fetchImpl,
   // Force the Gatekeeper login screen so the user can pick/switch accounts
   // (Gatekeeper rejects prompt=select_account; "login" is the supported way)
   prompt: "login",
@@ -85,13 +106,33 @@ export const isAuthConfigured = auth.isConfigured;
 /** Whether a valid (unexpired) access token is present. */
 export const isSignedIn = auth.isSignedIn;
 /** Start the PKCE login (web redirect, or the desktop loopback under Tauri). */
-export const signIn = auth.signIn;
+export const signIn = (): Promise<void> => {
+  reauth.clear();
+  return auth.signIn();
+};
 /** Complete the OAuth redirect on the callback route. */
 export const completeCallback = auth.completeCallback;
 /** Forget the stored token. */
 export const signOut = auth.signOut;
 /** The current Omni access token for a managed call, or null when signed out/expired. */
 export const getAccessToken = auth.getAccessToken;
+
+/**
+ * Drop the session because it can no longer use managed generation (the
+ * gateway answered 401 or reported `reauthRequired`), and prompt the user to
+ * sign in again rather than failing silently
+ */
+export const requireReauth = async (): Promise<void> => {
+  reauth.flag();
+  await auth.signOut();
+};
+
+/** The pending "sign in again" message, or null. For useSyncExternalStore */
+export const reauthMessage = reauth.current;
+/** Dismiss the "sign in again" prompt */
+export const dismissReauth = reauth.clear;
+/** Subscribe to the "sign in again" prompt; returns an unsubscribe */
+export const subscribeReauth = reauth.subscribe;
 
 /**
  * Subscribe to auth-state changes; returns an unsubscribe. For

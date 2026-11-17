@@ -36,6 +36,7 @@ import type { ExportFormat, Kernel, OpNode } from "@/facet";
 import type { SavedWorkspace } from "@/storage";
 import type { TabsState } from "@/tabs";
 import type { Theme } from "@/theme";
+import type { ViewportCapture } from "@/viewport";
 import "@/facet.css";
 
 // Value of the examples-dropdown placeholder, selected when the restored model
@@ -69,10 +70,11 @@ export interface StudioHandle {
    */
   openGeneratedTab: (name: string) => void;
   /**
-   * Capture the current 3D view as a PNG for the AI critique loop, or null when
-   * the viewport is not running (no WebGPU) or capture is unsupported.
+   * Capture the current 3D view as a PNG for the AI critique loop. Resolves
+   * null when there is nothing to capture (no WebGPU, no model) or the readback
+   * fails or comes back blank.
    */
-  capture: () => { mediaType: "image/png"; data: string } | null;
+  capture: () => Promise<ViewportCapture | null>;
 }
 
 /**
@@ -340,7 +342,7 @@ export default function FacetStudio() {
           error: "The Studio is not ready yet.",
         }),
       openGeneratedTab,
-      capture: () => viewportRef.current?.capture() ?? null,
+      capture: () => viewportRef.current?.capture() ?? Promise.resolve(null),
     };
   });
 

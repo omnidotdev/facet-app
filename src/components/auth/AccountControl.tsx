@@ -2,8 +2,14 @@ import { useEffect, useRef, useState } from "react";
 
 import { fetchCapabilities } from "@/ai/capabilities";
 import { setAiTrainingConsent } from "@/ai/consent";
-import { isAuthConfigured, signIn, signOut } from "@/lib/auth/session";
-import { useAuthSession } from "@/lib/auth/useAuthSession";
+import {
+  dismissReauth,
+  isAuthConfigured,
+  requireReauth,
+  signIn,
+  signOut,
+} from "@/lib/auth/session";
+import { useAuthSession, useReauthMessage } from "@/lib/auth/useAuthSession";
 import { fetchUserInfo, initialsFrom } from "@/lib/auth/userInfo";
 
 import type { UserInfo } from "@/lib/auth/userInfo";
@@ -29,6 +35,8 @@ const PRIVACY_URL = "https://omni.dev/legal/privacy";
  */
 const AccountControl = () => {
   const { signedIn } = useAuthSession();
+  // Set when a session was dropped because it must sign in again
+  const reauthMessage = useReauthMessage();
   const [menuOpen, setMenuOpen] = useState(false);
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   // Whether this user can use managed generation (so the AI data-sharing toggle
@@ -55,6 +63,12 @@ const AccountControl = () => {
     // generation; its initial state is the gateway's record of their opt-in
     fetchCapabilities().then((caps) => {
       if (!active) return;
+      // The token predates the workspace claim: sign in again rather than
+      // leaving a menu (and AI panel) that can never generate
+      if (caps.reauthRequired) {
+        void requireReauth();
+        return;
+      }
       setManagedGeneration(caps.managedGeneration);
       setConsent(Boolean(caps.aiTrainingConsent));
     });
@@ -100,7 +114,7 @@ const AccountControl = () => {
   if (!isAuthConfigured()) return null;
 
   if (!signedIn) {
-    return (
+    const signInButton = (
       <button
         type="button"
         className="account-signin"
@@ -109,6 +123,25 @@ const AccountControl = () => {
       >
         Sign in
       </button>
+    );
+    if (!reauthMessage) return signInButton;
+
+    // The session was dropped (it can no longer generate): say so beside the
+    // button, so the AI panel disappearing is never silent
+    return (
+      <div className="account-menu">
+        {signInButton}
+        <output className="account-dropdown account-reauth">
+          <p className="account-reauth-text">{reauthMessage}</p>
+          <button
+            type="button"
+            className="account-item"
+            onClick={() => dismissReauth()}
+          >
+            Dismiss
+          </button>
+        </output>
+      </div>
     );
   }
 

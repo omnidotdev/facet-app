@@ -38,11 +38,21 @@ export const resolvePanelMode = ({
 /**
  * How the panel should react to a failed generation, derived from the gateway's
  * HTTP status (carried on the typed GenerateError):
- * - `signIn`: 401, the managed path needs an identity
- * - `outOfCredits`: 402, the user's pooled credit balance is empty
+ * - `signIn`: 401, the managed path needs an identity (or a fresh sign-in)
+ * - `outOfCredits`: 402, the workspace's pooled credit balance is empty
+ * - `planRequired`: 403, the workspace's plan does not include this
+ * - `usageLimit`: 429, a usage limit was reached
  * - `generic`: anything else, shown as the message the gateway already returned
+ *
+ * Every non-`signIn` action shows the gateway's own (user-safe) message, except
+ * `outOfCredits`, which has fixed copy and a Buy credits link
  */
-export type GenerateErrorAction = "signIn" | "outOfCredits" | "generic";
+export type GenerateErrorAction =
+  | "signIn"
+  | "outOfCredits"
+  | "planRequired"
+  | "usageLimit"
+  | "generic";
 
 /** Map a gateway HTTP status onto the panel's reaction. */
 export const classifyGenerateError = (
@@ -50,7 +60,111 @@ export const classifyGenerateError = (
 ): GenerateErrorAction => {
   if (status === 401) return "signIn";
   if (status === 402) return "outOfCredits";
+  if (status === 403) return "planRequired";
+  if (status === 429) return "usageLimit";
   return "generic";
+};
+
+/** A billing refusal from a step that runs after a successful first draft */
+export type FollowUpAction = Extract<
+  GenerateErrorAction,
+  "outOfCredits" | "planRequired" | "usageLimit"
+>;
+
+/**
+ * Whether a failed post-draft step (the render check, or the refine it asks
+ * for) is a billing refusal the user must see. Those steps are advisory, so
+ * anything else stays silent and the draft simply stands
+ */
+export const followUpAction = (
+  status: number | undefined,
+): FollowUpAction | null => {
+  const action = classifyGenerateError(status);
+  return action === "outOfCredits" ||
+    action === "planRequired" ||
+    action === "usageLimit"
+    ? action
+    : null;
+};
+
+/**
+ * The notice shown when a post-draft step was refused: the draft is kept in the
+ * editor, so lead with that, then say why it was not checked or refined
+ * @param action - The refusal
+ * @param message - The gateway's user-safe message for it
+ */
+export const followUpNotice = (
+  action: FollowUpAction,
+  message: string,
+): string =>
+  action === "outOfCredits"
+    ? PANEL_COPY.outOfCreditsAfterDraft
+    : `${PANEL_COPY.draftKept} ${message}`;
+
+/** The tier that is offered an upgrade to Pro */
+const FREE_TIER = "free";
+
+/** Whether the Upgrade to Pro entry point shows for a tier (free only) */
+export const canUpgrade = (tier: string | undefined): boolean =>
+  tier === FREE_TIER;
+
+/** Which billing links a failure notice carries */
+export interface NoticeLinks {
+  buyCredits: boolean;
+  upgrade: boolean;
+}
+
+/**
+ * The billing links for a failure notice. Out of credits offers credits (and
+ * an upgrade on the free tier); a plan refusal offers an upgrade unless the
+ * tier is known to be paid already; a usage limit offers an upgrade on the free
+ * tier. Anything else carries no billing link
+ */
+export const noticeLinks = (
+  action: GenerateErrorAction | null,
+  tier: string | undefined,
+): NoticeLinks => {
+  switch (action) {
+    case "outOfCredits":
+      return { buyCredits: true, upgrade: canUpgrade(tier) };
+    case "planRequired":
+      return {
+        buyCredits: false,
+        upgrade: tier === undefined || canUpgrade(tier),
+      };
+    case "usageLimit":
+      return { buyCredits: false, upgrade: canUpgrade(tier) };
+    default:
+      return { buyCredits: false, upgrade: false };
+  }
+};
+
+/**
+ * Whether a refreshed balance clears the out-of-credits notice: the user
+ * bought credits (usually in another tab) and the balance is positive again
+ */
+export const shouldClearOutOfCredits = (
+  action: GenerateErrorAction | null,
+  balance: number | null,
+): boolean => action === "outOfCredits" && balance !== null && balance > 0;
+
+/**
+ * A leading-edge throttle: the returned function says whether a call may run
+ * now, allowing at most one per `intervalMs`
+ * @param intervalMs - Minimum time between allowed calls
+ * @param now - Clock (epoch ms), injectable for tests
+ */
+export const createThrottle = (
+  intervalMs: number,
+  now: () => number = Date.now,
+): (() => boolean) => {
+  let last: number | null = null;
+  return () => {
+    const t = now();
+    if (last !== null && t - last < intervalMs) return false;
+    last = t;
+    return true;
+  };
 };
 
 /**
@@ -111,6 +225,13 @@ export const PANEL_COPY = {
     "You are out of AI credits. Buy more credits to keep generating.",
   /** The out-of-credits call to action, linking to the account hub */
   buyCredits: "Buy credits",
+  /** The free-tier call to action, opening Facet Pro checkout in the hub */
+  upgrade: "Upgrade to Pro",
+  /** Leads a post-draft refusal: the successful draft is never discarded */
+  draftKept: "Your part is ready in the editor.",
+  /** Shown when the render check or refine ran out of credits after a draft */
+  outOfCreditsAfterDraft:
+    "Your part is ready in the editor, but you ran out of AI credits before it could be checked. Buy more credits to keep generating.",
   /** The collapsible BYOK section toggle. */
   byokToggle: "Use your own Synapse key",
   /** The BYOK key input placeholder. */
@@ -120,22 +241,86 @@ export const PANEL_COPY = {
 /** Catalog product id used to deep-link the billing hub to Facet's plans. */
 const FACET_PRODUCT_ID = "facet";
 
+/** The paid plan the Upgrade entry point checks out, billed monthly */
+const PRO_PLAN = "pro";
+const PRO_INTERVAL = "month";
+
+/** The account hub's base URL without a trailing slash, or null when unset */
+const hubBase = (accountBaseUrl: string | undefined): string | null => {
+  const base = accountBaseUrl?.trim().replace(/\/+$/, "");
+  return base ? base : null;
+};
+
 /**
  * Resolve the shared Omni billing hub URL where an out-of-credits user buys
  * more credits, or null when no account hub is configured.
  *
  * Facet dogfoods the fleet's billing: the account hub (account.omni.dev) owns
  * billing and the pooled credit balance across every Omni product, so a top-up
- * is a link out to it rather than a bespoke in-app checkout. Returns null when `VITE_ACCOUNT_URL` is unset
- * so the caller simply omits the CTA and the panel still works
+ * is a link out to it rather than a bespoke in-app checkout. `tab=ai` opens the
+ * hub on its credits section, and the workspace slug selects the personal
+ * workspace Facet bills, so a purchase lands in the balance Facet spends. An
+ * older gateway sends no slug; the link then opens the hub's default account.
+ * Returns null when `VITE_ACCOUNT_URL` is unset so the caller omits the CTA
+ * @param accountBaseUrl - The account hub base URL
+ * @param workspaceSlug - The personal workspace Facet bills, when known
  */
 export const billingHubUrl = (
   accountBaseUrl: string | undefined,
+  workspaceSlug?: string,
 ): string | null => {
-  const base = accountBaseUrl?.trim().replace(/\/+$/, "");
+  const base = hubBase(accountBaseUrl);
   if (!base) return null;
 
-  return `${base}/billing?product=${FACET_PRODUCT_ID}`;
+  const params = new URLSearchParams({ product: FACET_PRODUCT_ID, tab: "ai" });
+  if (workspaceSlug) params.set("workspace", workspaceSlug);
+  return `${base}/billing?${params.toString()}`;
+};
+
+/**
+ * Resolve the account hub link that buys Facet Pro, or null when no account
+ * hub is configured. The hub answers it with Stripe Checkout for Facet Pro on
+ * the named workspace and sends the user back to `returnUrl` afterwards (the
+ * hub only honors first-party Omni https origins there). Without a workspace
+ * the hub asks which one to upgrade; without a return URL it stays in the hub
+ * @param accountBaseUrl - The account hub base URL
+ * @param options - The workspace to upgrade and where to return, when known
+ */
+export const upgradeUrl = (
+  accountBaseUrl: string | undefined,
+  { workspaceSlug, returnUrl }: { workspaceSlug?: string; returnUrl?: string },
+): string | null => {
+  const base = hubBase(accountBaseUrl);
+  if (!base) return null;
+
+  const params = new URLSearchParams({
+    product: FACET_PRODUCT_ID,
+    plan: PRO_PLAN,
+    interval: PRO_INTERVAL,
+  });
+  if (workspaceSlug) params.set("workspace", workspaceSlug);
+  if (returnUrl) params.set("return", returnUrl);
+  return `${base}/billing?${params.toString()}`;
+};
+
+/**
+ * Where the hub returns after a Facet Pro checkout: the Studio on the current
+ * origin. Undefined without a usable http(s) origin (the desktop shell's custom
+ * scheme can not be returned to, so the hub keeps the user there instead)
+ * @param origin - The page origin (`window.location.origin`)
+ */
+export const studioReturnUrl = (
+  origin: string | undefined,
+): string | undefined => {
+  if (!origin) return undefined;
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+  return `${url.origin.toLowerCase()}/studio`;
 };
 
 /** A whole credit count with its unit, e.g. "1 credit", "1,234 credits" */
