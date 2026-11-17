@@ -61,6 +61,8 @@ export type GenerateAndRunResult =
       status: "error";
       message: string;
       httpStatus?: number;
+      /** The gateway's stable error code (e.g. `payment_required`), when sent */
+      errorCode?: string;
       /** Repair attempts made before the failure (calls - 1), when any call went out */
       repairs?: number;
       /** The chain id, when a first generation returned one before the failure */
@@ -154,9 +156,14 @@ export async function generateAndRun(
     // Carry the gateway status (401/402) so the caller can prompt sign-in or an
     // upgrade; a non-GenerateError throw has no status and stays generic
     const httpStatus = err instanceof GenerateError ? err.status : undefined;
-    const chain = chainId ? { generationId: chainId } : {};
+    // The stable code tells "not yet a customer" apart from "out of credits"
+    const errorCode = err instanceof GenerateError ? err.code : undefined;
+    const extra = {
+      ...(errorCode ? { errorCode } : {}),
+      ...(chainId ? { generationId: chainId } : {}),
+    };
     return calls > 0
-      ? { status: "error", message, httpStatus, repairs: calls - 1, ...chain }
-      : { status: "error", message, httpStatus, ...chain };
+      ? { status: "error", message, httpStatus, repairs: calls - 1, ...extra }
+      : { status: "error", message, httpStatus, ...extra };
   }
 }

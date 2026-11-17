@@ -24,7 +24,11 @@ import {
   formatSpentNote,
   noticeLinks,
   phaseLabel,
+  refreshedAccess,
+  resolveManagedAccess,
+  resolvePanelMode,
   shouldClearOutOfCredits,
+  shouldClearPaymentRequired,
   studioReturnUrl,
   upgradeUrl,
   withProvenanceHeader,
@@ -40,12 +44,14 @@ import type {
   FollowUpAction,
   GenerateErrorAction,
   GeneratePhase,
+  ManagedAccess,
 } from "@/ai/panelState";
 import type { ModelRunner } from "@/ai/repair";
 import type { StudioHandle } from "@/FacetStudio";
 
 // Kept out of our servers: a BYOK Synapse key lives only in this browser. Used
-// only in the no-auth (local/dev) fallback; signed-in users never paste a key
+// in the no-auth (local/dev) fallback and by a signed-in user who is not a
+// paying customer yet; a paying customer generates on their own identity
 const BYOK_STORAGE_KEY = "facet:ai-byok-key:v1";
 
 // What the user's last managed generation actually debited, remembered per
@@ -122,7 +128,10 @@ function persistLastSpend(credits: number): void {
  * Sign-in-first: identity lives in the header account control, not here. When
  * sign-in is configured (prod), this panel shows only to signed-in users, and a
  * managed request reaches Synapse under the user's own identity (their keys,
- * plan, and budget) with no key ever pasted. When sign-in is NOT configured
+ * plan, and budget) with no key ever pasted. Managed generation is for paying
+ * customers (Facet Pro, or a workspace that bought Omni credits): a signed-in
+ * user who is not one yet sees the panel in a paid-access state that offers
+ * Buy credits, Upgrade to Pro, and their own Synapse key. When sign-in is NOT configured
  * (local/dev), the panel offers a BYOK Synapse key as the only path, so local
  * modeling and offline testing still work. Local modeling stays anonymous either
  * way.
@@ -150,9 +159,9 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const [byokOpen, setByokOpen] = useState(false);
   const [byokKey, setByokKey] = useState(loadByokKey);
   // null while unknown; the gateway says whether this user may use managed
-  // generation (the server's env allowlist), so the panel is shown only to
-  // permitted users rather than to everyone with a 403 after the fact
-  const [managedAllowed, setManagedAllowed] = useState<boolean | null>(null);
+  // generation, must pay first (the paid-access state), or has no AI access,
+  // so the panel shows the right state rather than failing after the fact
+  const [access, setAccess] = useState<ManagedAccess | null>(null);
   // The signed-in user's pooled Omni credit balance (shared across products),
   // so a per-generation cost has context. null until known or when not
   // applicable (signed out, BYOK, or the balance could not be read)
@@ -191,14 +200,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   useEffect(() => {
     if (!authConfigured) return;
     if (!signedIn) {
-      setManagedAllowed(false);
+      setAccess("none");
       setCredits(null);
       setTier(undefined);
       setWorkspaceSlug(undefined);
       return;
     }
     let active = true;
-    setManagedAllowed(null);
+    setAccess(null);
     fetchCapabilities().then((caps) => {
       if (!active) return;
       // The token predates the workspace claim: drop it and prompt a new
@@ -207,7 +216,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         void requireReauth();
         return;
       }
-      setManagedAllowed(caps.managedGeneration);
+      setAccess(resolveManagedAccess(caps));
       adoptBilling(caps);
     });
     return () => {
@@ -217,12 +226,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
 
   // Re-read the balance and plan when the user comes back to the tab, since
   // credits are bought and plans upgraded in the account hub's tab. Throttled,
-  // and only for a managed user. A purchase that lands clears the
-  // out-of-credits notice; a failed read keeps what is shown (the probe above
-  // owns whether the panel shows at all)
+  // and only while the panel shows (managed, or the paid-access state). A
+  // purchase that lands switches the panel to generating and clears a billing
+  // notice; a failed read keeps what is shown (the probe above owns whether
+  // the panel shows at all)
   const allowFocusRefresh = useRef(createThrottle(REFRESH_ON_FOCUS_MS));
+  const panelAvailable = access === "managed" || access === "paymentRequired";
   useEffect(() => {
-    if (!authConfigured || !signedIn || !managedAllowed) return;
+    if (!authConfigured || !signedIn || !panelAvailable) return;
     let active = true;
     const refresh = () => {
       if (document.visibilityState !== "visible") return;
@@ -233,11 +244,15 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
           void requireReauth();
           return;
         }
-        if (!caps.managedGeneration) return;
+        const next = resolveManagedAccess(caps);
+        if (next === "none") return;
+        setAccess(next);
         adoptBilling(caps);
         const balance = caps.credits?.balance ?? null;
         setNotice((current) =>
-          current && shouldClearOutOfCredits(current.action, balance)
+          current &&
+          (shouldClearOutOfCredits(current.action, balance) ||
+            shouldClearPaymentRequired(current.action, next))
             ? null
             : current,
         );
@@ -250,19 +265,29 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [authConfigured, signedIn, managedAllowed, adoptBilling]);
-  // BYOK is the no-auth (local/dev) fallback only; signed-in prod users never
-  // paste a key (their Synapse identity drives generation)
-  const byokAllowed = !authConfigured;
+  }, [authConfigured, signedIn, panelAvailable, adoptBilling]);
+
+  // The paid-access state: signed in, but not a paying customer yet
+  const paidAccess = authConfigured && access === "paymentRequired";
+  // BYOK is the no-auth (local/dev) fallback, and the way a signed-in user who
+  // has not paid can still generate. A paying customer never pastes a key
+  // (their Synapse identity drives generation)
+  const byokAllowed = !authConfigured || paidAccess;
   const hasByok = byokAllowed && byokKey.trim().length > 0;
-  const canGenerate = authConfigured ? signedIn : hasByok;
+  const canGenerate = authConfigured
+    ? hasByok || (signedIn && access === "managed")
+    : hasByok;
 
   // Re-read the pooled balance after a managed attempt (the gateway debits it,
-  // never local math) and return it for the spent-credits figure
+  // never local math) and return it for the spent-credits figure. Also settles
+  // a stale access state (e.g. a 402 that says the user must pay first)
   const refreshBalance = async (): Promise<number | null> => {
     const caps = await fetchCapabilities();
     if (caps.managedGeneration) adoptBilling(caps);
     else setCredits(caps.credits ?? null);
+    setAccess((current) =>
+      current ? refreshedAccess(current, caps) : current,
+    );
     return caps.credits?.balance ?? null;
   };
 
@@ -365,9 +390,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
               ...(generationId ? { generationId } : {}),
             },
           ).catch((err: unknown) => {
-            const action = followUpAction(
-              err instanceof GenerateError ? err.status : undefined,
-            );
+            const action =
+              err instanceof GenerateError
+                ? followUpAction(err.status, err.code)
+                : null;
             if (action && err instanceof GenerateError) {
               followUp.current = { action, message: err.message };
             }
@@ -388,7 +414,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
               },
             });
             if (refined.status === "error") {
-              const action = followUpAction(refined.httpStatus);
+              const action = followUpAction(
+                refined.httpStatus,
+                refined.errorCode,
+              );
               if (action) {
                 followUp.current = { action, message: refined.message };
               }
@@ -442,7 +471,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       ? null
       : creditsSpent(balanceBefore, await refreshBalance());
     setSpent(failedSpend ? formatSpentNote(failedSpend) : null);
-    const action = classifyGenerateError(result.httpStatus);
+    const action = classifyGenerateError(result.httpStatus, result.errorCode);
     switch (action) {
       case "signIn":
         // The session expired, was revoked, or predates the workspace claim.
@@ -450,6 +479,13 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         // panel then hides until the user signs in again
         handleOpenChange(false);
         void requireReauth();
+        break;
+      case "paymentRequired":
+        // Not a paying customer (e.g. a capability answer that went stale):
+        // switch to the paid-access state, which carries its own explanation
+        // and the ways forward, rather than calling it out of credits
+        setAccess("paymentRequired");
+        setNotice(null);
         break;
       case "outOfCredits":
         setNotice({ message: PANEL_COPY.outOfCredits, action });
@@ -463,14 +499,13 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     setBusy(false);
   };
 
-  // Sign-in-first and allowlist-gated: when sign-in is configured (prod), the
-  // panel appears only for a signed-in user the gateway says may use managed
-  // generation (its env allowlist), so the gated "describe a part" surface is
-  // not shown to everyone with a 403 after the fact. Signed-out and
+  // Sign-in-first: when sign-in is configured (prod), the panel appears only for
+  // a signed-in user the gateway says may use managed generation or must pay
+  // for it first (the paid-access state). Signed-out, no-access, and
   // not-yet-known states hide it. With no auth configured (local/dev), BYOK is
   // the path, so the panel stays available. The gate is still enforced
   // server-side regardless of what the UI shows
-  if (authConfigured && !(signedIn && managedAllowed)) return null;
+  if (authConfigured && !(signedIn && panelAvailable)) return null;
 
   // Billing links into the account hub, deep-linked to the workspace Facet
   // bills when the gateway reports it
@@ -479,7 +514,12 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     workspaceSlug,
     returnUrl: studioReturnUrl(window.location.origin),
   });
-  const links = noticeLinks(notice?.action ?? null, tier);
+  // The paid-access state always offers the ways to pay; otherwise the links
+  // follow whatever failure the notice reports
+  const links = noticeLinks(
+    paidAccess ? "paymentRequired" : (notice?.action ?? null),
+    tier,
+  );
   const noticeBuy = links.buyCredits ? buyCreditsHref : null;
   const noticeUpgrade = links.upgrade ? upgradeHref : null;
 
@@ -488,8 +528,9 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // generation status is NOT here: it rides the panel's pendingLabel so it shows
   // beside the spinner, right where the user is waiting
   const noticeNode =
-    notice || spent ? (
+    paidAccess || notice || spent ? (
       <div className="ai-notice">
+        {paidAccess ? <p>{PANEL_COPY.paymentRequired}</p> : null}
         {notice ? <p role="alert">{notice.message}</p> : null}
         {spent ? <p className="ai-spent">{spent}</p> : null}
         {noticeBuy || noticeUpgrade ? (
@@ -530,9 +571,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // pooled balance (prominent), its shared-across-Omni context (a quiet
   // caption), an honest per-part estimate drawn from the last real spend, and
   // the free tier's way up. Managed only; BYOK bills the caller's own account,
-  // so credits do not apply
+  // so credits do not apply, and the paid-access state already offers its
+  // ways to pay in the notice
   const meta =
-    !hasByok && (credits || metaUpgrade) ? (
+    !hasByok && !paidAccess && (credits || metaUpgrade) ? (
       <span className="ai-meta">
         {credits ? (
           <span className="ai-meta-primary">
@@ -575,9 +617,20 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       <AiDescribePanel
         open={open}
         onOpenChange={handleOpenChange}
-        // Sign-in-first: this panel only ever renders when generation is
-        // available (signed in, or local BYOK), so it always leads with Generate
-        mode="generate"
+        // Sign-in-first: this panel only renders when generation is available
+        // (managed, or local BYOK), so it leads with Generate, except in the
+        // paid-access state, where it leads with the ways to pay until the
+        // user adds their own key
+        mode={
+          paidAccess
+            ? resolvePanelMode({
+                authConfigured,
+                signedIn,
+                hasByok,
+                paymentRequired: true,
+              })
+            : "generate"
+        }
         title="Describe a part"
         description={
           <>

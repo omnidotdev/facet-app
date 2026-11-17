@@ -1,5 +1,7 @@
 import { formatCredits } from "@omnidotdev/providers/billing";
 
+import type { Capabilities } from "./capabilities";
+
 /**
  * Pure state logic for the "Describe a part" panel, kept out of the component
  * so it can be unit-tested without a DOM. The panel renders one of three modes
@@ -10,8 +12,9 @@ import { formatCredits } from "@omnidotdev/providers/billing";
  * What the panel offers the user:
  * - `generate`: signed in or a BYOK key is set, so Generate runs as normal
  * - `signIn`: no identity and no key, but sign-in is available
- * - `needsKey`: no identity, no key, and sign-in is not configured, so BYOK is
- *   the only way to generate
+ * - `needsKey`: no key, and managed generation is not available (sign-in is
+ *   not configured, or the user must pay first), so BYOK is the only way to
+ *   generate from the panel itself
  */
 export type PanelMode = "generate" | "signIn" | "needsKey";
 
@@ -22,6 +25,8 @@ export interface PanelModeInput {
   signedIn: boolean;
   /** Whether a non-empty BYOK key is set. */
   hasByok: boolean;
+  /** Whether the signed-in user must buy credits or Facet Pro first */
+  paymentRequired?: boolean;
 }
 
 /** Resolve which affordance the panel shows. */
@@ -29,37 +34,94 @@ export const resolvePanelMode = ({
   authConfigured,
   signedIn,
   hasByok,
+  paymentRequired = false,
 }: PanelModeInput): PanelMode => {
-  if (signedIn || hasByok) return "generate";
+  if (hasByok) return "generate";
+  if (paymentRequired) return "needsKey";
+  if (signedIn) return "generate";
   if (authConfigured) return "signIn";
   return "needsKey";
 };
 
 /**
+ * What a signed-in user may do with managed generation:
+ * - `managed`: a paying customer (Facet Pro, or a workspace with Omni credits)
+ * - `paymentRequired`: signed in but not a customer yet, so the panel opens in
+ *   its paid-access state (buy credits, upgrade, or use their own key)
+ * - `none`: no managed access at all, so the panel stays hidden
+ */
+export type ManagedAccess = "managed" | "paymentRequired" | "none";
+
+/** Resolve managed access from the gateway's capability answer */
+export const resolveManagedAccess = (
+  caps: Pick<
+    Capabilities,
+    "signedIn" | "managedGeneration" | "paymentRequired"
+  >,
+): ManagedAccess => {
+  if (caps.managedGeneration) return "managed";
+  if (caps.signedIn && caps.paymentRequired) return "paymentRequired";
+  return "none";
+};
+
+/**
+ * Managed access after a background refresh (a return to the tab, or a balance
+ * read after a generation). A real answer wins, so a purchase that lands
+ * switches the panel to generating; a failed read (which fails closed to no
+ * access) keeps what is shown rather than hiding the panel
+ * @param current - The access currently shown
+ * @param caps - The refreshed capability answer
+ */
+export const refreshedAccess = (
+  current: ManagedAccess,
+  caps: Pick<
+    Capabilities,
+    "signedIn" | "managedGeneration" | "paymentRequired"
+  >,
+): ManagedAccess => {
+  const next = resolveManagedAccess(caps);
+  return next === "none" ? current : next;
+};
+
+/**
  * How the panel should react to a failed generation, derived from the gateway's
- * HTTP status (carried on the typed GenerateError):
+ * HTTP status and stable error code (carried on the typed GenerateError):
  * - `signIn`: 401, the managed path needs an identity (or a fresh sign-in)
- * - `outOfCredits`: 402, the workspace's pooled credit balance is empty
+ * - `paymentRequired`: 402 with `payment_required`, the user is not a paying
+ *   customer yet (no Facet Pro and no Omni credits bought)
+ * - `outOfCredits`: 402 otherwise, a customer's pooled credit balance is empty
  * - `planRequired`: 403, the workspace's plan does not include this
  * - `usageLimit`: 429, a usage limit was reached
  * - `generic`: anything else, shown as the message the gateway already returned
  *
  * Every non-`signIn` action shows the gateway's own (user-safe) message, except
- * `outOfCredits`, which has fixed copy and a Buy credits link
+ * `outOfCredits`, which has fixed copy and a Buy credits link, and
+ * `paymentRequired`, which switches the panel to its paid-access state
  */
 export type GenerateErrorAction =
   | "signIn"
+  | "paymentRequired"
   | "outOfCredits"
   | "planRequired"
   | "usageLimit"
   | "generic";
 
-/** Map a gateway HTTP status onto the panel's reaction. */
+/** The gateway's stable code for a 402 sent to a user who is not a customer */
+const PAYMENT_REQUIRED_CODE = "payment_required";
+
+/**
+ * Map a gateway HTTP status and stable error code onto the panel's reaction
+ * @param status - The HTTP status
+ * @param code - The stable error code, absent from an older gateway
+ */
 export const classifyGenerateError = (
   status: number | undefined,
+  code?: string,
 ): GenerateErrorAction => {
   if (status === 401) return "signIn";
-  if (status === 402) return "outOfCredits";
+  if (status === 402) {
+    return code === PAYMENT_REQUIRED_CODE ? "paymentRequired" : "outOfCredits";
+  }
   if (status === 403) return "planRequired";
   if (status === 429) return "usageLimit";
   return "generic";
@@ -68,7 +130,7 @@ export const classifyGenerateError = (
 /** A billing refusal from a step that runs after a successful first draft */
 export type FollowUpAction = Extract<
   GenerateErrorAction,
-  "outOfCredits" | "planRequired" | "usageLimit"
+  "paymentRequired" | "outOfCredits" | "planRequired" | "usageLimit"
 >;
 
 /**
@@ -78,9 +140,11 @@ export type FollowUpAction = Extract<
  */
 export const followUpAction = (
   status: number | undefined,
+  code?: string,
 ): FollowUpAction | null => {
-  const action = classifyGenerateError(status);
-  return action === "outOfCredits" ||
+  const action = classifyGenerateError(status, code);
+  return action === "paymentRequired" ||
+    action === "outOfCredits" ||
     action === "planRequired" ||
     action === "usageLimit"
     ? action
@@ -115,8 +179,9 @@ export interface NoticeLinks {
 }
 
 /**
- * The billing links for a failure notice. Out of credits offers credits (and
- * an upgrade on the free tier); a plan refusal offers an upgrade unless the
+ * The billing links for a failure notice. A payment refusal offers credits and
+ * an upgrade (unless the tier is known to be paid); out of credits offers
+ * credits (and an upgrade on the free tier); a plan refusal offers an upgrade unless the
  * tier is known to be paid already; a usage limit offers an upgrade on the free
  * tier. Anything else carries no billing link
  */
@@ -125,6 +190,11 @@ export const noticeLinks = (
   tier: string | undefined,
 ): NoticeLinks => {
   switch (action) {
+    case "paymentRequired":
+      return {
+        buyCredits: true,
+        upgrade: tier === undefined || canUpgrade(tier),
+      };
     case "outOfCredits":
       return { buyCredits: true, upgrade: canUpgrade(tier) };
     case "planRequired":
@@ -147,6 +217,15 @@ export const shouldClearOutOfCredits = (
   action: GenerateErrorAction | null,
   balance: number | null,
 ): boolean => action === "outOfCredits" && balance !== null && balance > 0;
+
+/**
+ * Whether a refreshed answer clears a payment-required notice: the user bought
+ * credits or Facet Pro (usually in another tab) and managed generation is on
+ */
+export const shouldClearPaymentRequired = (
+  action: GenerateErrorAction | null,
+  access: ManagedAccess,
+): boolean => action === "paymentRequired" && access === "managed";
 
 /**
  * A leading-edge throttle: the returned function says whether a call may run
@@ -220,6 +299,11 @@ export const PANEL_COPY = {
   /** Shown on a 401: the managed path needs an Omni identity. */
   signInPrompt:
     "Sign in to use managed generation, or add your own Synapse key below.",
+  /**
+   * The paid-access state: a signed-in user who is not a paying customer yet.
+   * The Buy credits, Upgrade to Pro, and own-key options sit right below it
+   */
+  paymentRequired: "AI generation uses Omni credits.",
   /** Shown on a 402: the user's pooled credit balance is empty. */
   outOfCredits:
     "You are out of AI credits. Buy more credits to keep generating.",
