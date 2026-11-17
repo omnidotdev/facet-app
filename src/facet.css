@@ -560,6 +560,22 @@ a.ai-upgrade-link:hover {
   font-size: 13px;
   font-weight: 500;
 }
+/* The toast's way back to a finished background part */
+.facet-app button.ai-toast-action,
+button.ai-toast-action {
+  margin-left: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+button.ai-toast-action:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 /* Billing links in the panel notice (Buy credits, Upgrade to Pro). The panel
    portals outside .facet-app, so these use the Sigil semantic tokens. The
    secondary variant is the quieter companion when both links show */
@@ -594,6 +610,166 @@ a.ai-upgrade.ai-upgrade-secondary {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+/* Background generation queue in the panel notice slot: one compact row per
+   recent part with its state and next step. Portals outside .facet-app, so it
+   uses the Sigil semantic tokens */
+.ai-queue {
+  display: grid;
+  gap: 6px;
+}
+.ai-queue-hint {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.ai-queue-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.ai-job {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.ai-job[data-status="succeeded"] {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+.ai-job-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ai-job-prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--foreground);
+}
+.ai-job-state {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.ai-job-state[data-status="succeeded"] {
+  color: var(--primary);
+}
+.ai-job-state[data-status="failed"] {
+  color: var(--destructive);
+}
+.ai-job-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 999px;
+  animation: ai-spin 0.9s linear infinite;
+}
+@keyframes ai-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-job-spinner {
+    animation: none;
+    border-color: currentColor;
+  }
+}
+.ai-job-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--destructive);
+}
+.ai-job-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ai-job-actions:empty {
+  display: none;
+}
+button.ai-job-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground);
+  background: transparent;
+  cursor: pointer;
+}
+button.ai-job-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+button.ai-job-btn.primary {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+button.ai-job-btn.primary:hover:not(:disabled) {
+  color: var(--primary-foreground);
+  opacity: 0.9;
+}
+button.ai-job-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+button.ai-job-btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* The trigger's count of parts generating or ready, visible while the panel
+   is closed. Inside .facet-app, so it uses the Studio aliases */
+.ai-queue-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.ai-queue-indicator[data-state="ready"] {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.ai-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .ai-byok {
   display: grid;

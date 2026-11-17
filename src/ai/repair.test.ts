@@ -278,4 +278,56 @@ describe("generateAndRun", () => {
 
     expect(calls[0]?.opts.generationId).toBe("gen-from-panel");
   });
+
+  describe("an initial result from a background job", () => {
+    test("runs the job's code without calling the gateway", async () => {
+      const { fn, calls } = fakeGenerate(["unused"]);
+      const runner = fakeRunner([{ ok: true }]);
+
+      const result = await generateAndRun("a cube", runner, {
+        generate: fn,
+        initial: { code: "return cube(10);", generationId: "gen-job" },
+      });
+
+      expect(calls).toHaveLength(0);
+      expect(runner.loaded).toEqual(["return cube(10);"]);
+      expect(result).toEqual({
+        status: "ok",
+        repairs: 0,
+        generationId: "gen-job",
+      });
+    });
+
+    test("repairs a kernel error in the job's code, continuing its chain", async () => {
+      const { fn, calls } = fakeGenerate(["return fixed();"]);
+      const runner = fakeRunner([{ ok: false, error: "boom" }, { ok: true }]);
+
+      const result = await generateAndRun("a cube", runner, {
+        generate: fn,
+        initial: { code: "return broken();", generationId: "gen-job" },
+      });
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.opts).toMatchObject({
+        previous: { code: "return broken();", error: "boom" },
+        attempt: 1,
+        generationId: "gen-job",
+      });
+      expect(result).toMatchObject({ status: "ok", repairs: 1 });
+    });
+
+    test("a failed repair reports the repairs made after the job's draft", async () => {
+      const { fn } = fakeGenerate(["return still();"]);
+      const runner = fakeRunner([{ ok: false, error: "boom" }]);
+
+      const result = await generateAndRun("a cube", runner, {
+        generate: fn,
+        initial: { code: "return broken();" },
+        maxAttempts: 1,
+        restorePriorOnFailure: false,
+      });
+
+      expect(result).toMatchObject({ status: "error", repairs: 1 });
+    });
+  });
 });

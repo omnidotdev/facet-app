@@ -211,6 +211,16 @@ describe("classifyGenerateError", () => {
     expect(classifyGenerateError(429)).toBe("usageLimit");
   });
 
+  test("429 too_many_jobs is the queue cap, not a usage limit (no upgrade link)", () => {
+    expect(classifyGenerateError(429, "too_many_jobs")).toBe("generic");
+    expect(
+      noticeLinks(classifyGenerateError(429, "too_many_jobs"), "free"),
+    ).toEqual({
+      buyCredits: false,
+      upgrade: false,
+    });
+  });
+
   test("other statuses are generic", () => {
     for (const status of [undefined, 400, 422, 500, 502, 503]) {
       expect(classifyGenerateError(status)).toBe("generic");
