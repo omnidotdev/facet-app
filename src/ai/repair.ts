@@ -1,5 +1,7 @@
 import { GenerateError, generateModel } from "./generate";
 
+import type { GenerateResult } from "./generate";
+
 /**
  * Client-side repair loop. Generates Facet code, runs it through the SAME
  * editor + kernel path the Studio uses, and on a kernel error asks the gateway
@@ -43,6 +45,12 @@ export interface GenerateAndRunOptions {
    * one, returned on the result)
    */
   generationId?: string;
+  /**
+   * A first generation that already happened elsewhere (a finished background
+   * job). Its code is run instead of calling the gateway for a draft; a kernel
+   * error still repairs through the gateway, continuing its generation chain
+   */
+  initial?: GenerateResult;
   /** Repair attempts after the first generation. */
   maxAttempts?: number;
   /**
@@ -99,11 +107,15 @@ export async function generateAndRun(
   let chainId = opts.generationId;
 
   try {
-    let result = await generate(prompt, {
-      ...byok,
-      ...(opts.refine ? { refine: opts.refine } : {}),
-      ...(chainId ? { generationId: chainId } : {}),
-    });
+    // the first result counts as a call either way, so `repairs` stays the
+    // number of gateway repairs after it
+    let result =
+      opts.initial ??
+      (await generate(prompt, {
+        ...byok,
+        ...(opts.refine ? { refine: opts.refine } : {}),
+        ...(chainId ? { generationId: chainId } : {}),
+      }));
     calls += 1;
     touched = true;
     chainId = result.generationId ?? chainId;

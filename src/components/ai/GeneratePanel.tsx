@@ -6,6 +6,21 @@ import { critiqueModel } from "@/ai/critique";
 import { reportDisposition } from "@/ai/disposition";
 import { GenerateError } from "@/ai/generate";
 import {
+  QUEUE_COPY,
+  discardConfirm,
+  finishedJobs,
+  finishedToast,
+  hasActiveJobs,
+  pollDelay,
+  queueIndicator,
+  withoutDismissed,
+} from "@/ai/jobQueue";
+import {
+  dismissGeneration,
+  enqueueGeneration,
+  listGenerations,
+} from "@/ai/jobs";
+import {
   BALANCE_CAPTION,
   PANEL_COPY,
   PROMPT_SUGGESTIONS,
@@ -34,12 +49,16 @@ import {
   withProvenanceHeader,
 } from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
+import GenerationQueue from "@/components/ai/GenerationQueue";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { isAuthConfigured, requireReauth } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
 import { nameFromPrompt } from "@/tabs";
 
 import type { RefObject } from "react";
 import type { Capabilities, CreditBalance } from "@/ai/capabilities";
+import type { GenerateResult } from "@/ai/generate";
+import type { GenerationJob } from "@/ai/jobs";
 import type {
   FollowUpAction,
   GenerateErrorAction,
@@ -47,6 +66,7 @@ import type {
   ManagedAccess,
 } from "@/ai/panelState";
 import type { ModelRunner } from "@/ai/repair";
+import type { JobFailureLinks } from "@/components/ai/GenerationQueue";
 import type { StudioHandle } from "@/FacetStudio";
 
 // Kept out of our servers: a BYOK Synapse key lives only in this browser. Used
@@ -72,6 +92,16 @@ interface PanelNotice {
   message: string;
   action: GenerateErrorAction | null;
 }
+
+/** A toast outside the dialog, optionally offering to open the panel */
+interface PanelToast {
+  message: string;
+  /** A background part finished: offer a way back to the queue */
+  showOpen?: boolean;
+}
+
+// Shown when a request failed with nothing user-safe to say about it
+const GENERIC_FAILURE = "AI generation failed. Please try again.";
 
 interface GeneratePanelProps {
   /** The Studio's editor + run handle, populated after its setup effect runs. */
@@ -125,6 +155,14 @@ function persistLastSpend(credits: number): void {
  * Studio's own run path, and repairs on a kernel error. The panel is
  * presentational; all generation, auth, and billing logic stays here.
  *
+ * A managed generation runs as a background job on the gateway: Generate
+ * queues it and frees the panel at once, a compact queue in the panel (and a
+ * count on the trigger) shows each part as Queued, Generating, Ready, or
+ * Failed, and a ready part waits, across closing the panel, switching tabs, or
+ * leaving the page, until it is opened (landing in a new tab exactly as a
+ * finished generate does) or discarded. BYOK stays in the foreground, since a
+ * user's own key is never stored.
+ *
  * Sign-in-first: identity lives in the header account control, not here. When
  * sign-in is configured (prod), this panel shows only to signed-in users, and a
  * managed request reaches Synapse under the user's own identity (their keys,
@@ -154,8 +192,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const [notice, setNotice] = useState<PanelNotice | null>(null);
   // Credits a failed-but-charged managed attempt took off the balance
   const [spent, setSpent] = useState<string | null>(null);
-  // A short confirmation shown after the dialog closes on a successful generate
-  const [toast, setToast] = useState<string | null>(null);
+  // A short message shown outside the dialog: a confirmation after a
+  // successful generate, or news that a background part finished (with a way
+  // to open the panel to it)
+  const [toast, setToast] = useState<PanelToast | null>(null);
   const [byokOpen, setByokOpen] = useState(false);
   const [byokKey, setByokKey] = useState(loadByokKey);
   // null while unknown; the gateway says whether this user may use managed
@@ -182,6 +222,35 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // What the user's last generation actually debited, for the honest per-part
   // estimate shown in the panel footer (self-calibrating, never a hardcoded guess)
   const [lastSpend, setLastSpend] = useState<number | null>(loadLastSpend);
+
+  // Background generation: a managed Generate queues a job on the gateway and
+  // frees the panel at once; the job keeps running (and its result waits) when
+  // the panel closes or the page is left. The list is the gateway's, read on
+  // load and polled while anything is active, so a return shows every result
+  const [jobs, setJobs] = useState<GenerationJob[]>([]);
+  // Mirror for async callbacks (poll reads compare against the last list)
+  const jobsRef = useRef<GenerationJob[]>([]);
+  // The ready part being opened (its follow-up checks run in the panel)
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  // (Re)start polling right away, e.g. after an enqueue; set by the poll effect
+  const restartPollRef = useRef<(() => void) | null>(null);
+  // Parts the user dismissed, so an in-flight list read cannot bring one back
+  const dismissedRef = useRef(new Set<string>());
+  // A job queued while nothing else was active, with the balance at that
+  // moment: its spend is the balance change when it finishes (overlapping
+  // jobs make the change unattributable, so no figure is shown for them)
+  const soloRef = useRef<{ jobId: string; balance: number } | null>(null);
+  // What a ready part's draft cost, when known, for the toast on opening it
+  const jobSpendRef = useRef(new Map<string, number>());
+  // What a failed part took off the balance, when known, shown on its row
+  const [spentNotes, setSpentNotes] = useState<Record<string, string>>({});
+  // The ready or queued part awaiting a discard confirmation
+  const [confirming, setConfirming] = useState<GenerationJob | null>(null);
+  // Whether the dialog shows, for async callbacks (toast only when it does not)
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   const { signedIn } = useAuthSession();
 
@@ -277,11 +346,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const canGenerate = authConfigured
     ? hasByok || (signedIn && access === "managed")
     : hasByok;
+  // Background jobs are the managed path's; the list stays readable in the
+  // paid-access state too, so a part that finished never vanishes
+  const queueEnabled = authConfigured && signedIn && panelAvailable;
 
   // Re-read the pooled balance after a managed attempt (the gateway debits it,
   // never local math) and return it for the spent-credits figure. Also settles
   // a stale access state (e.g. a 402 that says the user must pay first)
-  const refreshBalance = async (): Promise<number | null> => {
+  const refreshBalance = useCallback(async (): Promise<number | null> => {
     const caps = await fetchCapabilities();
     if (caps.managedGeneration) adoptBilling(caps);
     else setCredits(caps.credits ?? null);
@@ -289,7 +361,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       current ? refreshedAccess(current, caps) : current,
     );
     return caps.credits?.balance ?? null;
-  };
+  }, [adoptBilling]);
 
   // Close and clear the transient per-attempt state so a reopen starts clean
   const handleOpenChange = (next: boolean) => {
@@ -301,33 +373,169 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     }
   };
 
-  // The success confirmation is transient: clear it after a few seconds
+  // The toast is transient: clear it after a few seconds (longer when it
+  // offers to open the panel)
   useEffect(() => {
     if (!toast) return;
-    const id = window.setTimeout(() => setToast(null), 4000);
+    const id = window.setTimeout(
+      () => setToast(null),
+      toast.showOpen ? 8000 : 4000,
+    );
     return () => window.clearTimeout(id);
   }, [toast]);
 
-  const onGenerate = async () => {
-    const studio = handle.current;
-    const trimmed = prompt.trim();
-    if (!studio || busy || !trimmed) return;
-    if (!canGenerate) {
-      // No-auth fallback: a key is the only path, so guide the user to it
-      if (byokAllowed && !hasByok) {
-        setByokOpen(true);
-        setNotice({
-          message: "Add your Synapse key below to generate.",
-          action: null,
-        });
+  // Show a new job list: note what finished since the last read, re-read the
+  // balance it moved, attribute a solo job's spend, and tell a user who is
+  // elsewhere in the app
+  const applyJobs = useCallback(
+    async (incoming: GenerationJob[]) => {
+      const next = withoutDismissed(incoming, dismissedRef.current);
+      const finished = finishedJobs(jobsRef.current, next);
+      jobsRef.current = next;
+      setJobs(next);
+      if (finished.length === 0) return;
+
+      const balance = await refreshBalance();
+      const solo = soloRef.current;
+      const soloJob = solo && finished.find((job) => job.id === solo.jobId);
+      if (solo && soloJob) {
+        soloRef.current = null;
+        const soloSpent = creditsSpent(solo.balance, balance);
+        if (soloSpent && soloJob.status === "succeeded") {
+          jobSpendRef.current.set(soloJob.id, soloSpent);
+        } else if (soloSpent) {
+          setSpentNotes((current) => ({
+            ...current,
+            [soloJob.id]: formatSpentNote(soloSpent),
+          }));
+        }
       }
+
+      if (!openRef.current) {
+        const message = finishedToast(finished);
+        if (message) setToast({ message, showOpen: true });
+      }
+    },
+    [refreshBalance],
+  );
+
+  // Read the job list on load (so leaving and returning shows every result),
+  // and poll while any job is queued or generating, backing off as a
+  // generation takes its minute or two. Polling pauses while the page is
+  // hidden and resumes on return; it stops when nothing is active
+  useEffect(() => {
+    if (!queueEnabled) {
+      jobsRef.current = [];
+      setJobs([]);
       return;
     }
+    let active = true;
+    let reading = false;
+    // a restart asked for while a read was in flight (its answer may predate
+    // a just-queued part), so read again once it lands
+    let readAgain = false;
+    let round = 0;
+    let timer: number | undefined;
+    const read = async () => {
+      window.clearTimeout(timer);
+      if (document.visibilityState !== "visible") return;
+      if (reading) {
+        readAgain = true;
+        return;
+      }
+      reading = true;
+      try {
+        const next = await listGenerations();
+        if (!active) return;
+        if (next) await applyJobs(next);
+        if (!active || readAgain) return;
+        if (hasActiveJobs(next ?? jobsRef.current)) {
+          timer = window.setTimeout(read, pollDelay(round));
+          round += 1;
+        }
+      } finally {
+        reading = false;
+        if (active && readAgain) {
+          readAgain = false;
+          void read();
+        }
+      }
+    };
+    const restart = () => {
+      round = 0;
+      void read();
+    };
+    const onReturn = () => {
+      if (document.visibilityState === "visible") restart();
+    };
+    restartPollRef.current = restart;
+    void read();
+    window.addEventListener("focus", onReturn);
+    document.addEventListener("visibilitychange", onReturn);
+    return () => {
+      active = false;
+      restartPollRef.current = null;
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", onReturn);
+      document.removeEventListener("visibilitychange", onReturn);
+    };
+  }, [queueEnabled, applyJobs]);
 
+  // React to a refused generation (a failed run, or a refused enqueue) the way
+  // the panel always has: sign in again, switch to the paid-access state, or
+  // show the reason with the matching billing link
+  const showFailure = (
+    httpStatus: number | undefined,
+    errorCode: string | undefined,
+    message: string,
+  ) => {
+    const action = classifyGenerateError(httpStatus, errorCode);
+    switch (action) {
+      case "signIn":
+        // The session expired, was revoked, or predates the workspace claim.
+        // Clear it and prompt a new sign-in at the header account control; this
+        // panel then hides until the user signs in again
+        handleOpenChange(false);
+        void requireReauth();
+        break;
+      case "paymentRequired":
+        // Not a paying customer (e.g. a capability answer that went stale):
+        // switch to the paid-access state, which carries its own explanation
+        // and the ways forward, rather than calling it out of credits
+        setAccess("paymentRequired");
+        setNotice(null);
+        break;
+      case "outOfCredits":
+        setNotice({ message: PANEL_COPY.outOfCredits, action });
+        break;
+      default:
+        // Plan and usage-limit refusals carry the gateway's own message, plus
+        // an Upgrade link where it helps
+        setNotice({ message, action });
+    }
+  };
+
+  /**
+   * Generate in the foreground and land the result in a fresh tab: the draft
+   * (or a finished background job's code, `initial`), any kernel-error
+   * repairs, the render check and refine, then the kept signal and a toast.
+   * BYOK always runs here (its key is never stored for a background job), as
+   * does a managed generation against an older gateway without jobs
+   */
+  const runGeneration = async (
+    studio: StudioHandle,
+    trimmed: string,
+    opts: {
+      /** A finished background job's result, opened instead of a new draft */
+      initial?: GenerateResult;
+      /** What that job's draft cost, when known (null when unknown) */
+      priorSpend?: number | null;
+    } = {},
+  ) => {
     setBusy(true);
     setNotice(null);
     setSpent(null);
-    setPhase("generating");
+    setPhase(opts.initial ? "checking" : "generating");
     // The balance before this generation, so what it spent can be read off the
     // balance change afterwards
     const balanceBefore = credits?.balance ?? null;
@@ -352,6 +560,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
 
     const result = await generateAndRun(trimmed, runner, {
       ...(hasByok ? { byokKey } : {}),
+      ...(opts.initial ? { initial: opts.initial } : {}),
       restorePriorOnFailure: false,
     });
 
@@ -434,10 +643,16 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       void reportDisposition(generationId, "kept", hasByok ? { byokKey } : {});
 
       // Refresh the pooled balance after the managed spend; what this
-      // generation (plus any refine) cost is the balance change
-      const spentCredits = hasByok
+      // generation (plus any refine) cost is the balance change, plus what an
+      // opened background draft already cost when that is known
+      const runSpent = hasByok
         ? null
         : creditsSpent(balanceBefore, await refreshBalance());
+      const spentCredits = opts.initial
+        ? opts.priorSpend
+          ? opts.priorSpend + (runSpent ?? 0)
+          : null
+        : runSpent;
       // Remember a real spend so the per-part estimate self-calibrates
       if (spentCredits) {
         setLastSpend(spentCredits);
@@ -446,7 +661,8 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
 
       setPhase(null);
       setBusy(false);
-      setPrompt("");
+      // An opened part keeps whatever the user is typing for the next one
+      if (!opts.initial) setPrompt("");
 
       // A refused check or refine keeps the dialog open on the reason (and the
       // way to fix it); the draft is already in its own tab behind the dialog
@@ -460,7 +676,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         return;
       }
 
-      setToast(formatGeneratedToast(spentCredits, hasByok));
+      setToast({ message: formatGeneratedToast(spentCredits, hasByok) });
       handleOpenChange(false);
       return;
     }
@@ -471,32 +687,129 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       ? null
       : creditsSpent(balanceBefore, await refreshBalance());
     setSpent(failedSpend ? formatSpentNote(failedSpend) : null);
-    const action = classifyGenerateError(result.httpStatus, result.errorCode);
-    switch (action) {
-      case "signIn":
-        // The session expired, was revoked, or predates the workspace claim.
-        // Clear it and prompt a new sign-in at the header account control; this
-        // panel then hides until the user signs in again
-        handleOpenChange(false);
-        void requireReauth();
-        break;
-      case "paymentRequired":
-        // Not a paying customer (e.g. a capability answer that went stale):
-        // switch to the paid-access state, which carries its own explanation
-        // and the ways forward, rather than calling it out of credits
-        setAccess("paymentRequired");
-        setNotice(null);
-        break;
-      case "outOfCredits":
-        setNotice({ message: PANEL_COPY.outOfCredits, action });
-        break;
-      default:
-        // Plan and usage-limit refusals carry the gateway's own message, plus
-        // an Upgrade link where it helps
-        setNotice({ message: result.message, action });
-    }
+    showFailure(result.httpStatus, result.errorCode, result.message);
     setPhase(null);
     setBusy(false);
+  };
+
+  /**
+   * Queue a managed generation. Resolves "queued" (the panel is free again),
+   * "refused" (the reason is shown, exactly as a refused generate), or
+   * "unsupported" (an older gateway without jobs; generate in the foreground)
+   */
+  const enqueue = async (
+    text: string,
+  ): Promise<"queued" | "refused" | "unsupported"> => {
+    setBusy(true);
+    setNotice(null);
+    setSpent(null);
+    try {
+      const job = await enqueueGeneration(text);
+      // Its spend can be read off the balance only if nothing else is running
+      const balance = credits?.balance;
+      soloRef.current =
+        !hasActiveJobs(jobsRef.current) && typeof balance === "number"
+          ? { jobId: job.id, balance }
+          : null;
+      const next = [job, ...jobsRef.current.filter((j) => j.id !== job.id)];
+      jobsRef.current = next;
+      setJobs(next);
+      restartPollRef.current?.();
+      return "queued";
+    } catch (err) {
+      if (err instanceof GenerateError && err.status === 404) {
+        return "unsupported";
+      }
+      if (err instanceof GenerateError) {
+        showFailure(err.status, err.code, err.message);
+      } else {
+        showFailure(undefined, undefined, GENERIC_FAILURE);
+      }
+      return "refused";
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onGenerate = async () => {
+    const studio = handle.current;
+    const trimmed = prompt.trim();
+    if (!studio || busy || !trimmed) return;
+    if (!canGenerate) {
+      // No-auth fallback: a key is the only path, so guide the user to it
+      if (byokAllowed && !hasByok) {
+        setByokOpen(true);
+        setNotice({
+          message: "Add your Synapse key below to generate.",
+          action: null,
+        });
+      }
+      return;
+    }
+
+    // Managed generation runs in the background; BYOK stays in the foreground
+    if (!hasByok) {
+      const queued = await enqueue(trimmed);
+      if (queued === "queued") {
+        setPrompt("");
+        return;
+      }
+      if (queued === "refused") return;
+    }
+    await runGeneration(studio, trimmed);
+  };
+
+  // Forget a part locally and on the gateway (which deletes its prompt and
+  // result). A ready part left unopened is reported as discarded
+  const dismissJob = (job: GenerationJob) => {
+    dismissedRef.current.add(job.id);
+    jobSpendRef.current.delete(job.id);
+    if (soloRef.current?.jobId === job.id) soloRef.current = null;
+    const next = jobsRef.current.filter((j) => j.id !== job.id);
+    jobsRef.current = next;
+    setJobs(next);
+    setSpentNotes(({ [job.id]: _dropped, ...rest }) => rest);
+    void dismissGeneration(job.id);
+  };
+
+  // Open a ready part: what a successful generate does (a new tab, run, then
+  // the repair, check, and refine steps), after which it leaves the queue
+  const openJob = async (job: GenerationJob) => {
+    const studio = handle.current;
+    if (!studio || busy || !job.code) return;
+    setOpeningId(job.id);
+    await runGeneration(studio, job.prompt, {
+      initial: {
+        code: job.code,
+        ...(job.generationId ? { generationId: job.generationId } : {}),
+      },
+      priorSpend: jobSpendRef.current.get(job.id) ?? null,
+    });
+    // The part now lives in its own tab, so the queued copy is not needed
+    dismissedRef.current.add(job.id);
+    jobSpendRef.current.delete(job.id);
+    const next = jobsRef.current.filter((j) => j.id !== job.id);
+    jobsRef.current = next;
+    setJobs(next);
+    void dismissGeneration(job.id);
+    setOpeningId(null);
+  };
+
+  const discardConfirmed = () => {
+    const job = confirming;
+    setConfirming(null);
+    if (!job) return;
+    if (job.status === "succeeded") {
+      void reportDisposition(job.generationId, "discarded");
+    }
+    dismissJob(job);
+  };
+
+  // Retry a failed part with the same prompt; the failure clears once the
+  // new one is queued
+  const retryJob = async (job: GenerationJob) => {
+    if (busy) return;
+    if ((await enqueue(job.prompt)) === "queued") dismissJob(job);
   };
 
   // Sign-in-first: when sign-in is configured (prod), the panel appears only for
@@ -523,12 +836,40 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const noticeBuy = links.buyCredits ? buyCreditsHref : null;
   const noticeUpgrade = links.upgrade ? upgradeHref : null;
 
-  // The notice, any billed-but-failed spend, and the billing links share the
-  // panel's notice slot; the panel renders whatever node it is handed. The live
-  // generation status is NOT here: it rides the panel's pendingLabel so it shows
-  // beside the spinner, right where the user is waiting
+  // A failed part's billing links follow its reason, like the notice's
+  const jobFailureLinks = (job: GenerationJob): JobFailureLinks => {
+    const jobLinks = noticeLinks(
+      classifyGenerateError(job.error?.status, job.error?.code),
+      tier,
+    );
+    return {
+      buyCredits: jobLinks.buyCredits ? buyCreditsHref : null,
+      upgrade: jobLinks.upgrade ? upgradeHref : null,
+    };
+  };
+
+  const queueNode =
+    jobs.length > 0 ? (
+      <GenerationQueue
+        jobs={jobs}
+        disabled={busy}
+        openingId={openingId}
+        spentNotes={spentNotes}
+        failureLinks={jobFailureLinks}
+        onOpen={(job) => void openJob(job)}
+        onDiscard={setConfirming}
+        onRetry={(job) => void retryJob(job)}
+        onDismiss={dismissJob}
+      />
+    ) : null;
+
+  // The notice, any billed-but-failed spend, the billing links, and the
+  // background queue share the panel's notice slot; the panel renders whatever
+  // node it is handed. The live generation status is NOT here: it rides the
+  // panel's pendingLabel so it shows beside the spinner, right where the user
+  // is waiting
   const noticeNode =
-    paidAccess || notice || spent ? (
+    paidAccess || notice || spent || queueNode ? (
       <div className="ai-notice">
         {paidAccess ? <p>{PANEL_COPY.paymentRequired}</p> : null}
         {notice ? <p role="alert">{notice.message}</p> : null}
@@ -559,6 +900,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
             ) : null}
           </div>
         ) : null}
+        {queueNode}
       </div>
     ) : undefined;
 
@@ -602,6 +944,12 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       </span>
     ) : undefined;
 
+  // What the trigger shows while parts generate or wait to be opened
+  const indicator = queueIndicator(jobs);
+  const confirmCopy = confirming
+    ? discardConfirm(confirming, nameFromPrompt(confirming.prompt))
+    : null;
+
   return (
     <>
       <button
@@ -612,6 +960,23 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       >
         <span className="ai-title">Describe a part</span>
         <span className="ai-badge">Beta</span>
+        {indicator ? (
+          <span
+            className="ai-queue-indicator"
+            data-state={indicator.ready > 0 ? "ready" : "active"}
+            title={indicator.label}
+          >
+            {indicator.ready > 0 ? null : (
+              <span className="ai-job-spinner" aria-hidden="true" />
+            )}
+            <span className="ai-sr-only">{indicator.label}</span>
+            <span aria-hidden="true">
+              {indicator.ready > 0
+                ? `${indicator.ready} ready`
+                : indicator.active}
+            </span>
+          </span>
+        ) : null}
       </button>
 
       <AiDescribePanel
@@ -674,9 +1039,34 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         }
       />
 
+      <ConfirmDialog
+        open={confirming !== null}
+        onOpenChange={(next) => {
+          if (!next) setConfirming(null);
+        }}
+        title={confirmCopy?.title ?? ""}
+        description={confirmCopy?.description}
+        confirmLabel={confirmCopy?.confirmLabel}
+        cancelLabel={QUEUE_COPY.keep}
+        destructive
+        onConfirm={discardConfirmed}
+      />
+
       {toast ? (
         <output className="ai-toast" aria-live="polite">
-          {toast}
+          {toast.message}
+          {toast.showOpen ? (
+            <button
+              type="button"
+              className="ai-toast-action"
+              onClick={() => {
+                setToast(null);
+                setOpen(true);
+              }}
+            >
+              View
+            </button>
+          ) : null}
         </output>
       ) : null}
     </>

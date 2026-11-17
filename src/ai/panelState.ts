@@ -93,6 +93,8 @@ export const refreshedAccess = (
  * - `planRequired`: 403, the workspace's plan does not include this
  * - `usageLimit`: 429, a usage limit was reached
  * - `generic`: anything else, shown as the message the gateway already returned
+ *   (including a 429 `too_many_jobs`, the background queue's per-user cap,
+ *   which waiting fixes, not an upgrade)
  *
  * Every non-`signIn` action shows the gateway's own (user-safe) message, except
  * `outOfCredits`, which has fixed copy and a Buy credits link, and
@@ -109,6 +111,9 @@ export type GenerateErrorAction =
 /** The gateway's stable code for a 402 sent to a user who is not a customer */
 const PAYMENT_REQUIRED_CODE = "payment_required";
 
+/** The gateway's stable code for a user at their concurrent background-job cap */
+const TOO_MANY_JOBS_CODE = "too_many_jobs";
+
 /**
  * Map a gateway HTTP status and stable error code onto the panel's reaction
  * @param status - The HTTP status
@@ -123,7 +128,9 @@ export const classifyGenerateError = (
     return code === PAYMENT_REQUIRED_CODE ? "paymentRequired" : "outOfCredits";
   }
   if (status === 403) return "planRequired";
-  if (status === 429) return "usageLimit";
+  if (status === 429) {
+    return code === TOO_MANY_JOBS_CODE ? "generic" : "usageLimit";
+  }
   return "generic";
 };
 
