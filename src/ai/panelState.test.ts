@@ -359,8 +359,8 @@ describe("shouldClearPaymentRequired", () => {
 });
 
 describe("paid-access copy", () => {
-  test("says AI uses Omni credits, with no free allowance or internals", () => {
-    expect(PANEL_COPY.paymentRequired).toMatch(/omni credits/i);
+  test("says AI uses AI credits, with no free allowance or internals", () => {
+    expect(PANEL_COPY.paymentRequired).toMatch(/AI credits/);
     expect(PANEL_COPY.paymentRequired).not.toMatch(
       /free|month|organization|402|synapse/i,
     );
@@ -515,14 +515,14 @@ describe("creditsSpent", () => {
 
 describe("formatBalance", () => {
   test("shows whole credits as a bare figure, with no separator", () => {
-    expect(formatBalance(1234)).toBe("1,234 credits");
-    expect(formatBalance(1)).toBe("1 credit");
-    expect(formatBalance(0)).toBe("0 credits");
+    expect(formatBalance(1234)).toBe("1,234 AI credits");
+    expect(formatBalance(1)).toBe("1 AI credit");
+    expect(formatBalance(0)).toBe("0 AI credits");
     expect(formatBalance(1234)).not.toContain("·");
   });
 
   test("the shared-pool context is a separate caption", () => {
-    expect(BALANCE_CAPTION).toBe("shared across Omni");
+    expect(BALANCE_CAPTION).toBe("shared across Omni products");
   });
 });
 

@@ -1,7 +1,7 @@
 /**
  * Ask the gateway what the signed-in user may do, so the Studio can show the
  * "describe a part" panel in the right state: generating for a paying customer
- * (Facet Pro, or a workspace that bought Omni credits), a paid-access state for
+ * (Facet Pro, or a workspace that bought AI credits), a paid-access state for
  * a signed-in user who is not one yet, and nothing for anyone else. Only the
  * caller's own answer reaches the client. Fails closed (no capability) on any
  * error.

@@ -156,7 +156,7 @@ describe("generateAndRun", () => {
     const generate = () =>
       Promise.reject(
         new GenerateError(
-          "AI generation uses Omni credits.",
+          "Generation uses AI credits.",
           402,
           "payment_required",
         ),
@@ -166,7 +166,7 @@ describe("generateAndRun", () => {
 
     expect(result).toEqual({
       status: "error",
-      message: "AI generation uses Omni credits.",
+      message: "Generation uses AI credits.",
       httpStatus: 402,
       errorCode: "payment_required",
     });

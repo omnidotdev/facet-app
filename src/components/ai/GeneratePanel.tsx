@@ -15,10 +15,10 @@ import {
   canUpgrade,
   classifyGenerateError,
   createThrottle,
-  creditCount,
   creditsSpent,
   followUpAction,
   followUpNotice,
+  formatBalance,
   formatGeneratedToast,
   formatPerPartEstimate,
   formatSpentNote,
@@ -129,7 +129,7 @@ function persistLastSpend(credits: number): void {
  * sign-in is configured (prod), this panel shows only to signed-in users, and a
  * managed request reaches Synapse under the user's own identity (their keys,
  * plan, and budget) with no key ever pasted. Managed generation is for paying
- * customers (Facet Pro, or a workspace that bought Omni credits): a signed-in
+ * customers (Facet Pro, or a workspace that bought AI credits): a signed-in
  * user who is not one yet sees the panel in a paid-access state that offers
  * Buy credits, Upgrade to Pro, and their own Synapse key. When sign-in is NOT configured
  * (local/dev), the panel offers a BYOK Synapse key as the only path, so local
@@ -162,7 +162,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // generation, must pay first (the paid-access state), or has no AI access,
   // so the panel shows the right state rather than failing after the fact
   const [access, setAccess] = useState<ManagedAccess | null>(null);
-  // The signed-in user's pooled Omni credit balance (shared across products),
+  // The signed-in user's pooled AI credit balance (shared across products),
   // so a per-generation cost has context. null until known or when not
   // applicable (signed out, BYOK, or the balance could not be read)
   const [credits, setCredits] = useState<CreditBalance | null>(null);
@@ -578,7 +578,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       <span className="ai-meta">
         {credits ? (
           <span className="ai-meta-primary">
-            <span className="ai-credits">{creditCount(credits.balance)}</span>
+            <span className="ai-credits">{formatBalance(credits.balance)}</span>
             <span className="ai-meta-caption">{BALANCE_CAPTION}</span>
           </span>
         ) : null}
