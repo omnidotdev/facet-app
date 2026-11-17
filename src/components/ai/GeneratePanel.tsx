@@ -44,6 +44,7 @@ import {
   resolvePanelMode,
   shouldClearOutOfCredits,
   shouldClearPaymentRequired,
+  stripProvenanceHeader,
   studioReturnUrl,
   upgradeUrl,
   withProvenanceHeader,
@@ -592,7 +593,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         if (image) {
           const verdict = await critiqueModel(
             trimmed,
-            studio.getCode(),
+            stripProvenanceHeader(studio.getCode()),
             image,
             {
               ...(hasByok ? { byokKey } : {}),
@@ -618,7 +619,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
               // than leaving the user with worse or broken code
               restorePriorOnFailure: true,
               refine: {
-                code: studio.getCode(),
+                code: stripProvenanceHeader(studio.getCode()),
                 suggestion: verdict.suggestedFix,
               },
             });
