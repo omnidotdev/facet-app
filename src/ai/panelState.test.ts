@@ -6,14 +6,22 @@ import {
   PROMPT_SUGGESTIONS,
   SYNAPSE_KEY_URL,
   billingHubUrl,
+  canUpgrade,
   classifyGenerateError,
+  createThrottle,
   creditsSpent,
+  followUpAction,
+  followUpNotice,
   formatBalance,
   formatGeneratedToast,
   formatPerPartEstimate,
   formatSpentNote,
+  noticeLinks,
   phaseLabel,
   resolvePanelMode,
+  shouldClearOutOfCredits,
+  studioReturnUrl,
+  upgradeUrl,
   withProvenanceHeader,
 } from "./panelState";
 
@@ -82,10 +90,136 @@ describe("classifyGenerateError", () => {
     expect(classifyGenerateError(402)).toBe("outOfCredits");
   });
 
+  test("403 reports a plan that does not include the feature", () => {
+    expect(classifyGenerateError(403)).toBe("planRequired");
+  });
+
+  test("429 reports a usage limit", () => {
+    expect(classifyGenerateError(429)).toBe("usageLimit");
+  });
+
   test("other statuses are generic", () => {
-    for (const status of [undefined, 400, 422, 429, 500, 502, 503]) {
+    for (const status of [undefined, 400, 422, 500, 502, 503]) {
       expect(classifyGenerateError(status)).toBe("generic");
     }
+  });
+});
+
+describe("followUpAction", () => {
+  test("surfaces billing refusals from a step after the draft", () => {
+    expect(followUpAction(402)).toBe("outOfCredits");
+    expect(followUpAction(403)).toBe("planRequired");
+    expect(followUpAction(429)).toBe("usageLimit");
+  });
+
+  test("stays silent on anything else, since the check is advisory", () => {
+    for (const status of [undefined, 401, 400, 422, 500, 502, 503]) {
+      expect(followUpAction(status)).toBeNull();
+    }
+  });
+});
+
+describe("followUpNotice", () => {
+  test("out of credits says the draft is kept and to buy more", () => {
+    const notice = followUpNotice("outOfCredits", "ignored");
+    expect(notice).toMatch(/ready in the editor/i);
+    expect(notice).toMatch(/buy more credits/i);
+  });
+
+  test("other refusals keep the gateway's message after the draft note", () => {
+    expect(followUpNotice("usageLimit", "Usage limit reached.")).toBe(
+      "Your part is ready in the editor. Usage limit reached.",
+    );
+    expect(followUpNotice("planRequired", "Upgrade to keep going.")).toBe(
+      "Your part is ready in the editor. Upgrade to keep going.",
+    );
+  });
+});
+
+describe("canUpgrade", () => {
+  test("only the free tier is offered an upgrade", () => {
+    expect(canUpgrade("free")).toBe(true);
+    expect(canUpgrade("pro")).toBe(false);
+    expect(canUpgrade("team")).toBe(false);
+    expect(canUpgrade(undefined)).toBe(false);
+  });
+});
+
+describe("noticeLinks", () => {
+  test("out of credits offers credits, plus an upgrade on the free tier", () => {
+    expect(noticeLinks("outOfCredits", "free")).toEqual({
+      buyCredits: true,
+      upgrade: true,
+    });
+    expect(noticeLinks("outOfCredits", "pro")).toEqual({
+      buyCredits: true,
+      upgrade: false,
+    });
+  });
+
+  test("a plan refusal offers an upgrade unless the tier is known paid", () => {
+    expect(noticeLinks("planRequired", "free")).toEqual({
+      buyCredits: false,
+      upgrade: true,
+    });
+    expect(noticeLinks("planRequired", undefined)).toEqual({
+      buyCredits: false,
+      upgrade: true,
+    });
+    expect(noticeLinks("planRequired", "pro")).toEqual({
+      buyCredits: false,
+      upgrade: false,
+    });
+  });
+
+  test("a usage limit offers an upgrade on the free tier only", () => {
+    expect(noticeLinks("usageLimit", "free")).toEqual({
+      buyCredits: false,
+      upgrade: true,
+    });
+    expect(noticeLinks("usageLimit", "pro")).toEqual({
+      buyCredits: false,
+      upgrade: false,
+    });
+  });
+
+  test("anything else offers no billing links", () => {
+    for (const action of [null, "signIn", "generic"] as const) {
+      expect(noticeLinks(action, "free")).toEqual({
+        buyCredits: false,
+        upgrade: false,
+      });
+    }
+  });
+});
+
+describe("shouldClearOutOfCredits", () => {
+  test("clears once the balance is positive again", () => {
+    expect(shouldClearOutOfCredits("outOfCredits", 10)).toBe(true);
+  });
+
+  test("keeps the notice while the balance is still empty or unknown", () => {
+    expect(shouldClearOutOfCredits("outOfCredits", 0)).toBe(false);
+    expect(shouldClearOutOfCredits("outOfCredits", null)).toBe(false);
+  });
+
+  test("never clears a different notice", () => {
+    expect(shouldClearOutOfCredits("usageLimit", 10)).toBe(false);
+    expect(shouldClearOutOfCredits(null, 10)).toBe(false);
+  });
+});
+
+describe("createThrottle", () => {
+  test("allows the first call, then one per interval", () => {
+    let now = 1_000;
+    const allow = createThrottle(10_000, () => now);
+    expect(allow()).toBe(true);
+    now += 5_000;
+    expect(allow()).toBe(false);
+    now += 5_000;
+    expect(allow()).toBe(true);
+    now += 1;
+    expect(allow()).toBe(false);
   });
 });
 
@@ -98,24 +232,72 @@ describe("out-of-credits copy", () => {
 });
 
 describe("billingHubUrl", () => {
-  test("a 402 funnels to the account hub's Facet billing page", () => {
-    // 402 is the out-of-credits status the panel surfaces the upgrade CTA for
+  test("a 402 funnels to the credits section of the personal workspace", () => {
+    // 402 is the out-of-credits status the panel surfaces the buy CTA for
     expect(classifyGenerateError(402)).toBe("outOfCredits");
+    expect(billingHubUrl("https://account.omni.dev", "ada")).toBe(
+      "https://account.omni.dev/billing?product=facet&tab=ai&workspace=ada",
+    );
+  });
+
+  test("still opens the credits section when the workspace is unknown", () => {
     expect(billingHubUrl("https://account.omni.dev")).toBe(
-      "https://account.omni.dev/billing?product=facet",
+      "https://account.omni.dev/billing?product=facet&tab=ai",
     );
   });
 
   test("trims a trailing slash before appending the billing path", () => {
-    expect(billingHubUrl("https://account.omni.dev/")).toBe(
-      "https://account.omni.dev/billing?product=facet",
+    expect(billingHubUrl("https://account.omni.dev/", "ada")).toBe(
+      "https://account.omni.dev/billing?product=facet&tab=ai&workspace=ada",
     );
   });
 
   test("returns null when no account hub is configured", () => {
     expect(billingHubUrl(undefined)).toBeNull();
     expect(billingHubUrl("")).toBeNull();
-    expect(billingHubUrl("   ")).toBeNull();
+    expect(billingHubUrl("   ", "ada")).toBeNull();
+  });
+});
+
+describe("upgradeUrl", () => {
+  test("opens Facet Pro checkout on the workspace and returns to the Studio", () => {
+    expect(
+      upgradeUrl("https://account.omni.dev", {
+        workspaceSlug: "ada",
+        returnUrl: "https://facet.omni.dev/studio",
+      }),
+    ).toBe(
+      "https://account.omni.dev/billing?product=facet&plan=pro&interval=month&workspace=ada&return=https%3A%2F%2Ffacet.omni.dev%2Fstudio",
+    );
+  });
+
+  test("omits the workspace and return when unknown, so the hub asks", () => {
+    expect(upgradeUrl("https://account.omni.dev/", {})).toBe(
+      "https://account.omni.dev/billing?product=facet&plan=pro&interval=month",
+    );
+  });
+
+  test("returns null when no account hub is configured", () => {
+    expect(upgradeUrl(undefined, { workspaceSlug: "ada" })).toBeNull();
+    expect(upgradeUrl(" ", {})).toBeNull();
+  });
+
+  test("the call to action reads as an upgrade to Pro", () => {
+    expect(PANEL_COPY.upgrade).toBe("Upgrade to Pro");
+  });
+});
+
+describe("studioReturnUrl", () => {
+  test("is the Studio on the current origin, lowercased", () => {
+    expect(studioReturnUrl("https://Facet.Omni.dev")).toBe(
+      "https://facet.omni.dev/studio",
+    );
+  });
+
+  test("is undefined without a usable http(s) origin (e.g. a desktop shell)", () => {
+    expect(studioReturnUrl(undefined)).toBeUndefined();
+    expect(studioReturnUrl("null")).toBeUndefined();
+    expect(studioReturnUrl("tauri://localhost")).toBeUndefined();
   });
 });
 

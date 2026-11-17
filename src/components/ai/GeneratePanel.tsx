@@ -1,9 +1,10 @@
 import { AiDescribePanel } from "@omnidotdev/thornberry/ai-describe-panel";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchCapabilities } from "@/ai/capabilities";
 import { critiqueModel } from "@/ai/critique";
 import { reportDisposition } from "@/ai/disposition";
+import { GenerateError } from "@/ai/generate";
 import {
   BALANCE_CAPTION,
   PANEL_COPY,
@@ -11,23 +12,35 @@ import {
   SYNAPSE_KEY_URL,
   SYNAPSE_URL,
   billingHubUrl,
+  canUpgrade,
   classifyGenerateError,
+  createThrottle,
   creditCount,
   creditsSpent,
+  followUpAction,
+  followUpNotice,
   formatGeneratedToast,
   formatPerPartEstimate,
   formatSpentNote,
+  noticeLinks,
   phaseLabel,
+  shouldClearOutOfCredits,
+  studioReturnUrl,
+  upgradeUrl,
   withProvenanceHeader,
 } from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
-import { isAuthConfigured, signOut } from "@/lib/auth/session";
+import { isAuthConfigured, requireReauth } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
 import { nameFromPrompt } from "@/tabs";
 
 import type { RefObject } from "react";
-import type { CreditBalance } from "@/ai/capabilities";
-import type { GeneratePhase } from "@/ai/panelState";
+import type { Capabilities, CreditBalance } from "@/ai/capabilities";
+import type {
+  FollowUpAction,
+  GenerateErrorAction,
+  GeneratePhase,
+} from "@/ai/panelState";
 import type { ModelRunner } from "@/ai/repair";
 import type { StudioHandle } from "@/FacetStudio";
 
@@ -40,9 +53,19 @@ const BYOK_STORAGE_KEY = "facet:ai-byok-key:v1";
 // per part" estimate instead of a hardcoded guess. Per-device only, never sent
 const LAST_SPEND_STORAGE_KEY = "facet:ai-last-spend:v1";
 
-// Funnel out-of-credits users to the shared Omni billing hub to buy credits.
-// Null when VITE_ACCOUNT_URL is unset, so the CTA is simply omitted
-const BUY_CREDITS_URL = billingHubUrl(import.meta.env.VITE_ACCOUNT_URL);
+// The shared Omni account hub, where credits and Facet Pro are bought. Unset
+// means the billing links are simply omitted
+const ACCOUNT_URL = import.meta.env.VITE_ACCOUNT_URL;
+
+// How often a return to the tab may re-read the balance and plan (after buying
+// credits or upgrading in the hub's tab), so focus churn never floods the API
+const REFRESH_ON_FOCUS_MS = 10_000;
+
+/** A notice in the panel: its message and the failure it came from, if any */
+interface PanelNotice {
+  message: string;
+  action: GenerateErrorAction | null;
+}
 
 interface GeneratePanelProps {
   /** The Studio's editor + run handle, populated after its setup effect runs. */
@@ -117,15 +140,15 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The panel's notice (an error or a billing refusal) and what caused it, so
+  // the matching Buy credits / Upgrade links show beside it
+  const [notice, setNotice] = useState<PanelNotice | null>(null);
   // Credits a failed-but-charged managed attempt took off the balance
   const [spent, setSpent] = useState<string | null>(null);
   // A short confirmation shown after the dialog closes on a successful generate
   const [toast, setToast] = useState<string | null>(null);
   const [byokOpen, setByokOpen] = useState(false);
   const [byokKey, setByokKey] = useState(loadByokKey);
-  // Set when a managed call comes back 402, to surface the buy-credits link
-  const [outOfCredits, setOutOfCredits] = useState(false);
   // null while unknown; the gateway says whether this user may use managed
   // generation (the server's env allowlist), so the panel is shown only to
   // permitted users rather than to everyone with a 403 after the fact
@@ -134,6 +157,13 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // so a per-generation cost has context. null until known or when not
   // applicable (signed out, BYOK, or the balance could not be read)
   const [credits, setCredits] = useState<CreditBalance | null>(null);
+  // The billed workspace's Facet tier (drives the Upgrade entry point) and its
+  // slug (deep-links the hub to it). Undefined until known, or against an
+  // older gateway that does not report the workspace
+  const [tier, setTier] = useState<string | undefined>(undefined);
+  const [workspaceSlug, setWorkspaceSlug] = useState<string | undefined>(
+    undefined,
+  );
   // Which step of a managed generation is in flight, surfaced as a live status
   // beside the spinner so a multi-call run reads as progress: "generating", then
   // "checking" (the vision model grounds the result against the render), then
@@ -148,6 +178,14 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
 
   const authConfigured = isAuthConfigured();
 
+  // Adopt the billing details of a capability answer (balance, tier, and the
+  // workspace they belong to)
+  const adoptBilling = useCallback((caps: Capabilities) => {
+    setCredits(caps.credits ?? null);
+    setTier(caps.tier);
+    setWorkspaceSlug(caps.workspace?.slug);
+  }, []);
+
   // Probe the gateway's capability for the signed-in user; re-run on sign-in
   // state changes. Signed out means no managed access
   useEffect(() => {
@@ -155,19 +193,64 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     if (!signedIn) {
       setManagedAllowed(false);
       setCredits(null);
+      setTier(undefined);
+      setWorkspaceSlug(undefined);
       return;
     }
     let active = true;
     setManagedAllowed(null);
     fetchCapabilities().then((caps) => {
       if (!active) return;
+      // The token predates the workspace claim: drop it and prompt a new
+      // sign-in rather than leaving a panel that can never generate
+      if (caps.reauthRequired) {
+        void requireReauth();
+        return;
+      }
       setManagedAllowed(caps.managedGeneration);
-      setCredits(caps.credits ?? null);
+      adoptBilling(caps);
     });
     return () => {
       active = false;
     };
-  }, [authConfigured, signedIn]);
+  }, [authConfigured, signedIn, adoptBilling]);
+
+  // Re-read the balance and plan when the user comes back to the tab, since
+  // credits are bought and plans upgraded in the account hub's tab. Throttled,
+  // and only for a managed user. A purchase that lands clears the
+  // out-of-credits notice; a failed read keeps what is shown (the probe above
+  // owns whether the panel shows at all)
+  const allowFocusRefresh = useRef(createThrottle(REFRESH_ON_FOCUS_MS));
+  useEffect(() => {
+    if (!authConfigured || !signedIn || !managedAllowed) return;
+    let active = true;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!allowFocusRefresh.current()) return;
+      fetchCapabilities().then((caps) => {
+        if (!active) return;
+        if (caps.reauthRequired) {
+          void requireReauth();
+          return;
+        }
+        if (!caps.managedGeneration) return;
+        adoptBilling(caps);
+        const balance = caps.credits?.balance ?? null;
+        setNotice((current) =>
+          current && shouldClearOutOfCredits(current.action, balance)
+            ? null
+            : current,
+        );
+      });
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [authConfigured, signedIn, managedAllowed, adoptBilling]);
   // BYOK is the no-auth (local/dev) fallback only; signed-in prod users never
   // paste a key (their Synapse identity drives generation)
   const byokAllowed = !authConfigured;
@@ -178,7 +261,8 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // never local math) and return it for the spent-credits figure
   const refreshBalance = async (): Promise<number | null> => {
     const caps = await fetchCapabilities();
-    setCredits(caps.credits ?? null);
+    if (caps.managedGeneration) adoptBilling(caps);
+    else setCredits(caps.credits ?? null);
     return caps.credits?.balance ?? null;
   };
 
@@ -186,9 +270,8 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
     if (!next) {
-      setError(null);
+      setNotice(null);
       setSpent(null);
-      setOutOfCredits(false);
       setPhase(null);
     }
   };
@@ -208,15 +291,17 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       // No-auth fallback: a key is the only path, so guide the user to it
       if (byokAllowed && !hasByok) {
         setByokOpen(true);
-        setError("Add your Synapse key below to generate.");
+        setNotice({
+          message: "Add your Synapse key below to generate.",
+          action: null,
+        });
       }
       return;
     }
 
     setBusy(true);
-    setError(null);
+    setNotice(null);
     setSpent(null);
-    setOutOfCredits(false);
     setPhase("generating");
     // The balance before this generation, so what it spent can be read off the
     // balance change afterwards
@@ -246,23 +331,30 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     });
 
     if (result.status === "ok") {
-      setOutOfCredits(false);
-      setError(null);
+      setNotice(null);
       setSpent(null);
 
       // The gateway's id for this generation chain, threaded through the critique
       // and any refine so the whole loop, and the kept signal below, correlate
       const generationId = result.generationId;
 
+      // A billing refusal (out of credits, plan, usage limit) from the check or
+      // refine below. The draft is kept either way; this only tells the user
+      // why it was not checked or improved, with the matching billing link
+      // (a holder, since the critique's catch callback sets it)
+      const followUp: {
+        current: { action: FollowUpAction; message: string } | null;
+      } = { current: null };
+
       // Ground the result: critique the render and, if it misses the request,
       // automatically refine once (regenerate with the critic's guidance) so the
-      // user gets a better model instead of under-the-hood instructions. Fully
-      // best-effort: a capture, critique, or refine failure degrades to the first
-      // good result and never blocks, fails, or discards it. Only runs when the
-      // viewport can be captured
+      // user gets a better model instead of under-the-hood instructions.
+      // Best-effort: a capture, critique, or refine failure degrades to the
+      // first good result and never blocks, fails, or discards it. Only runs
+      // when the viewport can be captured
       try {
         setPhase("checking");
-        const image = studio.capture();
+        const image = await studio.capture();
         if (image) {
           const verdict = await critiqueModel(
             trimmed,
@@ -272,10 +364,18 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
               ...(hasByok ? { byokKey } : {}),
               ...(generationId ? { generationId } : {}),
             },
-          );
-          if (!verdict.ok && verdict.suggestedFix) {
+          ).catch((err: unknown) => {
+            const action = followUpAction(
+              err instanceof GenerateError ? err.status : undefined,
+            );
+            if (action && err instanceof GenerateError) {
+              followUp.current = { action, message: err.message };
+            }
+            return null;
+          });
+          if (verdict && !verdict.ok && verdict.suggestedFix) {
             setPhase("refining");
-            await generateAndRun(trimmed, runner, {
+            const refined = await generateAndRun(trimmed, runner, {
               ...(hasByok ? { byokKey } : {}),
               // Keep the same chain id so the refine pass correlates to the draft
               ...(generationId ? { generationId } : {}),
@@ -287,6 +387,12 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
                 suggestion: verdict.suggestedFix,
               },
             });
+            if (refined.status === "error") {
+              const action = followUpAction(refined.httpStatus);
+              if (action) {
+                followUp.current = { action, message: refined.message };
+              }
+            }
           }
         }
       } catch {
@@ -308,11 +414,24 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         setLastSpend(spentCredits);
         persistLastSpend(spentCredits);
       }
-      setToast(formatGeneratedToast(spentCredits, hasByok));
 
       setPhase(null);
       setBusy(false);
       setPrompt("");
+
+      // A refused check or refine keeps the dialog open on the reason (and the
+      // way to fix it); the draft is already in its own tab behind the dialog
+      const refusal = followUp.current;
+      if (refusal) {
+        setNotice({
+          message: followUpNotice(refusal.action, refusal.message),
+          action: refusal.action,
+        });
+        setSpent(spentCredits ? formatSpentNote(spentCredits) : null);
+        return;
+      }
+
+      setToast(formatGeneratedToast(spentCredits, hasByok));
       handleOpenChange(false);
       return;
     }
@@ -323,20 +442,22 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
       ? null
       : creditsSpent(balanceBefore, await refreshBalance());
     setSpent(failedSpend ? formatSpentNote(failedSpend) : null);
-    switch (classifyGenerateError(result.httpStatus)) {
+    const action = classifyGenerateError(result.httpStatus);
+    switch (action) {
       case "signIn":
-        // The session expired or was revoked mid-use. Clear it so the header
-        // account control flips back to "Sign in"; this panel then hides until
-        // the user signs in again (no in-panel sign-in anymore)
+        // The session expired, was revoked, or predates the workspace claim.
+        // Clear it and prompt a new sign-in at the header account control; this
+        // panel then hides until the user signs in again
         handleOpenChange(false);
-        void signOut();
+        void requireReauth();
         break;
       case "outOfCredits":
-        setError(PANEL_COPY.outOfCredits);
-        setOutOfCredits(true);
+        setNotice({ message: PANEL_COPY.outOfCredits, action });
         break;
       default:
-        setError(result.message);
+        // Plan and usage-limit refusals carry the gateway's own message, plus
+        // an Upgrade link where it helps
+        setNotice({ message: result.message, action });
     }
     setPhase(null);
     setBusy(false);
@@ -351,40 +472,91 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // server-side regardless of what the UI shows
   if (authConfigured && !(signedIn && managedAllowed)) return null;
 
-  // Error, any billed-but-failed spend, and the buy-credits link share the
+  // Billing links into the account hub, deep-linked to the workspace Facet
+  // bills when the gateway reports it
+  const buyCreditsHref = billingHubUrl(ACCOUNT_URL, workspaceSlug);
+  const upgradeHref = upgradeUrl(ACCOUNT_URL, {
+    workspaceSlug,
+    returnUrl: studioReturnUrl(window.location.origin),
+  });
+  const links = noticeLinks(notice?.action ?? null, tier);
+  const noticeBuy = links.buyCredits ? buyCreditsHref : null;
+  const noticeUpgrade = links.upgrade ? upgradeHref : null;
+
+  // The notice, any billed-but-failed spend, and the billing links share the
   // panel's notice slot; the panel renders whatever node it is handed. The live
   // generation status is NOT here: it rides the panel's pendingLabel so it shows
   // beside the spinner, right where the user is waiting
-  const notice =
-    error || spent || (outOfCredits && BUY_CREDITS_URL) ? (
+  const noticeNode =
+    notice || spent ? (
       <div className="ai-notice">
-        {error ? <p role="alert">{error}</p> : null}
+        {notice ? <p role="alert">{notice.message}</p> : null}
         {spent ? <p className="ai-spent">{spent}</p> : null}
-        {outOfCredits && BUY_CREDITS_URL ? (
-          <a
-            className="ai-upgrade"
-            href={BUY_CREDITS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            {PANEL_COPY.buyCredits}
-          </a>
+        {noticeBuy || noticeUpgrade ? (
+          <div className="ai-notice-actions">
+            {noticeBuy ? (
+              <a
+                className="ai-upgrade"
+                href={noticeBuy}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {PANEL_COPY.buyCredits}
+              </a>
+            ) : null}
+            {noticeUpgrade ? (
+              <a
+                className={
+                  noticeBuy ? "ai-upgrade ai-upgrade-secondary" : "ai-upgrade"
+                }
+                href={noticeUpgrade}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {PANEL_COPY.upgrade}
+              </a>
+            ) : null}
+          </div>
         ) : null}
       </div>
     ) : undefined;
 
+  // A quiet Upgrade to Pro link for the free tier, beside the balance. Hidden
+  // for paid tiers, and while the notice already offers it
+  const metaUpgrade =
+    !hasByok && canUpgrade(tier) && !noticeUpgrade ? upgradeHref : null;
+
   // The strategic footer slot: what the user weighs right before spending. The
   // pooled balance (prominent), its shared-across-Omni context (a quiet
-  // caption), and an honest per-part estimate drawn from the last real spend.
-  // Managed only; BYOK bills the caller's own account, so credits do not apply
+  // caption), an honest per-part estimate drawn from the last real spend, and
+  // the free tier's way up. Managed only; BYOK bills the caller's own account,
+  // so credits do not apply
   const meta =
-    !hasByok && credits ? (
+    !hasByok && (credits || metaUpgrade) ? (
       <span className="ai-meta">
-        <span className="ai-meta-primary">
-          <span className="ai-credits">{creditCount(credits.balance)}</span>
-          <span className="ai-meta-caption">{BALANCE_CAPTION}</span>
+        {credits ? (
+          <span className="ai-meta-primary">
+            <span className="ai-credits">{creditCount(credits.balance)}</span>
+            <span className="ai-meta-caption">{BALANCE_CAPTION}</span>
+          </span>
+        ) : null}
+        <span className="ai-meta-secondary">
+          {credits ? (
+            <span className="ai-estimate">
+              {formatPerPartEstimate(lastSpend)}
+            </span>
+          ) : null}
+          {metaUpgrade ? (
+            <a
+              className="ai-upgrade-link"
+              href={metaUpgrade}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {PANEL_COPY.upgrade}
+            </a>
+          ) : null}
         </span>
-        <span className="ai-estimate">{formatPerPartEstimate(lastSpend)}</span>
       </span>
     ) : undefined;
 
@@ -430,7 +602,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         isPending={busy}
         pendingLabel={phase ? phaseLabel(phase) : undefined}
         meta={meta}
-        notice={notice}
+        notice={noticeNode}
         byok={
           byokAllowed
             ? {

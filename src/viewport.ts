@@ -7,6 +7,12 @@ import { GridPipeline } from "./gpu/gridPipeline";
 import { MeshPipeline } from "./gpu/meshPipeline";
 import { OrbitState } from "./gpu/orbit";
 import { paletteFor } from "./gpu/palette";
+import {
+  alignedBytesPerRow,
+  captureSize,
+  isUniform,
+  unpackPixels,
+} from "./gpu/readback";
 
 import type { TgpuRoot } from "typegpu";
 import type { Mesh } from "./facet";
@@ -35,8 +41,44 @@ const WHEEL_SPEED = 0.0012;
 const NOTICE_COPY =
   "This 3D preview needs WebGPU. Use a current version of Chrome, Edge, Safari, or Firefox.";
 
+/**
+ * Long edge of an AI critique capture, in pixels. Fixed (rather than the
+ * on-screen canvas size) so the vision model sees a predictable image at a
+ * predictable cost, and so capture works when the viewport is hidden
+ */
+const CAPTURE_LONG_EDGE = 768;
+
+/** A rendered view, encoded for the AI render critique */
+export interface ViewportCapture {
+  mediaType: "image/png";
+  /** Base64 PNG bytes, no `data:` prefix */
+  data: string;
+}
+
 const toCss = (c: readonly [number, number, number, number]): string =>
   `rgb(${Math.round(c[0] * 255)} ${Math.round(c[1] * 255)} ${Math.round(c[2] * 255)})`;
+
+/**
+ * Encode RGBA pixels as base64 PNG (no `data:` prefix) through a 2D canvas, or
+ * null when the browser can not encode
+ */
+const encodePng = (
+  pixels: Uint8ClampedArray<ArrayBuffer>,
+  width: number,
+  height: number,
+): string | null => {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.putImageData(new ImageData(pixels, width, height), 0, 0);
+  const url = canvas.toDataURL("image/png");
+  const comma = url.indexOf(",");
+  return comma > 0 && url.startsWith("data:image/png")
+    ? url.slice(comma + 1)
+    : null;
+};
 
 /**
  * A Z-up WebGPU viewport that renders Facet meshes with flat, faceted shading
@@ -54,6 +96,7 @@ export class Viewport {
   private canvas: HTMLCanvasElement | null = null;
   private root: TgpuRoot | null = null;
   private context: GPUCanvasContext | null = null;
+  private format: GPUTextureFormat = "bgra8unorm";
   private depthFormat: GPUTextureFormat = "depth24plus";
   private depthTexture: GPUTexture | null = null;
   private depthView: GPUTextureView | null = null;
@@ -104,6 +147,7 @@ export class Viewport {
     const root = tgpu.initFromDevice({ device });
     this.root = root;
     const format = navigator.gpu.getPreferredCanvasFormat();
+    this.format = format;
     this.context = root.configureContext({ canvas, format });
 
     this.mesh = new MeshPipeline(root, format, this.depthFormat);
@@ -228,50 +272,109 @@ export class Viewport {
 
   /**
    * Capture the current view as a PNG, for the AI render-and-critique loop (hand
-   * the result to a vision model). Draws a fresh frame first, then reads the
-   * WebGPU canvas via `toDataURL`. Returns null when the viewport is not running
-   * (notice shown / no WebGPU device) or capture is unsupported.
+   * the result to a vision model). Resolves null when there is nothing to
+   * capture (no WebGPU device, no model yet) or the readback fails or is blank,
+   * so the critique simply does not run.
    *
-   * NOTE: reading a WebGPU canvas with `toDataURL` depends on the browser
-   * compositing the swapchain into a readable surface, which modern Chrome does
-   * but is not guaranteed everywhere; a blank result means that fallback did not
-   * fire. The robust path is to render this frame into an offscreen texture with
-   * COPY_SRC usage, `copyTextureToBuffer` (bytesPerRow 256-aligned), `mapAsync`
-   * the bytes, swap BGRA->RGBA when the preferred format is bgra8unorm, and
-   * encode via an OffscreenCanvas. Swap to that if the simple read proves blank
-   * in the field. Verify on a real GPU - headless WebGPU is unreliable
+   * The frame is rendered into an offscreen texture and read back with
+   * `copyTextureToBuffer`, never from the on-screen canvas: reading a WebGPU
+   * canvas (`toDataURL`) depends on the browser compositing the swapchain into
+   * a readable surface, which some GPU stacks do not do (Linux + Vulkan returns
+   * a fully transparent image), and a hidden or collapsed viewport (the phone
+   * layout's code tab) has a 1x1 canvas. The offscreen frame uses the on-screen
+   * camera at a fixed size, so it matches what the user sees
    */
-  capture(): { mediaType: "image/png"; data: string } | null {
-    if (this.disposed || !this.ready || !this.canvas) return null;
-    // force a fresh frame so the canvas holds the current geometry
-    this.render();
+  async capture(): Promise<ViewportCapture | null> {
+    if (this.disposed || !this.ready || !this.hasFramed) return null;
+    const root = this.root;
+    if (!root) return null;
+
+    const { width, height } = captureSize(
+      this.width,
+      this.height,
+      CAPTURE_LONG_EDGE,
+    );
+    const device = root.device;
+    const bytesPerRow = alignedBytesPerRow(width);
+    let color: GPUTexture | null = null;
+    let depth: GPUTexture | null = null;
+    let buffer: GPUBuffer | null = null;
+
     try {
-      const url = this.canvas.toDataURL("image/png");
-      const comma = url.indexOf(",");
-      if (comma < 0 || !url.startsWith("data:image/png")) return null;
-      const data = url.slice(comma + 1);
-      // Guard a blank/empty capture: a 0-size canvas or a browser that did not
-      // composite the WebGPU surface yields a tiny near-uniform PNG. Treat that
-      // as "no capture" so the critique loop degrades to a no-op rather than
-      // critiquing an empty image (a real rendered part is many KB of base64)
-      const MIN_CAPTURE_BYTES = 1024;
-      return data.length >= MIN_CAPTURE_BYTES
-        ? { mediaType: "image/png", data }
-        : null;
+      color = device.createTexture({
+        size: [width, height],
+        format: this.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      });
+      depth = device.createTexture({
+        size: [width, height],
+        format: this.depthFormat,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      });
+      buffer = device.createBuffer({
+        size: bytesPerRow * height,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      });
+
+      if (!this.draw(color.createView(), depth.createView(), width / height)) {
+        return null;
+      }
+
+      const encoder = device.createCommandEncoder();
+      encoder.copyTextureToBuffer(
+        { texture: color },
+        { buffer, bytesPerRow, rowsPerImage: height },
+        [width, height],
+      );
+      device.queue.submit([encoder.finish()]);
+
+      await buffer.mapAsync(GPUMapMode.READ);
+      if (this.disposed) return null;
+      const pixels = unpackPixels(
+        new Uint8Array(buffer.getMappedRange()),
+        width,
+        height,
+        bytesPerRow,
+        this.format,
+      );
+      buffer.unmap();
+
+      // A frame that drew nothing is not worth critiquing
+      if (isUniform(pixels)) return null;
+
+      const data = encodePng(pixels, width, height);
+      return data ? { mediaType: "image/png", data } : null;
     } catch {
       return null;
+    } finally {
+      color?.destroy();
+      depth?.destroy();
+      buffer?.destroy();
     }
   }
 
+  /** Draw the on-screen frame to the canvas. */
   private render(): void {
-    if (this.disposed) return;
-    const { root, mesh, grid, orbit } = this;
     const context = this.context;
     const depthView = this.depthView;
-    if (!root || !context || !mesh || !grid || !orbit || !depthView) return;
+    if (!context || !depthView) return;
+    this.draw(context, depthView, this.width / Math.max(this.height, 1));
+  }
+
+  /**
+   * Draw the scene into a color target with the current camera. Returns false
+   * when the viewport is not set up (nothing was drawn)
+   */
+  private draw(
+    target: GPUCanvasContext | GPUTextureView,
+    depthView: GPUTextureView,
+    aspect: number,
+  ): boolean {
+    if (this.disposed) return false;
+    const { root, mesh, grid, orbit } = this;
+    if (!root || !mesh || !grid || !orbit) return false;
 
     orbit.update();
-    const aspect = this.width / Math.max(this.height, 1);
     const viewProj = viewProjection({
       eye: orbit.eye(),
       target: orbit.target,
@@ -292,7 +395,7 @@ export class Viewport {
     const pass = encoder.beginRenderPass({
       colorAttachments: [
         {
-          view: context,
+          view: target,
           clearValue: [bg[0], bg[1], bg[2], bg[3]],
           loadOp: "clear",
           storeOp: "store",
@@ -309,6 +412,7 @@ export class Viewport {
     mesh.render(pass);
     pass.end();
     encoder.submit();
+    return true;
   }
 
   private attachPointer(canvas: HTMLCanvasElement): void {

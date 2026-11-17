@@ -525,6 +525,23 @@ a.ai-router-link:hover {
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+/* The estimate line, with the free tier's quiet Upgrade to Pro link beside it */
+.ai-meta-secondary {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+a.ai-upgrade-link {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: none;
+}
+a.ai-upgrade-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 
 /* Transient confirmation after the dialog closes on a successful generation */
 .ai-toast {
@@ -543,19 +560,40 @@ a.ai-router-link:hover {
   font-size: 13px;
   font-weight: 500;
 }
-.facet-app a.ai-upgrade {
-  justify-self: start;
+/* Billing links in the panel notice (Buy credits, Upgrade to Pro). The panel
+   portals outside .facet-app, so these use the Sigil semantic tokens. The
+   secondary variant is the quieter companion when both links show */
+a.ai-upgrade {
   display: inline-block;
   padding: 6px 12px;
+  border: 1px solid var(--primary);
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
-  color: var(--accent-ink);
-  background: var(--accent);
+  color: var(--primary-foreground);
+  background: var(--primary);
 }
-.facet-app a.ai-upgrade:hover {
+a.ai-upgrade:hover {
   opacity: 0.9;
+}
+a.ai-upgrade.ai-upgrade-secondary {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+.ai-notice {
+  display: grid;
+  gap: 8px;
+}
+.ai-notice p {
+  margin: 0;
+}
+.ai-notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 .ai-byok {
   display: grid;
@@ -855,6 +893,18 @@ a.ai-router-link:hover {
 .facet-app .account-dropdown .account-item:hover {
   background: var(--panel-2);
   border-color: transparent;
+}
+
+/* "Sign in again" prompt under the Sign in button, shown when a session was
+   dropped because it can no longer generate */
+.facet-app .account-reauth-text {
+  max-width: 220px;
+  margin: 0;
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: normal;
 }
 
 /* AI training-data opt-in: a labeled switch plus a plain-language explanation

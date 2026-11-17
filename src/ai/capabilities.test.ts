@@ -77,6 +77,86 @@ describe("fetchCapabilities", () => {
     expect(caps.managedGeneration).toBe(true);
   });
 
+  test("parses the personal workspace slug, lowercased", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    global.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          signedIn: true,
+          managedGeneration: true,
+          tier: "free",
+          workspace: { slug: "Ada-Lovelace" },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const caps = await fetchCapabilities(async () => "tok");
+    expect(caps.workspace).toEqual({ slug: "ada-lovelace" });
+  });
+
+  test("omits a missing or malformed workspace (older gateway)", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    for (const workspace of [
+      undefined,
+      null,
+      "ada",
+      { slug: 42 },
+      { slug: "" },
+      { slug: "not a slug" },
+      { slug: "../billing" },
+    ]) {
+      global.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            signedIn: true,
+            managedGeneration: true,
+            workspace,
+          }),
+          { status: 200 },
+        )) as unknown as typeof fetch;
+
+      const caps = await fetchCapabilities(async () => "tok");
+      expect(caps.workspace).toBeUndefined();
+      expect(caps.managedGeneration).toBe(true);
+    }
+  });
+
+  test("reports a session that must sign in again", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    global.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          signedIn: true,
+          managedGeneration: false,
+          reauthRequired: true,
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const caps = await fetchCapabilities(async () => "tok");
+    expect(caps).toEqual({
+      signedIn: true,
+      managedGeneration: false,
+      reauthRequired: true,
+    });
+  });
+
+  test("only a literal true asks for a new sign-in", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    global.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          signedIn: true,
+          managedGeneration: true,
+          reauthRequired: "yes",
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const caps = await fetchCapabilities(async () => "tok");
+    expect(caps.reauthRequired).toBeUndefined();
+  });
+
   test("ignores the retired monthly-cap shape", async () => {
     process.env.VITE_FACET_API_URL = API_URL;
     global.fetch = (async () =>

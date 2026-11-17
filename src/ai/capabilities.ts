@@ -28,7 +28,31 @@ export interface Capabilities {
    * account menu's consent toggle
    */
   aiTrainingConsent?: boolean;
+  /**
+   * The personal workspace Facet bills (an Omni organization), present for a
+   * managed user against a gateway that reports it. Used to deep-link the
+   * account hub's credits and plan checkout to that workspace
+   */
+  workspace?: { slug: string };
+  /**
+   * Set when the session is signed in but its token predates the workspace
+   * claim, so the user must sign in again before managed generation works
+   */
+  reauthRequired?: boolean;
 }
+
+/** A workspace slug as the account hub accepts it (lowercase, dashed) */
+const isWorkspaceSlug = (value: string): boolean =>
+  value.length <= 100 && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(value);
+
+/** Read the workspace slug from the gateway's answer, or undefined */
+const parseWorkspace = (value: unknown): { slug: string } | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const slug = (value as { slug?: unknown }).slug;
+  if (typeof slug !== "string") return undefined;
+  const lowered = slug.toLowerCase();
+  return isWorkspaceSlug(lowered) ? { slug: lowered } : undefined;
+};
 
 const NONE: Capabilities = { signedIn: false, managedGeneration: false };
 
@@ -59,6 +83,8 @@ export async function fetchCapabilities(
       tier?: unknown;
       credits?: { balance?: unknown };
       aiTrainingConsent?: unknown;
+      workspace?: unknown;
+      reauthRequired?: unknown;
     };
     // Only trust a finite numeric balance; anything else is omitted so the
     // panel simply shows no balance rather than a broken one
@@ -73,12 +99,16 @@ export async function fetchCapabilities(
       typeof data.aiTrainingConsent === "boolean"
         ? data.aiTrainingConsent
         : undefined;
+    // An older gateway sends no workspace; links then omit it
+    const workspace = parseWorkspace(data.workspace);
     return {
       signedIn: Boolean(data.signedIn),
       managedGeneration: Boolean(data.managedGeneration),
       ...(tier ? { tier } : {}),
       ...(credits ? { credits } : {}),
       ...(aiTrainingConsent !== undefined ? { aiTrainingConsent } : {}),
+      ...(workspace ? { workspace } : {}),
+      ...(data.reauthRequired === true ? { reauthRequired: true } : {}),
     };
   } catch {
     return NONE;
