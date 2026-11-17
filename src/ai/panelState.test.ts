@@ -18,8 +18,11 @@ import {
   formatSpentNote,
   noticeLinks,
   phaseLabel,
+  refreshedAccess,
+  resolveManagedAccess,
   resolvePanelMode,
   shouldClearOutOfCredits,
+  shouldClearPaymentRequired,
   studioReturnUrl,
   upgradeUrl,
   withProvenanceHeader,
@@ -81,6 +84,101 @@ describe("resolvePanelMode", () => {
   });
 });
 
+describe("resolvePanelMode in the paid-access state", () => {
+  test("a user who must pay leads with the key path until a key is set", () => {
+    expect(
+      resolvePanelMode({
+        authConfigured: true,
+        signedIn: true,
+        hasByok: false,
+        paymentRequired: true,
+      }),
+    ).toBe("needsKey");
+  });
+
+  test("their own key lets them generate", () => {
+    expect(
+      resolvePanelMode({
+        authConfigured: true,
+        signedIn: true,
+        hasByok: true,
+        paymentRequired: true,
+      }),
+    ).toBe("generate");
+  });
+});
+
+describe("resolveManagedAccess", () => {
+  test("managed generation wins", () => {
+    expect(
+      resolveManagedAccess({ signedIn: true, managedGeneration: true }),
+    ).toBe("managed");
+    expect(
+      resolveManagedAccess({
+        signedIn: true,
+        managedGeneration: true,
+        paymentRequired: true,
+      }),
+    ).toBe("managed");
+  });
+
+  test("a signed-in user who is not yet a customer must pay", () => {
+    expect(
+      resolveManagedAccess({
+        signedIn: true,
+        managedGeneration: false,
+        paymentRequired: true,
+      }),
+    ).toBe("paymentRequired");
+  });
+
+  test("anything else has no managed access", () => {
+    expect(
+      resolveManagedAccess({ signedIn: true, managedGeneration: false }),
+    ).toBe("none");
+    expect(
+      resolveManagedAccess({
+        signedIn: false,
+        managedGeneration: false,
+        paymentRequired: true,
+      }),
+    ).toBe("none");
+  });
+});
+
+describe("refreshedAccess", () => {
+  test("a purchase that lands switches the panel to managed", () => {
+    expect(
+      refreshedAccess("paymentRequired", {
+        signedIn: true,
+        managedGeneration: true,
+      }),
+    ).toBe("managed");
+  });
+
+  test("a stale managed state settles on paid access", () => {
+    expect(
+      refreshedAccess("managed", {
+        signedIn: true,
+        managedGeneration: false,
+        paymentRequired: true,
+      }),
+    ).toBe("paymentRequired");
+  });
+
+  test("a failed read keeps what is shown", () => {
+    expect(
+      refreshedAccess("paymentRequired", {
+        signedIn: false,
+        managedGeneration: false,
+      }),
+    ).toBe("paymentRequired");
+    expect(
+      refreshedAccess("managed", { signedIn: false, managedGeneration: false }),
+    ).toBe("managed");
+  });
+});
+
 describe("classifyGenerateError", () => {
   test("401 asks the user to sign in", () => {
     expect(classifyGenerateError(401)).toBe("signIn");
@@ -88,6 +186,21 @@ describe("classifyGenerateError", () => {
 
   test("402 reports being out of credits", () => {
     expect(classifyGenerateError(402)).toBe("outOfCredits");
+  });
+
+  test("402 with payment_required asks a non-customer to pay", () => {
+    expect(classifyGenerateError(402, "payment_required")).toBe(
+      "paymentRequired",
+    );
+  });
+
+  test("402 with out_of_credits or no code stays out of credits", () => {
+    expect(classifyGenerateError(402, "out_of_credits")).toBe("outOfCredits");
+    expect(classifyGenerateError(402, undefined)).toBe("outOfCredits");
+  });
+
+  test("the payment code only matters on a 402", () => {
+    expect(classifyGenerateError(500, "payment_required")).toBe("generic");
   });
 
   test("403 reports a plan that does not include the feature", () => {
@@ -110,6 +223,10 @@ describe("followUpAction", () => {
     expect(followUpAction(402)).toBe("outOfCredits");
     expect(followUpAction(403)).toBe("planRequired");
     expect(followUpAction(429)).toBe("usageLimit");
+  });
+
+  test("surfaces a payment refusal from a step after the draft", () => {
+    expect(followUpAction(402, "payment_required")).toBe("paymentRequired");
   });
 
   test("stays silent on anything else, since the check is advisory", () => {
@@ -183,6 +300,21 @@ describe("noticeLinks", () => {
     });
   });
 
+  test("a payment refusal offers credits and an upgrade unless known paid", () => {
+    expect(noticeLinks("paymentRequired", "free")).toEqual({
+      buyCredits: true,
+      upgrade: true,
+    });
+    expect(noticeLinks("paymentRequired", undefined)).toEqual({
+      buyCredits: true,
+      upgrade: true,
+    });
+    expect(noticeLinks("paymentRequired", "pro")).toEqual({
+      buyCredits: true,
+      upgrade: false,
+    });
+  });
+
   test("anything else offers no billing links", () => {
     for (const action of [null, "signIn", "generic"] as const) {
       expect(noticeLinks(action, "free")).toEqual({
@@ -206,6 +338,35 @@ describe("shouldClearOutOfCredits", () => {
   test("never clears a different notice", () => {
     expect(shouldClearOutOfCredits("usageLimit", 10)).toBe(false);
     expect(shouldClearOutOfCredits(null, 10)).toBe(false);
+  });
+});
+
+describe("shouldClearPaymentRequired", () => {
+  test("clears once managed generation is available", () => {
+    expect(shouldClearPaymentRequired("paymentRequired", "managed")).toBe(true);
+  });
+
+  test("keeps the notice while the user still has to pay", () => {
+    expect(
+      shouldClearPaymentRequired("paymentRequired", "paymentRequired"),
+    ).toBe(false);
+  });
+
+  test("never clears a different notice", () => {
+    expect(shouldClearPaymentRequired("outOfCredits", "managed")).toBe(false);
+    expect(shouldClearPaymentRequired(null, "managed")).toBe(false);
+  });
+});
+
+describe("paid-access copy", () => {
+  test("says AI uses Omni credits, with no free allowance or internals", () => {
+    expect(PANEL_COPY.paymentRequired).toMatch(/omni credits/i);
+    expect(PANEL_COPY.paymentRequired).not.toMatch(
+      /free|month|organization|402|synapse/i,
+    );
+    expect(PANEL_COPY.buyCredits).toBe("Buy credits");
+    expect(PANEL_COPY.upgrade).toBe("Upgrade to Pro");
+    expect(PANEL_COPY.byokToggle).toBe("Use your own Synapse key");
   });
 });
 

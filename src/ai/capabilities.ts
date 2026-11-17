@@ -1,9 +1,10 @@
 /**
  * Ask the gateway what the signed-in user may do, so the Studio can show the
- * "describe a part" panel only to users who can actually use managed generation
- * (the server's env allowlist) instead of showing it to everyone and failing
- * with a 403. The allowlist never reaches the client; only the caller's own
- * yes/no does. Fails closed (no capability) on any error.
+ * "describe a part" panel in the right state: generating for a paying customer
+ * (Facet Pro, or a workspace that bought Omni credits), a paid-access state for
+ * a signed-in user who is not one yet, and nothing for anyone else. Only the
+ * caller's own answer reaches the client. Fails closed (no capability) on any
+ * error.
  */
 
 /**
@@ -34,6 +35,12 @@ export interface Capabilities {
    * account hub's credits and plan checkout to that workspace
    */
   workspace?: { slug: string };
+  /**
+   * Set when the user is signed in but not yet a paying customer, so managed
+   * generation needs credits or Facet Pro first (BYOK still works). Absent from
+   * an older gateway
+   */
+  paymentRequired?: boolean;
   /**
    * Set when the session is signed in but its token predates the workspace
    * claim, so the user must sign in again before managed generation works
@@ -84,6 +91,7 @@ export async function fetchCapabilities(
       credits?: { balance?: unknown };
       aiTrainingConsent?: unknown;
       workspace?: unknown;
+      paymentRequired?: unknown;
       reauthRequired?: unknown;
     };
     // Only trust a finite numeric balance; anything else is omitted so the
@@ -108,6 +116,7 @@ export async function fetchCapabilities(
       ...(credits ? { credits } : {}),
       ...(aiTrainingConsent !== undefined ? { aiTrainingConsent } : {}),
       ...(workspace ? { workspace } : {}),
+      ...(data.paymentRequired === true ? { paymentRequired: true } : {}),
       ...(data.reauthRequired === true ? { reauthRequired: true } : {}),
     };
   } catch {

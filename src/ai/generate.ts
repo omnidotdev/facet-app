@@ -7,8 +7,9 @@
  * The HTTP plumbing (bearer on the managed path, BYOK anonymous, generic
  * user-safe errors) is the fleet-shared `createGatewayClient` from
  * `@omnidotdev/providers/ai-client`; this module only shapes Facet's request
- * body and result type. `GenerateError` is the shared `GatewayError` (same
- * message + status surface), re-exported so existing consumers are unchanged.
+ * body and result type, and adds the gateway's stable error `code` to the
+ * shared error so a billing refusal can tell "not yet a customer" apart from
+ * "out of credits".
  */
 
 import {
@@ -16,8 +17,74 @@ import {
   createGatewayClient,
 } from "@omnidotdev/providers/ai-client";
 
-/** The shared gateway error, re-exported under Facet's historical name. */
-export { GatewayError as GenerateError };
+/**
+ * A failed gateway call: the shared `GatewayError` (generic, user-safe message
+ * plus HTTP status) and the gateway's stable error code when it sent one, e.g.
+ * `payment_required` or `out_of_credits` on a 402. Absent from an older gateway
+ */
+export class GenerateError extends GatewayError {
+  readonly code: string | undefined;
+
+  constructor(message: string, status?: number, code?: string) {
+    super(message, status);
+    this.name = "GenerateError";
+    this.code = code;
+  }
+}
+
+/** Read the stable error code from a failed response, leaving its body unread */
+const readErrorCode = async (
+  response: Response,
+): Promise<string | undefined> => {
+  try {
+    const data = (await response.clone().json()) as { code?: unknown };
+    return typeof data.code === "string" && data.code.length > 0
+      ? data.code
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * POST to a gateway route through the shared client, rethrowing every gateway
+ * failure as a GenerateError that carries the stable error code. A
+ * non-gateway throw passes through untouched (callers keep it generic)
+ * @param path - The gateway route, e.g. "generate"
+ * @param body - The JSON request body
+ * @param opts - The BYOK key (anonymous) or the managed-path token getter
+ */
+export async function postToGateway<TResult>(
+  path: string,
+  body: Record<string, unknown>,
+  opts: {
+    byokKey?: string;
+    getAccessToken: () => Promise<string | null>;
+  },
+): Promise<TResult> {
+  let code: string | undefined;
+  const client = createGatewayClient({
+    baseUrl: import.meta.env.VITE_FACET_API_URL,
+    getAccessToken: opts.getAccessToken,
+    // The shared client keeps only the message and status, so note the code
+    // on the way past. Typed as the global fetch, whose runtime-specific
+    // extras (e.g. a preconnect helper) the client never calls
+    fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await fetch(input, init);
+      if (!response.ok) code = await readErrorCode(response);
+      return response;
+    }) as typeof fetch,
+  });
+
+  try {
+    return await client.post<TResult>(path, body, { byokKey: opts.byokKey });
+  } catch (err) {
+    if (err instanceof GatewayError && !(err instanceof GenerateError)) {
+      throw new GenerateError(err.message, err.status, code);
+    }
+    throw err;
+  }
+}
 
 /**
  * A generation's output. No credit figure comes back: the Synapse gateway
@@ -82,24 +149,20 @@ const defaultGetAccessToken = async (): Promise<string | null> => {
  * Generate Facet code from a plain-English prompt via the gateway. On a repair
  * attempt, pass `previous` (the failed code + its error) and an incremented
  * `attempt`. Throws a GenerateError on any non-success, carrying only the
- * gateway's generic message.
+ * gateway's generic message, its status, and its stable error code.
  */
 export async function generateModel(
   prompt: string,
   opts: GenerateOptions = {},
 ): Promise<GenerateResult> {
-  const client = createGatewayClient({
-    baseUrl: import.meta.env.VITE_FACET_API_URL,
-    getAccessToken: opts.getAccessToken ?? defaultGetAccessToken,
-  });
-
   const body: Record<string, unknown> = { prompt };
   if (opts.previous) body.previous = opts.previous;
   if (opts.refine) body.refine = opts.refine;
   if (typeof opts.attempt === "number") body.attempt = opts.attempt;
   if (opts.generationId) body.generationId = opts.generationId;
 
-  return client.post<GenerateResult>("generate", body, {
+  return postToGateway<GenerateResult>("generate", body, {
     byokKey: opts.byokKey,
+    getAccessToken: opts.getAccessToken ?? defaultGetAccessToken,
   });
 }

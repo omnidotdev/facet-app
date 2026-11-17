@@ -157,6 +157,50 @@ describe("fetchCapabilities", () => {
     expect(caps.reauthRequired).toBeUndefined();
   });
 
+  test("reports a signed-in user who must pay before managed generation", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    global.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          signedIn: true,
+          managedGeneration: false,
+          paymentRequired: true,
+          tier: "free",
+          workspace: { slug: "ada" },
+          credits: { balance: 0 },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+
+    const caps = await fetchCapabilities(async () => "tok");
+    expect(caps).toEqual({
+      signedIn: true,
+      managedGeneration: false,
+      paymentRequired: true,
+      tier: "free",
+      workspace: { slug: "ada" },
+      credits: { balance: 0 },
+    });
+  });
+
+  test("omits paymentRequired from an older gateway or a non-boolean value", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    for (const paymentRequired of [undefined, "yes", 1, false]) {
+      global.fetch = (async () =>
+        new Response(
+          JSON.stringify({
+            signedIn: true,
+            managedGeneration: false,
+            paymentRequired,
+          }),
+          { status: 200 },
+        )) as unknown as typeof fetch;
+
+      const caps = await fetchCapabilities(async () => "tok");
+      expect(caps.paymentRequired).toBeUndefined();
+    }
+  });
+
   test("ignores the retired monthly-cap shape", async () => {
     process.env.VITE_FACET_API_URL = API_URL;
     global.fetch = (async () =>

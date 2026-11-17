@@ -4,11 +4,12 @@
  * matches the request. The grounding step of the render-and-critique loop.
  *
  * Mirrors `generate.ts`: the browser never holds Facet's managed key; the HTTP
- * plumbing is the fleet-shared `createGatewayClient`, and a BYOK key is passed
- * through per-request and never stored
+ * plumbing is the same `postToGateway` (the fleet-shared client plus the
+ * gateway's stable error code), and a BYOK key is passed through per-request
+ * and never stored
  */
 
-import { createGatewayClient } from "@omnidotdev/providers/ai-client";
+import { postToGateway } from "./generate";
 
 /** A render handed to the critic: raw base64 (no data: prefix) plus its type. */
 export interface CritiqueImage {
@@ -40,7 +41,7 @@ const defaultGetAccessToken = async (): Promise<string | null> => {
 
 /**
  * Ask the gateway whether `image` (a render of the geometry produced by `code`)
- * matches `prompt`. Throws a CritiqueError on any non-success, carrying only the
+ * matches `prompt`. Throws a GenerateError on any non-success, carrying only the
  * gateway's generic message.
  */
 export async function critiqueModel(
@@ -49,13 +50,11 @@ export async function critiqueModel(
   image: CritiqueImage,
   opts: CritiqueOptions = {},
 ): Promise<Critique> {
-  const client = createGatewayClient({
-    baseUrl: import.meta.env.VITE_FACET_API_URL,
-    getAccessToken: opts.getAccessToken ?? defaultGetAccessToken,
-  });
-
   const body: Record<string, unknown> = { prompt, code, image };
   if (opts.generationId) body.generationId = opts.generationId;
 
-  return client.post<Critique>("critique", body, { byokKey: opts.byokKey });
+  return postToGateway<Critique>("critique", body, {
+    byokKey: opts.byokKey,
+    getAccessToken: opts.getAccessToken ?? defaultGetAccessToken,
+  });
 }

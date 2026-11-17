@@ -206,6 +206,45 @@ describe("generateModel", () => {
     });
   }
 
+  test("carries the gateway's stable error code on a billing refusal", async () => {
+    for (const code of ["payment_required", "out_of_credits"]) {
+      stubFetch(err(402, { error: "Refused.", code }));
+
+      try {
+        await generateModel("a part", managed);
+        throw new Error("expected generateModel to throw");
+      } catch (e) {
+        expect(e).toBeInstanceOf(GenerateError);
+        const ge = e as GenerateError;
+        expect(ge.status).toBe(402);
+        expect(ge.code).toBe(code);
+        expect(ge.message).toBe("Refused.");
+      }
+    }
+  });
+
+  test("leaves the code undefined when an older gateway sends none", async () => {
+    stubFetch(err(402, { error: "Out of credits." }));
+
+    try {
+      await generateModel("a part", managed);
+      throw new Error("expected generateModel to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(GenerateError);
+      expect((e as GenerateError).code).toBeUndefined();
+    }
+  });
+
+  test("a missing identity is still a GenerateError with status 401", async () => {
+    try {
+      await generateModel("a part", { getAccessToken: async () => null });
+      throw new Error("expected generateModel to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(GenerateError);
+      expect((e as GenerateError).status).toBe(401);
+    }
+  });
+
   test("does not invent detail when the error body has no message", async () => {
     stubFetch(err(500, {}));
 

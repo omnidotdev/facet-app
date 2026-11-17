@@ -151,6 +151,27 @@ describe("generateAndRun", () => {
     });
   });
 
+  test("propagates the gateway's stable error code", async () => {
+    const runner = fakeRunner([{ ok: true }]);
+    const generate = () =>
+      Promise.reject(
+        new GenerateError(
+          "AI generation uses Omni credits.",
+          402,
+          "payment_required",
+        ),
+      );
+
+    const result = await generateAndRun("a cube", runner, { generate });
+
+    expect(result).toEqual({
+      status: "error",
+      message: "AI generation uses Omni credits.",
+      httpStatus: 402,
+      errorCode: "payment_required",
+    });
+  });
+
   test("never leaks a non-GenerateError detail", async () => {
     const runner = fakeRunner([{ ok: true }]);
     const generate = () =>
