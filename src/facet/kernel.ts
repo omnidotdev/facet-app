@@ -27,9 +27,18 @@ export class KernelError extends Error {}
  * P2. Synchronous for the in-process kernels; the OCCT B-rep kernel runs in a
  * worker behind the Promise-based `AsyncKernel` below.
  */
+/**
+ * `preview` asks for a fast draft while a slider is dragged. A kernel may
+ * approximate (the B-rep kernel flattens curved 2D merges to polygons at the
+ * display tolerance) or ignore it; exports never pass it
+ */
+export interface EvaluateOptions {
+  preview?: boolean;
+}
+
 export interface Kernel {
   readonly name: string;
-  evaluate(node: OpNode): Mesh;
+  evaluate(node: OpNode, options?: EvaluateOptions): Mesh;
   export(node: OpNode, format: ExportFormat): Uint8Array;
 }
 
@@ -40,7 +49,7 @@ export interface Kernel {
  */
 export interface AsyncKernel {
   readonly name: string;
-  evaluate(node: OpNode): Promise<Mesh>;
+  evaluate(node: OpNode, options?: EvaluateOptions): Promise<Mesh>;
   export(node: OpNode, format: ExportFormat): Promise<Uint8Array>;
 }
 

@@ -8,6 +8,7 @@ import wasmUrl from "replicad-opencascadejs/wasm?url";
 import fontUrl from "../fonts/LiberationSans-Regular.ttf?url";
 import { hull3d } from "./hull";
 import { KernelError } from "./kernel";
+import { is2dBoolean, polygonize } from "./polygon2d";
 import { decodePolyhedron, triangulateFace } from "./polyhedron";
 import { meshToStlBinary } from "./stl";
 import { drawSvgPath } from "./svgPath";
@@ -15,7 +16,7 @@ import { meshTo3mf } from "./threeMf";
 
 import type { Drawing, Face, Shape3D } from "replicad";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
-import type { ExportFormat, Kernel, Mesh } from "./kernel";
+import type { EvaluateOptions, ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode } from "./opgraph";
 
 /** The replicad module surface, typed without pulling it into the bundle. */
@@ -240,12 +241,59 @@ function mirrorMesh(mesh: Mesh, normal: [number, number, number]): Mesh {
  * arrays) is in hand. The registry is a Set, so sweeping tolerates a handle a
  * boolean already freed, and the sweep in `finally` runs even on a throw.
  */
-export function evaluateOpGraph(rc: Replicad, node: OpNode): Mesh {
+export function evaluateOpGraph(
+  rc: Replicad,
+  node: OpNode,
+  options: EvaluateOptions = {},
+): Mesh {
   const [keep, gc] = rc.localGC();
+  previewMode = options.preview === true;
   try {
     return toMesh(evalNode(rc, keep, node));
   } finally {
+    previewMode = false;
     gc();
+  }
+}
+
+// Set for the span of one draft evaluation. Evaluation is synchronous and
+// single-threaded, so a flag is simpler than threading an option through every
+// recursive evalNode call
+let previewMode = false;
+
+/**
+ * Draft path for a 2D boolean while a slider is dragged: merge the subtree as
+ * polygons (see polygon2d.ts) and rebuild one drawing from the result. Returns
+ * null to keep the exact path when the subtree has a piece with no polygon form,
+ * or if the clipper rejects the input
+ */
+function previewDrawing(rc: Replicad, node: OpNode): Drawing | null {
+  try {
+    const shape = polygonize(node, {
+      chordTolerance: MESH_TOLERANCE,
+      angularTolerance: MESH_ANGULAR_TOLERANCE,
+    });
+    if (!shape?.length) return null;
+    const blueprints = shape.map((polygon) => {
+      const rings = polygon.map((ring) => {
+        // Clipper output repeats the first point to close a ring; a lone
+        // piece's ring does not, so drop the repeat only when it is there
+        const [fx, fy] = ring[0];
+        const [lx, ly] = ring[ring.length - 1];
+        const points = fx === lx && fy === ly ? ring.slice(0, -1) : ring;
+        const pen = new rc.BlueprintSketcher(points[0]);
+        for (let i = 1; i < points.length; i++) pen.lineTo(points[i]);
+        return pen.close();
+      });
+      // The first ring is the outline and the rest are its holes
+      return rings.length === 1 ? rings[0] : new rc.CompoundBlueprint(rings);
+    });
+    return new rc.Drawing(
+      blueprints.length === 1 ? blueprints[0] : new rc.Blueprints(blueprints),
+    );
+  } catch (err) {
+    console.warn("Facet: draft 2D merge failed, using the exact path:", err);
+    return null;
   }
 }
 
@@ -353,6 +401,10 @@ function makePrism(
 }
 
 function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
+  if (previewMode && is2dBoolean(node)) {
+    const drawing = previewDrawing(rc, node);
+    if (drawing) return { kind: "drawing", drawing };
+  }
   switch (node.op) {
     case "cube": {
       const [sx, sy, sz] = node.size;
@@ -894,9 +946,9 @@ export function loadBrepKernel(): Promise<Kernel | null> {
 
       // Keep a user-safe modeling message visible, but never leak a raw OCCT
       // exception to the UI: log the detail and surface a generic message
-      const evaluate = (node: OpNode): Mesh => {
+      const evaluate = (node: OpNode, options?: EvaluateOptions): Mesh => {
         try {
-          return evaluateOpGraph(rc, node);
+          return evaluateOpGraph(rc, node, options);
         } catch (err) {
           if (err instanceof BrepModelingError) throw err;
           console.warn("Facet OCCT/B-rep evaluation failed:", err);
