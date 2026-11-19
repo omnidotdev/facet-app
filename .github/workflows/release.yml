@@ -132,9 +132,16 @@ jobs:
 
       - name: Install Tauri dependencies (Linux)
         if: matrix.platform == 'ubuntu-latest'
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          for attempt in 1 2 3; do
+            if timeout 150 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update &&
+              timeout 150 sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf; then
+              exit 0
+            fi
+            echo "apt attempt $attempt failed, retrying"
+          done
+          exit 1
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
