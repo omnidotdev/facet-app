@@ -91,6 +91,25 @@ describe("BrepWorkerClient", () => {
     expect((await third).triangleCount).toBe(3);
   });
 
+  test("forwards the draft flag, and a queued request keeps its own", async () => {
+    const { client, workers } = setup();
+    const draft = client.evaluate(cube(1), { preview: true });
+    const exact = client.evaluate(cube(2));
+    expect(workers[0].sent[0]).toMatchObject({
+      kind: "evaluate",
+      preview: true,
+    });
+    workers[0].answerMesh(0, 1);
+    await draft;
+    await flush();
+    expect(workers[0].sent[1]).toMatchObject({
+      kind: "evaluate",
+      preview: false,
+    });
+    workers[0].answerMesh(1, 2);
+    await exact;
+  });
+
   test("never coalesces exports", async () => {
     const { client, workers } = setup();
     const evaluation = client.evaluate(cube(1));

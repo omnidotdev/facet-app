@@ -46,6 +46,86 @@ describe("OCCT B-rep kernel", () => {
     expect(mesh.normals.length).toBe(mesh.triangleCount * 9);
   });
 
+  test.skipIf(!rc)(
+    "drafts a many-piece 2D merge close to the exact part",
+    () => {
+      // Twenty overlapping round-capped bars, merged one union at a time, as
+      // generated glyphs are built
+      let sketch: OpNode = { op: "circle2d", r: 2, segments: 64 };
+      for (let i = 1; i <= 20; i++)
+        sketch = {
+          op: "union2d",
+          children: [
+            sketch,
+            {
+              op: "translate2d",
+              v: [i * 1.5, Math.sin(i) * 2],
+              child: { op: "circle2d", r: 2, segments: 64 },
+            },
+          ],
+        };
+      const node: OpNode = {
+        op: "extrude",
+        height: 4,
+        twist: 0,
+        scale: 1,
+        child: sketch,
+      };
+      const exact = evaluateOpGraph(rc!, node);
+      const draft = evaluateOpGraph(rc!, node, { preview: true });
+      const e = meshBounds(exact);
+      const d = meshBounds(draft);
+      for (let a = 0; a < 3; a++) {
+        expect(d.min[a]).toBeCloseTo(e.min[a], 0);
+        expect(d.max[a]).toBeCloseTo(e.max[a], 0);
+      }
+      expect(draft.triangleCount).toBeGreaterThan(0);
+    },
+  );
+
+  test.skipIf(!rc)("drafts a one-piece union without dropping a corner", () => {
+    // A lone child skips the clipper, so its ring arrives open (no repeated
+    // first point) and every vertex must survive
+    const node: OpNode = {
+      op: "extrude",
+      height: 1,
+      twist: 0,
+      scale: 1,
+      child: {
+        op: "union2d",
+        children: [{ op: "rect2d", size: [10, 10], center: true }],
+      },
+    };
+    const p = evaluateOpGraph(rc!, node, { preview: true }).positions;
+    let volume = 0;
+    for (let i = 0; i < p.length; i += 9)
+      volume +=
+        (p[i] * (p[i + 4] * p[i + 8] - p[i + 5] * p[i + 7]) -
+          p[i + 1] * (p[i + 3] * p[i + 8] - p[i + 5] * p[i + 6]) +
+          p[i + 2] * (p[i + 3] * p[i + 7] - p[i + 4] * p[i + 6])) /
+        6;
+    expect(Math.abs(volume)).toBeCloseTo(100, 3);
+  });
+
+  test.skipIf(!rc)("drafts a polygon-only sketch to the same size", () => {
+    const node: OpNode = {
+      op: "extrude",
+      height: 2,
+      twist: 0,
+      scale: 1,
+      child: {
+        op: "union2d",
+        children: [
+          { op: "rect2d", size: [10, 10], center: true },
+          { op: "rect2d", size: [4, 20], center: true },
+        ],
+      },
+    };
+    // A cross of two rectangles drafts to the same 10 x 20 footprint
+    const draft = evaluateOpGraph(rc!, node, { preview: true });
+    expect(meshBounds(draft).max[1]).toBeCloseTo(10);
+  });
+
   test.skipIf(!rc)("evaluates a boolean difference of two primitives", () => {
     const node: OpNode = {
       op: "difference",

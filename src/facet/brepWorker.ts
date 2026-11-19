@@ -47,7 +47,9 @@ scope.onmessage = async (event: MessageEvent<BrepRequest>) => {
     if (request.kind === "init") {
       reply({ id, ok: true });
     } else if (request.kind === "evaluate") {
-      const mesh = kernel.evaluate(request.node);
+      const mesh = kernel.evaluate(request.node, {
+        preview: request.preview,
+      });
       reply({ id, ok: true, mesh }, [
         ...transferable(mesh.positions),
         ...transferable(mesh.normals),

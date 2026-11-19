@@ -12,12 +12,17 @@
 
 import { KernelError } from "@/facet/kernel";
 
-import type { AsyncKernel, ExportFormat, Mesh } from "@/facet/kernel";
+import type {
+  AsyncKernel,
+  EvaluateOptions,
+  ExportFormat,
+  Mesh,
+} from "@/facet/kernel";
 import type { OpNode } from "@/facet/opgraph";
 
 export type BrepRequest =
   | { id: number; kind: "init" }
-  | { id: number; kind: "evaluate"; node: OpNode }
+  | { id: number; kind: "evaluate"; node: OpNode; preview: boolean }
   | { id: number; kind: "export"; node: OpNode; format: ExportFormat };
 
 export type BrepResponse =
@@ -51,6 +56,7 @@ interface Pending {
 
 interface QueuedEvaluation {
   node: OpNode;
+  preview: boolean;
   resolve: (mesh: Mesh) => void;
   reject: (reason: unknown) => void;
 }
@@ -123,7 +129,7 @@ export class BrepWorkerClient implements AsyncKernel {
   private request(
     body:
       | { kind: "init" }
-      | { kind: "evaluate"; node: OpNode }
+      | { kind: "evaluate"; node: OpNode; preview: boolean }
       | { kind: "export"; node: OpNode; format: ExportFormat },
   ): Promise<BrepResponse> {
     const id = ++this.seq;
@@ -147,17 +153,18 @@ export class BrepWorkerClient implements AsyncKernel {
     return response.ok;
   }
 
-  evaluate(node: OpNode): Promise<Mesh> {
-    if (!this.evaluating) return this.startEvaluation(node);
+  evaluate(node: OpNode, options: EvaluateOptions = {}): Promise<Mesh> {
+    const preview = options.preview === true;
+    if (!this.evaluating) return this.startEvaluation(node, preview);
     this.queued?.reject(new SupersededError());
     return new Promise((resolve, reject) => {
-      this.queued = { node, resolve, reject };
+      this.queued = { node, preview, resolve, reject };
     });
   }
 
-  private startEvaluation(node: OpNode): Promise<Mesh> {
+  private startEvaluation(node: OpNode, preview: boolean): Promise<Mesh> {
     this.evaluating = true;
-    return this.request({ kind: "evaluate", node })
+    return this.request({ kind: "evaluate", node, preview })
       .then((response) => {
         if (!response.ok) throw toError(response);
         if (!response.mesh)
@@ -174,7 +181,10 @@ export class BrepWorkerClient implements AsyncKernel {
         const next = this.queued;
         this.queued = null;
         if (next)
-          this.startEvaluation(next.node).then(next.resolve, next.reject);
+          this.startEvaluation(next.node, next.preview).then(
+            next.resolve,
+            next.reject,
+          );
       });
   }
 

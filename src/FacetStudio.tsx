@@ -450,11 +450,14 @@ export default function FacetStudio() {
           input.max = String(d.max);
           input.step = String(d.step);
           input.value = String(d.value);
+          // While dragging, rebuild a fast draft each frame; the release
+          // ("change") rebuilds the exact part
           input.addEventListener("input", () => {
             store.set(d.name, Number(input.value));
             value.textContent = formatParamValue(input.value, d.unit);
-            scheduleLive();
+            scheduleLive(true);
           });
+          input.addEventListener("change", () => scheduleLive());
           row.append(name, value, input);
         } else if (d.kind === "boolean") {
           const input = document.createElement("input");
@@ -490,10 +493,18 @@ export default function FacetStudio() {
     // Each run is tagged so a newer run's result supersedes an older one still
     // in flight in the worker (rapid slider drags or edits)
     let runSeq = 0;
+    // The run whose mesh is on screen. A drag starts a run every frame, so by
+    // the time a slow rebuild lands a newer run always exists; showing any mesh
+    // newer than the current one keeps the part moving under the slider
+    let shownSeq = 0;
     // A superseded run hands its waiters to the run that replaced it, so a
     // debounced or live re-run can never strand the generation repair loop
     const waiters = createRunWaiters<RunOutcome>();
-    const run = (reframe = false, onResult?: (outcome: RunOutcome) => void) => {
+    const run = (
+      reframe = false,
+      onResult?: (outcome: RunOutcome) => void,
+      preview = false,
+    ) => {
       waiters.add(onResult);
       const t0 = performance.now();
       const statusEl = statusRef.current!;
@@ -525,8 +536,9 @@ export default function FacetStudio() {
           }
 
           try {
-            const mesh = await activeKernel.evaluate(node);
-            if (seq !== runSeq) return; // superseded while the kernel worked
+            const mesh = await activeKernel.evaluate(node, { preview });
+            if (seq < shownSeq) return; // a newer mesh is already showing
+            shownSeq = seq;
             viewport.setMesh(mesh, reframe);
             currentNode = node;
             renderParams();
@@ -544,7 +556,8 @@ export default function FacetStudio() {
               statusEl.className = "status ok";
               statusEl.textContent = `✓ ${mesh.triangleCount.toLocaleString()} triangles · ${ms} ms · ${activeKernel.name}`;
             }
-            waiters.settle({ ok: true });
+            // Only the newest run reports an outcome; waiters ride along to it
+            if (seq === runSeq) waiters.settle({ ok: true });
           } catch (err) {
             // A newer run owns the status (this also covers an evaluation the
             // B-rep worker dropped as superseded mid-drag)
@@ -565,15 +578,20 @@ export default function FacetStudio() {
       timer = window.setTimeout(() => run(), 200);
     };
 
-    // Slider drags only change a value on an already-valid model (a few ms to
-    // recompute), so run live, coalesced to one recompute per animation frame
-    // for instant feedback without reframing the camera.
+    // Param changes only change a value on an already-valid model, so run
+    // live, coalesced to one recompute per animation frame for instant feedback
+    // without reframing the camera. A slider drag asks for a draft (`preview`)
+    // the kernel can build fast; any exact request in the same frame wins
     let liveRaf: number | undefined;
-    const scheduleLive = () => {
+    let liveExact = false;
+    const scheduleLive = (preview = false) => {
+      if (!preview) liveExact = true;
       if (liveRaf !== undefined) return;
       liveRaf = requestAnimationFrame(() => {
         liveRaf = undefined;
-        run();
+        const exact = liveExact;
+        liveExact = false;
+        run(false, undefined, !exact);
       });
     };
 
