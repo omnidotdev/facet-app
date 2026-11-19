@@ -17,6 +17,12 @@ import { loadBrepKernel } from "@/facet/brepKernel";
 import { ModelRunner } from "@/facet/modelRunner";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { openModelFromFile, saveModelToFile } from "@/fileIo";
+import {
+  loadRendererPreference,
+  parseRendererPreference,
+  rendererLabel,
+  saveRendererPreference,
+} from "@/gpu/rendererPreference";
 import { ParamStore, formatParamValue } from "@/params";
 import { loadWorkspace, saveWorkspace } from "@/storage";
 import {
@@ -33,6 +39,8 @@ import { Viewport } from "@/viewport";
 
 import type { FacetEditor } from "@/editor";
 import type { ExportFormat, Kernel, OpNode } from "@/facet";
+import type { RendererKind } from "@/gpu/backend";
+import type { RendererPreference } from "@/gpu/rendererPreference";
 import type { SavedWorkspace } from "@/storage";
 import type { TabsState } from "@/tabs";
 import type { Theme } from "@/theme";
@@ -106,6 +114,15 @@ export default function FacetStudio() {
   // Settings dropdown so the top bar stays uncluttered on every width
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
+  // Renderer choice (saved per browser) and the one actually drawing, shown on
+  // the viewport so it is always clear whether the preview runs on WebGPU or
+  // the WebGL compatibility path
+  const [rendererPref, setRendererPref] = useState<RendererPreference>(
+    loadRendererPreference,
+  );
+  const [activeRenderer, setActiveRenderer] = useState<RendererKind | null>(
+    null,
+  );
 
   // The whole workspace (tabs + prefs) is restored once; the useState seed and
   // the setup effect share this object so they never disagree on the first model
@@ -371,7 +388,13 @@ export default function FacetStudio() {
     // current value to seed the viewport and editor.
     const initialTheme = getTheme();
 
-    const viewport = new Viewport(viewportMount.current!, initialTheme);
+    const viewport = new Viewport(
+      viewportMount.current!,
+      initialTheme,
+      // Read the saved choice directly: this setup effect runs once
+      loadRendererPreference(),
+      setActiveRenderer,
+    );
     viewportRef.current = viewport;
     const kernels: Record<string, Kernel> = { ts: meshKernel };
     let activeKernel: Kernel = meshKernel;
@@ -878,6 +901,22 @@ export default function FacetStudio() {
                 <span className="settings-value">Millimeters</span>
               </div>
               <label className="settings-row">
+                <span className="settings-label">Renderer</span>
+                <select
+                  value={rendererPref}
+                  onChange={(e) => {
+                    const next = parseRendererPreference(e.target.value);
+                    setRendererPref(next);
+                    saveRendererPreference(next);
+                    viewportRef.current?.setRendererPreference(next);
+                  }}
+                >
+                  <option value="auto">Auto</option>
+                  <option value="webgpu">WebGPU</option>
+                  <option value="webgl">WebGL</option>
+                </select>
+              </label>
+              <label className="settings-row">
                 <span className="settings-label">Export format</span>
                 <select ref={formatRef} defaultValue="stl">
                   <option value="stl">STL</option>
@@ -1001,6 +1040,19 @@ export default function FacetStudio() {
         </section>
         <section className="viewport">
           <div className="viewport-canvas" ref={viewportMount} />
+          {activeRenderer && (
+            <div
+              className="viewport-renderer"
+              data-renderer={activeRenderer}
+              title={
+                activeRenderer === "webgpu"
+                  ? "Rendering with WebGPU"
+                  : "Rendering with WebGL, the compatibility renderer for browsers without working WebGPU. Change it in Settings"
+              }
+            >
+              {rendererLabel(activeRenderer)}
+            </div>
+          )}
           <div className="params" ref={paramsMount} hidden />
         </section>
       </main>

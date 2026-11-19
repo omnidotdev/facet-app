@@ -1,23 +1,17 @@
-import tgpu from "typegpu";
-
 import { meshBounds } from "./facet";
 import { frameSphere, viewProjection } from "./gpu/camera";
-import { acquireDevice } from "./gpu/device";
-import { GridPipeline } from "./gpu/gridPipeline";
-import { MeshPipeline } from "./gpu/meshPipeline";
 import { OrbitState } from "./gpu/orbit";
 import { paletteFor } from "./gpu/palette";
-import {
-  alignedBytesPerRow,
-  captureSize,
-  isUniform,
-  unpackPixels,
-} from "./gpu/readback";
+import { captureSize, isUniform } from "./gpu/readback";
+import { rendererOrder } from "./gpu/rendererPreference";
+import { createWebGlBackend } from "./gpu/webglBackend";
+import { createWebGpuBackend } from "./gpu/webgpuBackend";
 
-import type { TgpuRoot } from "typegpu";
 import type { Mesh } from "./facet";
+import type { FrameParams, RenderBackend, RendererKind } from "./gpu/backend";
 import type { BoundingSphere, Vec3 } from "./gpu/camera";
 import type { Palette } from "./gpu/palette";
+import type { RendererPreference } from "./gpu/rendererPreference";
 import type { Theme } from "./theme";
 
 /** World up axis. Z-up, matching the modeling convention and the orbit state. */
@@ -39,7 +33,7 @@ const PAN_SPEED = 0.0016;
 const WHEEL_SPEED = 0.0012;
 
 const NOTICE_COPY =
-  "This 3D preview needs WebGPU. Use a current version of Chrome, Edge, Safari, or Firefox.";
+  "This browser has 3D graphics (WebGPU and WebGL) turned off, so the preview can't show. You can still edit code and export files.";
 
 /**
  * Long edge of an AI critique capture, in pixels. Fixed (rather than the
@@ -81,30 +75,29 @@ const encodePng = (
 };
 
 /**
- * A Z-up WebGPU viewport that renders Facet meshes with flat, faceted shading
- * on a TypeGPU stack. The constructor is synchronous; device acquisition and
- * GPU setup run asynchronously, and calls that arrive first are queued and
- * replayed once the viewport is ready. When WebGPU is unavailable a themed
- * notice replaces the canvas and the public methods become no-ops.
+ * A Z-up viewport that renders Facet meshes with flat, faceted shading. It
+ * owns the camera, input, and framing, and draws through a {@link RenderBackend}:
+ * WebGPU when the browser has it, otherwise the WebGL 2 compatibility path.
+ * The constructor is synchronous; backend setup runs asynchronously, and calls
+ * that arrive first are queued and replayed once the viewport is ready. When
+ * neither API is available a themed notice replaces the canvas and the public
+ * methods become no-ops.
  */
 export class Viewport {
   private readonly container: HTMLElement;
   private theme: Theme;
   /** Cached palette for the active theme, recomputed only on theme change. */
   private palette: Palette;
+  private preference: RendererPreference;
+  private readonly onRenderer: (kind: RendererKind | null) => void;
 
   private canvas: HTMLCanvasElement | null = null;
-  private root: TgpuRoot | null = null;
-  private context: GPUCanvasContext | null = null;
-  private format: GPUTextureFormat = "bgra8unorm";
-  private depthFormat: GPUTextureFormat = "depth24plus";
-  private depthTexture: GPUTexture | null = null;
-  private depthView: GPUTextureView | null = null;
-  private mesh: MeshPipeline | null = null;
-  private grid: GridPipeline | null = null;
+  private backend: RenderBackend | null = null;
   private orbit: OrbitState | null = null;
   private resizeObserver: ResizeObserver | null = null;
   private notice: HTMLElement | null = null;
+  /** The solid on screen, re-uploaded when the renderer is switched */
+  private lastMesh: Mesh | null = null;
 
   private readonly pending: Array<() => void> = [];
   private ready = false;
@@ -112,60 +105,123 @@ export class Viewport {
   private disposed = false;
   private hasFramed = false;
   private rafHandle = 0;
+  /** Bumped per setup so a superseded async init does not attach */
+  private generation = 0;
 
   private width = 1;
   private height = 1;
   private near = 0.1;
   private far = 5000;
 
-  constructor(container: HTMLElement, theme: Theme) {
+  /**
+   * @param container - Element the canvas (or notice) fills
+   * @param theme - Initial color theme
+   * @param preference - Which renderer to try first
+   * @param onRenderer - Told which renderer is active once set up (null when
+   *   neither is available), so the UI can show it
+   */
+  constructor(
+    container: HTMLElement,
+    theme: Theme,
+    preference: RendererPreference = "auto",
+    onRenderer: (kind: RendererKind | null) => void = () => {},
+  ) {
     this.container = container;
     this.theme = theme;
     this.palette = paletteFor(theme);
+    this.preference = preference;
+    this.onRenderer = onRenderer;
     void this.init();
   }
 
-  private async init(): Promise<void> {
-    const device = await acquireDevice();
-    if (this.disposed) {
-      device?.destroy();
-      return;
-    }
-    if (!device) {
-      this.showNotice();
-      return;
-    }
+  /** The renderer currently drawing, or null before setup or when none is available */
+  get renderer(): RendererKind | null {
+    return this.backend?.kind ?? null;
+  }
 
+  private createCanvas(): HTMLCanvasElement {
     const canvas = document.createElement("canvas");
     canvas.style.display = "block";
     canvas.style.width = "100%";
     canvas.style.height = "100%";
     canvas.style.touchAction = "none";
+    return canvas;
+  }
+
+  private async init(): Promise<void> {
+    const generation = ++this.generation;
+    for (const kind of rendererOrder(this.preference)) {
+      // A fresh canvas per attempt: one that handed out a WebGPU context can
+      // not give a WebGL one
+      const canvas = this.createCanvas();
+      this.canvas = canvas;
+      this.measure();
+      const backend =
+        kind === "webgpu"
+          ? await createWebGpuBackend(canvas)
+          : createWebGlBackend(canvas);
+      if (this.disposed || generation !== this.generation) {
+        backend?.dispose();
+        return;
+      }
+      if (backend) {
+        this.attach(canvas, backend);
+        return;
+      }
+    }
+    this.canvas = null;
+    this.showNotice();
+    this.onRenderer(null);
+  }
+
+  private attach(canvas: HTMLCanvasElement, backend: RenderBackend): void {
     this.container.appendChild(canvas);
-    this.canvas = canvas;
-
-    const root = tgpu.initFromDevice({ device });
-    this.root = root;
-    const format = navigator.gpu.getPreferredCanvasFormat();
-    this.format = format;
-    this.context = root.configureContext({ canvas, format });
-
-    this.mesh = new MeshPipeline(root, format, this.depthFormat);
-    this.grid = new GridPipeline(root, format, this.depthFormat);
-    this.grid.setColor(this.palette.grid);
-    this.orbit = new OrbitState();
+    this.backend = backend;
+    this.orbit ??= new OrbitState();
 
     this.measure();
-    this.allocateDepth();
+    backend.resize(canvas.width, canvas.height);
+    if (this.lastMesh) {
+      const m = this.lastMesh;
+      backend.setMesh(m.positions, m.normals, m.triangleCount);
+    }
     this.resizeObserver = new ResizeObserver(() => this.onResize());
     this.resizeObserver.observe(this.container);
     this.attachPointer(canvas);
 
     this.ready = true;
+    this.onRenderer(backend.kind);
     const queued = this.pending.splice(0, this.pending.length);
     for (const replay of queued) replay();
 
     this.frame();
+  }
+
+  /**
+   * Switch renderer preference, rebuilding the canvas and backend while
+   * keeping the solid and the camera where they are
+   */
+  setRendererPreference(preference: RendererPreference): void {
+    if (this.disposed || preference === this.preference) return;
+    this.preference = preference;
+    this.teardown();
+    this.absent = false;
+    this.notice?.remove();
+    this.notice = null;
+    void this.init();
+  }
+
+  /** Release the backend, canvas, and loop, keeping camera and model state */
+  private teardown(): void {
+    this.ready = false;
+    if (this.rafHandle) cancelAnimationFrame(this.rafHandle);
+    this.rafHandle = 0;
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    this.backend?.dispose();
+    this.backend = null;
+    this.canvas?.remove();
+    this.canvas = null;
   }
 
   /**
@@ -181,8 +237,9 @@ export class Viewport {
       return;
     }
     // An empty recompute keeps the last solid on screen rather than blanking it
-    if (!this.mesh || mesh.triangleCount === 0) return;
-    this.mesh.setMesh(mesh.positions, mesh.normals, mesh.triangleCount);
+    if (!this.backend || mesh.triangleCount === 0) return;
+    this.backend.setMesh(mesh.positions, mesh.normals, mesh.triangleCount);
+    this.lastMesh = mesh;
     if (reframe || !this.hasFramed) {
       this.frameMesh(mesh);
       this.hasFramed = true;
@@ -193,17 +250,8 @@ export class Viewport {
   setTheme(theme: Theme): void {
     this.theme = theme;
     this.palette = paletteFor(theme);
-    if (this.absent) {
-      this.styleNotice();
-      return;
-    }
-    if (!this.ready) {
-      this.pending.push(() => this.setTheme(theme));
-      return;
-    }
-    this.grid?.setColor(this.palette.grid);
+    this.styleNotice();
   }
-
   /** Point the camera at the model and pull back to fit it, jumping the view once. */
   private frameMesh(mesh: Mesh): void {
     const { min, max } = meshBounds(mesh);
@@ -247,21 +295,10 @@ export class Viewport {
     }
   }
 
-  private allocateDepth(): void {
-    if (!this.root || !this.canvas) return;
-    this.depthTexture?.destroy();
-    this.depthTexture = this.root.device.createTexture({
-      size: [this.canvas.width, this.canvas.height],
-      format: this.depthFormat,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    this.depthView = this.depthTexture.createView();
-  }
-
   private onResize(): void {
-    if (this.disposed || !this.ready) return;
+    if (this.disposed || !this.ready || !this.canvas) return;
     this.measure();
-    this.allocateDepth();
+    this.backend?.resize(this.canvas.width, this.canvas.height);
   }
 
   private frame = (): void => {
@@ -273,146 +310,60 @@ export class Viewport {
   /**
    * Capture the current view as a PNG, for the AI render-and-critique loop (hand
    * the result to a vision model). Resolves null when there is nothing to
-   * capture (no WebGPU device, no model yet) or the readback fails or is blank,
-   * so the critique simply does not run.
+   * capture (no renderer, no model yet) or the readback fails or is blank, so
+   * the critique simply does not run.
    *
-   * The frame is rendered into an offscreen texture and read back with
-   * `copyTextureToBuffer`, never from the on-screen canvas: reading a WebGPU
-   * canvas (`toDataURL`) depends on the browser compositing the swapchain into
-   * a readable surface, which some GPU stacks do not do (Linux + Vulkan returns
-   * a fully transparent image), and a hidden or collapsed viewport (the phone
-   * layout's code tab) has a 1x1 canvas. The offscreen frame uses the on-screen
-   * camera at a fixed size, so it matches what the user sees
+   * The backend renders the frame offscreen at a fixed size rather than reading
+   * the on-screen canvas, so a hidden or collapsed viewport (the phone layout's
+   * code tab, a 1x1 canvas) still captures, with the on-screen camera so it
+   * matches what the user sees
    */
   async capture(): Promise<ViewportCapture | null> {
     if (this.disposed || !this.ready || !this.hasFramed) return null;
-    const root = this.root;
-    if (!root) return null;
+    const backend = this.backend;
+    if (!backend) return null;
 
     const { width, height } = captureSize(
       this.width,
       this.height,
       CAPTURE_LONG_EDGE,
     );
-    const device = root.device;
-    const bytesPerRow = alignedBytesPerRow(width);
-    let color: GPUTexture | null = null;
-    let depth: GPUTexture | null = null;
-    let buffer: GPUBuffer | null = null;
-
-    try {
-      color = device.createTexture({
-        size: [width, height],
-        format: this.format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-      });
-      depth = device.createTexture({
-        size: [width, height],
-        format: this.depthFormat,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-      });
-      buffer = device.createBuffer({
-        size: bytesPerRow * height,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-      });
-
-      if (!this.draw(color.createView(), depth.createView(), width / height)) {
-        return null;
-      }
-
-      const encoder = device.createCommandEncoder();
-      encoder.copyTextureToBuffer(
-        { texture: color },
-        { buffer, bytesPerRow, rowsPerImage: height },
-        [width, height],
-      );
-      device.queue.submit([encoder.finish()]);
-
-      await buffer.mapAsync(GPUMapMode.READ);
-      if (this.disposed) return null;
-      const pixels = unpackPixels(
-        new Uint8Array(buffer.getMappedRange()),
-        width,
-        height,
-        bytesPerRow,
-        this.format,
-      );
-      buffer.unmap();
-
-      // A frame that drew nothing is not worth critiquing
-      if (isUniform(pixels)) return null;
-
-      const data = encodePng(pixels, width, height);
-      return data ? { mediaType: "image/png", data } : null;
-    } catch {
-      return null;
-    } finally {
-      color?.destroy();
-      depth?.destroy();
-      buffer?.destroy();
-    }
+    const frame = this.frameParams(width / height);
+    if (!frame) return null;
+    const pixels = await backend.capture(width, height, frame);
+    if (this.disposed || !pixels) return null;
+    // A frame that drew nothing is not worth critiquing
+    if (isUniform(pixels)) return null;
+    const data = encodePng(pixels, width, height);
+    return data ? { mediaType: "image/png", data } : null;
   }
 
   /** Draw the on-screen frame to the canvas. */
   private render(): void {
-    const context = this.context;
-    const depthView = this.depthView;
-    if (!context || !depthView) return;
-    this.draw(context, depthView, this.width / Math.max(this.height, 1));
+    const frame = this.frameParams(this.width / Math.max(this.height, 1));
+    if (frame) this.backend?.draw(frame);
   }
 
-  /**
-   * Draw the scene into a color target with the current camera. Returns false
-   * when the viewport is not set up (nothing was drawn)
-   */
-  private draw(
-    target: GPUCanvasContext | GPUTextureView,
-    depthView: GPUTextureView,
-    aspect: number,
-  ): boolean {
-    if (this.disposed) return false;
-    const { root, mesh, grid, orbit } = this;
-    if (!root || !mesh || !grid || !orbit) return false;
-
+  /** The current camera and palette as backend frame parameters */
+  private frameParams(aspect: number): FrameParams | null {
+    const orbit = this.orbit;
+    if (this.disposed || !orbit) return null;
     orbit.update();
-    const viewProj = viewProjection({
-      eye: orbit.eye(),
-      target: orbit.target,
-      up: UP,
-      fovYRadians: FOV_Y,
-      aspect,
-      near: this.near,
-      far: this.far,
-    });
-    mesh.writeUniforms({
-      viewProj,
+    return {
+      viewProj: viewProjection({
+        eye: orbit.eye(),
+        target: orbit.target,
+        up: UP,
+        fovYRadians: FOV_Y,
+        aspect,
+        near: this.near,
+        far: this.far,
+      }),
       lightDir: LIGHT_DIR,
       baseColor: this.palette.baseColor,
-    });
-
-    const bg = this.palette.background;
-    const encoder = root["~unstable"].createCommandEncoder();
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: target,
-          clearValue: [bg[0], bg[1], bg[2], bg[3]],
-          loadOp: "clear",
-          storeOp: "store",
-        },
-      ],
-      depthStencilAttachment: {
-        view: depthView,
-        depthClearValue: 1,
-        depthLoadOp: "clear",
-        depthStoreOp: "store",
-      },
-    });
-    grid.render(pass, mesh.bindGroup);
-    mesh.render(pass);
-    pass.end();
-    encoder.submit();
-    return true;
+      background: this.palette.background,
+      grid: this.palette.grid,
+    };
   }
 
   private attachPointer(canvas: HTMLCanvasElement): void {
@@ -495,13 +446,7 @@ export class Viewport {
   /** Release GPU resources, listeners, and the render loop. */
   dispose(): void {
     this.disposed = true;
-    if (this.rafHandle) cancelAnimationFrame(this.rafHandle);
-    this.resizeObserver?.disconnect();
-    this.mesh?.dispose();
-    this.grid?.dispose();
-    this.depthTexture?.destroy();
-    this.root?.destroy();
-    this.canvas?.remove();
+    this.teardown();
     this.notice?.remove();
   }
 }

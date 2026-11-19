@@ -2,6 +2,12 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 
+import {
+  GRID_CELL as CELL,
+  GRID_FADE_END as FADE_END,
+  GRID_FADE_START as FADE_START,
+  GRID_QUAD as QUAD,
+} from "./gridSpec";
 import { sceneLayout } from "./meshPipeline";
 
 import type {
@@ -13,38 +19,6 @@ import type {
   VertexFlag,
 } from "typegpu";
 import type { SceneBindGroup } from "./meshPipeline";
-
-/** Half-extent of the ground quad, in world units. */
-const HALF_EXTENT = 1000;
-
-/** World-space spacing between grid lines. */
-const CELL = 10;
-
-/** Where the radial fade starts and ends, so the fixed quad has no hard edge. */
-const FADE_START = HALF_EXTENT * 0.35;
-const FADE_END = HALF_EXTENT * 0.95;
-
-// Two triangles covering [-HALF_EXTENT, HALF_EXTENT] on the XY plane at z = 0
-const QUAD = new Float32Array([
-  -HALF_EXTENT,
-  -HALF_EXTENT,
-  0,
-  HALF_EXTENT,
-  -HALF_EXTENT,
-  0,
-  -HALF_EXTENT,
-  HALF_EXTENT,
-  0,
-  -HALF_EXTENT,
-  HALF_EXTENT,
-  0,
-  HALF_EXTENT,
-  -HALF_EXTENT,
-  0,
-  HALF_EXTENT,
-  HALF_EXTENT,
-  0,
-]);
 
 const quadLayout = tgpu.vertexLayout((n: number) =>
   d.disarrayOf(d.float32x3, n),
