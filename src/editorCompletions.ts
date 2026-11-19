@@ -225,7 +225,7 @@ const TOP_LEVEL: Completion[] = [
   {
     label: "param",
     type: "namespace",
-    detail: "param.number(name, { min, max, default, step })",
+    detail: "param.number(name, { min, max, default, step, unit })",
     info: "Declare a live model parameter (drives a viewport slider)",
   },
 ];
@@ -235,8 +235,8 @@ const PARAM_MEMBERS: Completion[] = [
   {
     label: "number",
     type: "method",
-    detail: "param.number(name, { min, max, default, step })",
-    info: "Declare a numeric parameter and return its current value",
+    detail: "param.number(name, { min, max, default, step, unit })",
+    info: "Declare a numeric parameter and return its current value. unit labels the slider, e.g. \"mm\" for lengths or \"°\" for angles",
   },
   {
     label: "boolean",
