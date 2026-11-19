@@ -13,13 +13,43 @@ export const parseRendererPreference = (raw: unknown): RendererPreference =>
     ? (raw as RendererPreference)
     : "auto";
 
+/** The bits of `navigator` the platform check reads */
+interface PlatformHints {
+  userAgent?: string;
+  userAgentData?: { platform?: string };
+}
+
 /**
- * The renderers to try, in order. An explicit WebGPU choice still falls back
- * to WebGL when WebGPU is unavailable, so the preview never goes dark just
+ * Whether this is desktop Linux, where no major browser ships WebGPU on by
+ * default yet. Turning it on there (an "unsafe" flag) often hands out a
+ * working adapter whose frames never reach the screen, a black canvas the page
+ * can not detect, so Auto starts with WebGL instead. Android and ChromeOS also
+ * report Linux in the user agent but ship WebGPU, so they keep it.
+ *
+ * Revisit when WebGPU ships by default on desktop Linux: then Auto should
+ * prefer WebGPU everywhere again
+ */
+export const isDesktopLinux = (nav: PlatformHints): boolean => {
+  const platform = nav.userAgentData?.platform;
+  if (platform) return platform === "Linux";
+  const ua = nav.userAgent ?? "";
+  return /Linux/.test(ua) && !/Android|CrOS/.test(ua);
+};
+
+/**
+ * The renderers to try, in order. Auto prefers WebGPU, except on desktop Linux
+ * (see {@link isDesktopLinux}). An explicit WebGPU choice still falls back to
+ * WebGL when WebGPU is unavailable, so the preview never goes dark just
  * because a setting outlived the browser support behind it
  */
-export const rendererOrder = (pref: RendererPreference): RendererKind[] =>
-  pref === "webgl" ? ["webgl"] : ["webgpu", "webgl"];
+export const rendererOrder = (
+  pref: RendererPreference,
+  desktopLinux = false,
+): RendererKind[] => {
+  if (pref === "webgl") return ["webgl"];
+  if (pref === "auto" && desktopLinux) return ["webgl", "webgpu"];
+  return ["webgpu", "webgl"];
+};
 
 /** Display name for a renderer */
 export const rendererLabel = (kind: RendererKind): string =>
