@@ -3,7 +3,7 @@ import { frameSphere, viewProjection } from "./gpu/camera";
 import { OrbitState } from "./gpu/orbit";
 import { paletteFor } from "./gpu/palette";
 import { captureSize, isUniform } from "./gpu/readback";
-import { rendererOrder } from "./gpu/rendererPreference";
+import { isDesktopLinux, rendererOrder } from "./gpu/rendererPreference";
 import { createWebGlBackend } from "./gpu/webglBackend";
 import { createWebGpuBackend } from "./gpu/webgpuBackend";
 
@@ -13,6 +13,9 @@ import type { BoundingSphere, Vec3 } from "./gpu/camera";
 import type { Palette } from "./gpu/palette";
 import type { RendererPreference } from "./gpu/rendererPreference";
 import type { Theme } from "./theme";
+
+/** `navigator` with the Chromium-only User-Agent Client Hints */
+type PlatformNavigator = Navigator & { userAgentData?: { platform?: string } };
 
 /** World up axis. Z-up, matching the modeling convention and the orbit state. */
 const UP: Vec3 = [0, 0, 1];
@@ -150,7 +153,10 @@ export class Viewport {
 
   private async init(): Promise<void> {
     const generation = ++this.generation;
-    for (const kind of rendererOrder(this.preference)) {
+    for (const kind of rendererOrder(
+      this.preference,
+      isDesktopLinux(navigator as PlatformNavigator),
+    )) {
       // A fresh canvas per attempt: one that handed out a WebGPU context can
       // not give a WebGL one
       const canvas = this.createCanvas();
