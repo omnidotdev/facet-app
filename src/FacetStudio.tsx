@@ -24,6 +24,7 @@ import {
   saveRendererPreference,
 } from "@/gpu/rendererPreference";
 import { ParamStore, formatParamValue } from "@/params";
+import { createRunWaiters } from "@/runWaiters";
 import { loadWorkspace, saveWorkspace } from "@/storage";
 import {
   activeTab,
@@ -489,7 +490,11 @@ export default function FacetStudio() {
     // Each run is tagged so a newer run's result supersedes an older one still
     // in flight in the worker (rapid slider drags or edits)
     let runSeq = 0;
+    // A superseded run hands its waiters to the run that replaced it, so a
+    // debounced or live re-run can never strand the generation repair loop
+    const waiters = createRunWaiters<RunOutcome>();
     const run = (reframe = false, onResult?: (outcome: RunOutcome) => void) => {
+      waiters.add(onResult);
       const t0 = performance.now();
       const statusEl = statusRef.current!;
       const seq = ++runSeq;
@@ -503,7 +508,7 @@ export default function FacetStudio() {
             currentNode = null;
             statusEl.className = "status err";
             statusEl.textContent = `✗ ${result.error}`;
-            onResult?.({ ok: false, error: result.error });
+            waiters.settle({ ok: false, error: result.error });
             return;
           }
           store.adoptRun(result.decls);
@@ -511,11 +516,11 @@ export default function FacetStudio() {
 
           // Fillet/chamfer/shell exist only on the B-rep (OCCT) kernel, so load
           // and switch to it on demand. activateBrepKernel flips activeKernelKey
-          // to "brep" before it re-runs, so this cannot re-trigger itself. Thread
-          // onResult through so a caller sees the outcome of the post-switch run
+          // to "brep" before it re-runs, so this cannot re-trigger itself. Any
+          // waiters stay queued and see the outcome of the post-switch run
           if (shouldAutoSwitchToBrep(node, activeKernelKey)) {
             announceAutoSwitch = true;
-            activateBrepKernel(reframe, onResult);
+            activateBrepKernel(reframe);
             return;
           }
 
@@ -539,7 +544,7 @@ export default function FacetStudio() {
               statusEl.className = "status ok";
               statusEl.textContent = `✓ ${mesh.triangleCount.toLocaleString()} triangles · ${ms} ms · ${activeKernel.name}`;
             }
-            onResult?.({ ok: true });
+            waiters.settle({ ok: true });
           } catch (err) {
             // A newer run owns the status (this also covers an evaluation the
             // B-rep worker dropped as superseded mid-drag)
@@ -548,7 +553,7 @@ export default function FacetStudio() {
             const message = err instanceof Error ? err.message : String(err);
             statusEl.className = "status err";
             statusEl.textContent = `✗ ${message}`;
-            onResult?.({ ok: false, error: message });
+            waiters.settle({ ok: false, error: message });
           }
         });
     };
@@ -647,28 +652,19 @@ export default function FacetStudio() {
     // fetches, and fall back if it fails. The dropdown is moved to "brep" up
     // front so a switch away during the load is respected (manual path) and the
     // pending switch is visible (auto path)
-    const activateBrepKernel = (
-      reframe = false,
-      onResult?: (outcome: RunOutcome) => void,
-    ) => {
+    const activateBrepKernel = (reframe = false) => {
       const statusEl = statusRef.current!;
       if (kernelRef.current) kernelRef.current.value = "brep";
       if (kernels.brep) {
         activeKernel = kernels.brep;
         activeKernelKey = "brep";
-        run(reframe, onResult);
+        run(reframe);
         saveSoon();
         return;
       }
-      if (brepLoading) {
-        // A fetch is already in flight and will re-run, but it does not carry
-        // this caller's onResult, so settle it to avoid a hung repair loop
-        onResult?.({
-          ok: false,
-          error: "The B-rep kernel is still loading. Try again in a moment.",
-        });
-        return;
-      }
+      // A fetch already in flight re-runs when it lands, which settles any
+      // queued waiters
+      if (brepLoading) return;
       brepLoading = true;
       statusEl.className = "status";
       statusEl.textContent = "Loading B-rep kernel…";
@@ -681,14 +677,14 @@ export default function FacetStudio() {
           statusEl.className = "status err";
           statusEl.textContent = `✗ ${message}`;
           if (kernelRef.current) kernelRef.current.value = activeKernelKey;
-          onResult?.({ ok: false, error: message });
+          waiters.settle({ ok: false, error: message });
           return;
         }
         // Cache it regardless, but only activate if the dropdown has not been
         // switched away while the wasm was loading
         kernels.brep = brep;
         if (kernelRef.current?.value !== "brep") {
-          onResult?.({
+          waiters.settle({
             ok: false,
             error: "The kernel was switched before the model could render.",
           });
@@ -696,7 +692,7 @@ export default function FacetStudio() {
         }
         activeKernel = brep;
         activeKernelKey = "brep";
-        run(reframe, onResult);
+        run(reframe);
         saveSoon();
       });
     };
