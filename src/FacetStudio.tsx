@@ -17,7 +17,7 @@ import { loadBrepKernel } from "@/facet/brepKernel";
 import { ModelRunner } from "@/facet/modelRunner";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { openModelFromFile, saveModelToFile } from "@/fileIo";
-import { formatParamValue, ParamStore } from "@/params";
+import { ParamStore, formatParamValue } from "@/params";
 import { loadWorkspace, saveWorkspace } from "@/storage";
 import {
   activeTab,
@@ -870,7 +870,10 @@ export default function FacetStudio() {
                   <option value="brep">B-rep (OCCT)</option>
                 </select>
               </label>
-              <div className="settings-row" title="Model sizes and exported files">
+              <div
+                className="settings-row"
+                title="Model sizes and exported files"
+              >
                 <span className="settings-label">Units</span>
                 <span className="settings-value">Millimeters</span>
               </div>

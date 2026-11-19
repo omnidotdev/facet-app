@@ -236,7 +236,7 @@ const PARAM_MEMBERS: Completion[] = [
     label: "number",
     type: "method",
     detail: "param.number(name, { min, max, default, step, unit })",
-    info: "Declare a numeric parameter and return its current value. unit labels the slider, e.g. \"mm\" for lengths or \"°\" for angles",
+    info: 'Declare a numeric parameter and return its current value. unit labels the slider, e.g. "mm" for lengths or "°" for angles',
   },
   {
     label: "boolean",

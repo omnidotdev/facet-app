@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { formatParamValue, ParamStore } from "./params";
+import { ParamStore, formatParamValue } from "./params";
 
 /** Simulate a model run: begin, then the model's param calls. */
 const run = (
