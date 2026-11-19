@@ -14,7 +14,6 @@ import {
   shouldAutoSwitchToBrep,
 } from "@/facet";
 import { loadBrepWorkerKernel } from "@/facet/brepWorkerClient";
-import { createRunWaiters } from "@/runWaiters";
 import { ModelRunner } from "@/facet/modelRunner";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { openModelFromFile, saveModelToFile } from "@/fileIo";
@@ -25,6 +24,7 @@ import {
   saveRendererPreference,
 } from "@/gpu/rendererPreference";
 import { ParamStore, formatParamValue } from "@/params";
+import { createRunWaiters } from "@/runWaiters";
 import { loadWorkspace, saveWorkspace } from "@/storage";
 import {
   activeTab,
