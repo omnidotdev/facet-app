@@ -1269,6 +1269,10 @@ button.ai-job-btn:focus-visible {
   color: var(--muted);
   white-space: nowrap;
 }
+.facet-app .settings-value {
+  font-size: 12px;
+  color: var(--text);
+}
 .facet-app .settings-dropdown select {
   font: inherit;
   flex: 0 1 auto;

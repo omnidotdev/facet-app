@@ -1,10 +1,10 @@
 /** Starter models. Each is plain JS the editor runs against the Facet API. */
 export const examples: Record<string, string> = {
   "Parametric plate": `// Drag the sliders (top-left of the viewport) - the model is live
-const w = param.number("width", { min: 20, max: 90, default: 50, step: 1 });
-const d = param.number("depth", { min: 20, max: 90, default: 34, step: 1 });
-const h = param.number("height", { min: 4, max: 40, default: 12, step: 1 });
-const r = param.number("hole", { min: 0, max: 14, default: 6, step: 0.5 });
+const w = param.number("width", { min: 20, max: 90, default: 50, step: 1, unit: "mm" });
+const d = param.number("depth", { min: 20, max: 90, default: 34, step: 1, unit: "mm" });
+const h = param.number("height", { min: 4, max: 40, default: 12, step: 1, unit: "mm" });
+const r = param.number("hole", { min: 0, max: 14, default: 6, step: 0.5, unit: "mm" });
 
 let plate = cube([w, d, h]);
 
@@ -122,8 +122,8 @@ for (const [face, sign, value] of faces) {
 return die;`,
 
   "Extruded star": `// Sketch a star in 2D, then extrude it into a badge
-const r = param.number("radius", { min: 10, max: 60, default: 30, step: 1 });
-const thickness = param.number("thickness", { min: 2, max: 12, default: 4, step: 0.5 });
+const r = param.number("radius", { min: 10, max: 60, default: 30, step: 1, unit: "mm" });
+const thickness = param.number("thickness", { min: 2, max: 12, default: 4, step: 0.5, unit: "mm" });
 const inner = r * 0.4;
 
 const pts = [];
@@ -136,9 +136,9 @@ for (let i = 0; i < 10; i++) {
 return extrude(polygon(pts), thickness);`,
 
   "Revolved vase": `// Revolve a 2D cross-section about the Z axis (X is the radius, Y the height)
-const h = param.number("height", { min: 40, max: 140, default: 80, step: 1 });
-const base = param.number("base", { min: 10, max: 40, default: 20, step: 1 });
-const rim = param.number("rim", { min: 10, max: 50, default: 32, step: 1 });
+const h = param.number("height", { min: 40, max: 140, default: 80, step: 1, unit: "mm" });
+const base = param.number("base", { min: 10, max: 40, default: 20, step: 1, unit: "mm" });
+const rim = param.number("rim", { min: 10, max: 50, default: 32, step: 1, unit: "mm" });
 const wall = 2;
 
 const profile = polygon([
@@ -153,9 +153,9 @@ const profile = polygon([
 return revolve(profile, { segments: 96 });`,
 
   Washer: `// A flat washer: a 2D ring (disc minus a concentric hole) extruded
-const outer = param.number("outer", { min: 6, max: 40, default: 16, step: 1 });
-const inner = param.number("inner", { min: 2, max: 30, default: 8, step: 1 });
-const t = param.number("thickness", { min: 1, max: 8, default: 2, step: 0.5 });
+const outer = param.number("outer", { min: 6, max: 40, default: 16, step: 1, unit: "mm" });
+const inner = param.number("inner", { min: 2, max: 30, default: 8, step: 1, unit: "mm" });
+const t = param.number("thickness", { min: 1, max: 8, default: 2, step: 0.5, unit: "mm" });
 
 // keep the hole smaller than the disc even as the sliders move
 const ro = outer / 2;

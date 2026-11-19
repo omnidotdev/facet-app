@@ -17,7 +17,7 @@ import { loadBrepKernel } from "@/facet/brepKernel";
 import { ModelRunner } from "@/facet/modelRunner";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { openModelFromFile, saveModelToFile } from "@/fileIo";
-import { ParamStore } from "@/params";
+import { ParamStore, formatParamValue } from "@/params";
 import { loadWorkspace, saveWorkspace } from "@/storage";
 import {
   activeTab,
@@ -416,7 +416,7 @@ export default function FacetStudio() {
         if (d.kind === "number") {
           const value = document.createElement("span");
           value.className = "param-value";
-          value.textContent = String(d.value);
+          value.textContent = formatParamValue(d.value, d.unit);
           const input = document.createElement("input");
           input.type = "range";
           input.min = String(d.min);
@@ -425,7 +425,7 @@ export default function FacetStudio() {
           input.value = String(d.value);
           input.addEventListener("input", () => {
             store.set(d.name, Number(input.value));
-            value.textContent = input.value;
+            value.textContent = formatParamValue(input.value, d.unit);
             scheduleLive();
           });
           row.append(name, value, input);
@@ -870,6 +870,13 @@ export default function FacetStudio() {
                   <option value="brep">B-rep (OCCT)</option>
                 </select>
               </label>
+              <div
+                className="settings-row"
+                title="Model sizes and exported files"
+              >
+                <span className="settings-label">Units</span>
+                <span className="settings-value">Millimeters</span>
+              </div>
               <label className="settings-row">
                 <span className="settings-label">Export format</span>
                 <select ref={formatRef} defaultValue="stl">

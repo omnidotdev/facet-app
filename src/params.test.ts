@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { ParamStore } from "./params";
+import { ParamStore, formatParamValue } from "./params";
 
 /** Simulate a model run: begin, then the model's param calls. */
 const run = (
@@ -126,5 +126,34 @@ describe("ParamStore.api", () => {
     expect(typeof api.boolean).toBe("function");
     expect(typeof api.enum).toBe("function");
     expect(typeof api.select).toBe("function");
+  });
+});
+
+describe("param units", () => {
+  test("declares a trimmed unit and omits an empty one", () => {
+    const store = new ParamStore();
+    run(store, (p) => {
+      p.number("w", { default: 50, unit: " mm " });
+      p.number("n", { default: 4, unit: "  " });
+      p.number("m", { default: 1 });
+    });
+    const [w, n, m] = store.list();
+    expect(w).toMatchObject({ name: "w", unit: "mm" });
+    expect(n && "unit" in n).toBe(false);
+    expect(m && "unit" in m).toBe(false);
+  });
+
+  test("caps a long unit label", () => {
+    const store = new ParamStore();
+    run(store, (p) => {
+      p.number("w", { default: 1, unit: "millimeters-long" });
+    });
+    expect(store.list()[0]).toMatchObject({ unit: "millimet" });
+  });
+
+  test("formats a value with its unit", () => {
+    expect(formatParamValue(50, "mm")).toBe("50 mm");
+    expect(formatParamValue("45", "°")).toBe("45°");
+    expect(formatParamValue(3)).toBe("3");
   });
 });

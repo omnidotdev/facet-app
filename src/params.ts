@@ -10,6 +10,8 @@ interface NumberOpts {
   max?: number;
   step?: number;
   default?: number;
+  /** Display unit shown beside the slider value, e.g. "mm" or "°" */
+  unit?: string;
 }
 
 interface BooleanOpts {
@@ -30,6 +32,7 @@ type ParamDecl =
       max: number;
       step: number;
       value: number;
+      unit?: string;
     }
   | { kind: "boolean"; name: string; value: boolean }
   | { kind: "enum"; name: string; options: string[]; value: string };
@@ -44,6 +47,25 @@ interface ParamApi {
   /** Alias for `enum`. */
   select(name: string, opts: EnumOpts): string;
 }
+
+/** Longest unit label kept, so model code cannot stretch the panel */
+const MAX_UNIT_LENGTH = 8;
+
+/** Trim a model-supplied unit label, dropping empty or non-string values */
+const normalizeUnit = (unit: unknown): string | undefined => {
+  if (typeof unit !== "string") return undefined;
+  const trimmed = unit.trim().slice(0, MAX_UNIT_LENGTH);
+  return trimmed || undefined;
+};
+
+/**
+ * A slider value with its unit: "50 mm", or "45°" since a degree sign sits
+ * flush against the number.
+ */
+export const formatParamValue = (value: number | string, unit?: string) => {
+  if (!unit) return String(value);
+  return unit === "°" ? `${value}°` : `${value} ${unit}`;
+};
 
 export class ParamStore {
   private values = new Map<string, ParamValue>();
@@ -72,7 +94,16 @@ export class ParamStore {
     const min = opts.min ?? 0;
     const max = opts.max ?? Math.max(min + 1, def * 2 || min + 10);
     const step = opts.step ?? ((max - min) / 100 || 0.1);
-    this.declared.push({ kind: "number", name, min, max, step, value });
+    const unit = normalizeUnit(opts.unit);
+    this.declared.push({
+      kind: "number",
+      name,
+      min,
+      max,
+      step,
+      value,
+      ...(unit ? { unit } : {}),
+    });
     return value;
   }
 
