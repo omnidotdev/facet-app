@@ -183,6 +183,52 @@ describe("fetchCapabilities", () => {
     });
   });
 
+  test("reads the card offer only on a payment-required answer", async () => {
+    process.env.VITE_FACET_API_URL = API_URL;
+    const answer = (body: Record<string, unknown>) => {
+      global.fetch = (async () =>
+        new Response(JSON.stringify(body), {
+          status: 200,
+        })) as unknown as typeof fetch;
+    };
+
+    answer({
+      signedIn: true,
+      managedGeneration: false,
+      paymentRequired: true,
+      cardOffer: { monthlyCredits: 50 },
+    });
+    expect((await fetchCapabilities(async () => "tok")).cardOffer).toEqual({
+      monthlyCredits: 50,
+    });
+
+    for (const cardOffer of [
+      null,
+      { monthlyCredits: "50" },
+      { monthlyCredits: 0 },
+      { monthlyCredits: 2.5 },
+    ]) {
+      answer({
+        signedIn: true,
+        managedGeneration: false,
+        paymentRequired: true,
+        cardOffer,
+      });
+      expect(
+        (await fetchCapabilities(async () => "tok")).cardOffer,
+      ).toBeUndefined();
+    }
+
+    answer({
+      signedIn: true,
+      managedGeneration: true,
+      cardOffer: { monthlyCredits: 50 },
+    });
+    expect(
+      (await fetchCapabilities(async () => "tok")).cardOffer,
+    ).toBeUndefined();
+  });
+
   test("omits paymentRequired from an older gateway or a non-boolean value", async () => {
     process.env.VITE_FACET_API_URL = API_URL;
     for (const paymentRequired of [undefined, "yes", 1, false]) {

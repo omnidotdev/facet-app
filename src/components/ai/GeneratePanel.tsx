@@ -26,6 +26,7 @@ import {
   PROMPT_SUGGESTIONS,
   SYNAPSE_KEY_URL,
   SYNAPSE_URL,
+  addCardLabel,
   billingHubUrl,
   canUpgrade,
   classifyGenerateError,
@@ -211,6 +212,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // slug (deep-links the hub to it). Undefined until known, or against an
   // older gateway that does not report the workspace
   const [tier, setTier] = useState<string | undefined>(undefined);
+  // Card-verified free AI credits, offered only while the gateway reports it
+  const [cardOffer, setCardOffer] = useState<{ monthlyCredits: number } | null>(
+    null,
+  );
   const [workspaceSlug, setWorkspaceSlug] = useState<string | undefined>(
     undefined,
   );
@@ -260,6 +265,7 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
   // Adopt the billing details of a capability answer (balance, tier, and the
   // workspace they belong to)
   const adoptBilling = useCallback((caps: Capabilities) => {
+    setCardOffer(caps.cardOffer ?? null);
     setCredits(caps.credits ?? null);
     setTier(caps.tier);
     setWorkspaceSlug(caps.workspace?.slug);
@@ -873,6 +879,18 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     paidAccess || notice || spent || queueNode ? (
       <div className="ai-notice">
         {paidAccess ? <p>{PANEL_COPY.paymentRequired}</p> : null}
+        {paidAccess && cardOffer && buyCreditsHref ? (
+          <p>
+            <a
+              className="ai-upgrade"
+              href={buyCreditsHref}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {addCardLabel(cardOffer.monthlyCredits)}
+            </a>
+          </p>
+        ) : null}
         {notice ? <p role="alert">{notice.message}</p> : null}
         {spent ? <p className="ai-spent">{spent}</p> : null}
         {noticeBuy || noticeUpgrade ? (
