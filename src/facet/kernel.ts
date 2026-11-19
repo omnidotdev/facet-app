@@ -24,13 +24,24 @@ export class KernelError extends Error {}
 /**
  * The seam that matters. P1 ships a mesh/CSG kernel in TypeScript; a Rust
  * B-rep kernel (exact geometry, STEP export) implements the same interface in
- * P2. Kept synchronous for the P1 in-process kernel; goes Promise-based when
- * the WASM/worker kernel lands.
+ * P2. Synchronous for the in-process kernels; the OCCT B-rep kernel runs in a
+ * worker behind the Promise-based `AsyncKernel` below.
  */
 export interface Kernel {
   readonly name: string;
   evaluate(node: OpNode): Mesh;
   export(node: OpNode, format: ExportFormat): Uint8Array;
+}
+
+/**
+ * A kernel that runs off the main thread (the OCCT B-rep kernel in its worker).
+ * Same contract as `Kernel`, but every call resolves asynchronously, so a slow
+ * rebuild never blocks input or painting
+ */
+export interface AsyncKernel {
+  readonly name: string;
+  evaluate(node: OpNode): Promise<Mesh>;
+  export(node: OpNode, format: ExportFormat): Promise<Uint8Array>;
 }
 
 /** Axis-aligned bounds of a mesh, handy for tests and framing the camera. */

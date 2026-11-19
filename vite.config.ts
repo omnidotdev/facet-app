@@ -11,6 +11,9 @@ import { VitePWA } from "vite-plugin-pwa";
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig(({ command }) => ({
+  // ES-module workers, so the B-rep worker can lazy-load the OCCT glue (an
+  // IIFE worker bundle cannot code-split dynamic imports)
+  worker: { format: "es" },
   plugins: [
     devtools(),
     // Serve dev over https with a locally-trusted cert, matching other Omni apps.

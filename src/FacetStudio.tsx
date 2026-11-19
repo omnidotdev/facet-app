@@ -13,7 +13,7 @@ import {
   requiresBrep,
   shouldAutoSwitchToBrep,
 } from "@/facet";
-import { loadBrepKernel } from "@/facet/brepKernel";
+import { loadBrepWorkerKernel } from "@/facet/brepWorkerClient";
 import { ModelRunner } from "@/facet/modelRunner";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { openModelFromFile, saveModelToFile } from "@/fileIo";
@@ -39,6 +39,7 @@ import { Viewport } from "@/viewport";
 
 import type { FacetEditor } from "@/editor";
 import type { ExportFormat, Kernel, OpNode } from "@/facet";
+import type { AsyncKernel } from "@/facet/kernel";
 import type { RendererKind } from "@/gpu/backend";
 import type { RendererPreference } from "@/gpu/rendererPreference";
 import type { SavedWorkspace } from "@/storage";
@@ -396,8 +397,10 @@ export default function FacetStudio() {
       setActiveRenderer,
     );
     viewportRef.current = viewport;
-    const kernels: Record<string, Kernel> = { ts: meshKernel };
-    let activeKernel: Kernel = meshKernel;
+    // The B-rep kernel runs in its own worker (AsyncKernel); the mesh and Rust
+    // kernels are fast enough to stay in-process
+    const kernels: Record<string, Kernel | AsyncKernel> = { ts: meshKernel };
+    let activeKernel: Kernel | AsyncKernel = meshKernel;
     let activeKernelKey = "ts";
     // Guards a second click while the on-demand B-rep wasm is still fetching
     let brepLoading = false;
@@ -490,10 +493,11 @@ export default function FacetStudio() {
       const t0 = performance.now();
       const statusEl = statusRef.current!;
       const seq = ++runSeq;
-      // Evaluate the model in the sandbox worker, then render on the main thread
+      // Evaluate the model in the sandbox worker, mesh it (the B-rep kernel in
+      // its own worker), then render on the main thread
       void runner
         .build(editor.getValue(), store.valuesSnapshot())
-        .then((result) => {
+        .then(async (result) => {
           if (seq !== runSeq) return; // a newer run has superseded this one
           if (!result.ok) {
             currentNode = null;
@@ -516,7 +520,8 @@ export default function FacetStudio() {
           }
 
           try {
-            const mesh = activeKernel.evaluate(node);
+            const mesh = await activeKernel.evaluate(node);
+            if (seq !== runSeq) return; // superseded while the kernel worked
             viewport.setMesh(mesh, reframe);
             currentNode = node;
             renderParams();
@@ -536,6 +541,9 @@ export default function FacetStudio() {
             }
             onResult?.({ ok: true });
           } catch (err) {
+            // A newer run owns the status (this also covers an evaluation the
+            // B-rep worker dropped as superseded mid-drag)
+            if (seq !== runSeq) return;
             currentNode = null;
             const message = err instanceof Error ? err.message : String(err);
             statusEl.className = "status err";
@@ -664,7 +672,7 @@ export default function FacetStudio() {
       brepLoading = true;
       statusEl.className = "status";
       statusEl.textContent = "Loading B-rep kernel…";
-      loadBrepKernel().then((brep) => {
+      loadBrepWorkerKernel().then((brep) => {
         brepLoading = false;
         if (!brep) {
           // Keep running on the kernel that was active before the switch
@@ -710,7 +718,7 @@ export default function FacetStudio() {
       selectKernel(kernelRef.current!.value);
     });
 
-    exportRef.current!.addEventListener("click", () => {
+    exportRef.current!.addEventListener("click", async () => {
       const statusEl = statusRef.current!;
       if (!currentNode) {
         statusEl.className = "status err";
@@ -725,7 +733,7 @@ export default function FacetStudio() {
             ? "model/step"
             : "model/stl";
       try {
-        const data = activeKernel.export(currentNode, format);
+        const data = await activeKernel.export(currentNode, format);
         const blob = new Blob([data.buffer as ArrayBuffer], { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
