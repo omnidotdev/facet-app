@@ -42,6 +42,12 @@ export interface Capabilities {
    */
   paymentRequired?: boolean;
   /**
+   * Present with `paymentRequired` while card-verified free AI credits are
+   * offered: saving a card on the account hub unlocks this many credits a
+   * month for the personal workspace. Absent while the offer is off
+   */
+  cardOffer?: { monthlyCredits: number };
+  /**
    * Set when the session is signed in but its token predates the workspace
    * claim, so the user must sign in again before managed generation works
    */
@@ -92,6 +98,7 @@ export async function fetchCapabilities(
       aiTrainingConsent?: unknown;
       workspace?: unknown;
       paymentRequired?: unknown;
+      cardOffer?: { monthlyCredits?: unknown } | null;
       reauthRequired?: unknown;
     };
     // Only trust a finite numeric balance; anything else is omitted so the
@@ -107,6 +114,15 @@ export async function fetchCapabilities(
       typeof data.aiTrainingConsent === "boolean"
         ? data.aiTrainingConsent
         : undefined;
+    // Only a positive whole number of credits counts as an offer
+    const offered = data.cardOffer?.monthlyCredits;
+    const cardOffer =
+      data.paymentRequired === true &&
+      typeof offered === "number" &&
+      Number.isInteger(offered) &&
+      offered > 0
+        ? { monthlyCredits: offered }
+        : undefined;
     // An older gateway sends no workspace; links then omit it
     const workspace = parseWorkspace(data.workspace);
     return {
@@ -117,6 +133,7 @@ export async function fetchCapabilities(
       ...(aiTrainingConsent !== undefined ? { aiTrainingConsent } : {}),
       ...(workspace ? { workspace } : {}),
       ...(data.paymentRequired === true ? { paymentRequired: true } : {}),
+      ...(cardOffer ? { cardOffer } : {}),
       ...(data.reauthRequired === true ? { reauthRequired: true } : {}),
     };
   } catch {

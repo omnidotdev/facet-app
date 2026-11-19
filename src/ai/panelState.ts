@@ -329,6 +329,13 @@ export const PANEL_COPY = {
   byokPlaceholder: "Synapse API key",
 } as const;
 
+/**
+ * The card-verified free AI credits call to action, shown in the paid-access
+ * state only while the gateway reports the offer
+ */
+export const addCardLabel = (monthlyCredits: number): string =>
+  `Add a card to unlock ${monthlyCredits} free AI credits a month`;
+
 /** Catalog product id used to deep-link the billing hub to Facet's plans. */
 const FACET_PRODUCT_ID = "facet";
 
