@@ -526,11 +526,13 @@ export const formatSpentNote = (credits: number): string =>
   `${creditCount(credits)} spent.`;
 
 /**
- * Starter prompts offered in an empty Describe-a-part dialog. Plain-English
- * one-liners spanning the kernel's range (a primitive, a boolean cut, a
- * threaded-looking part, a studded brick, a rounded shape) so a new user gets
- * a working first generation in one click instead of facing a blank box. Kept
- * here so the set is covered by a test
+ * Example prompts offered in an empty Describe-a-part dialog, a few at a time
+ * in a random order with More ideas. Plain-English one-liners with real
+ * dimensions, spanning the kernel's range (primitives, boolean cuts, holes and
+ * fillets, shells, patterns) so a new user gets a working first generation
+ * from one pick instead of facing a blank box. A pick drafts the prompt for
+ * editing; it never generates on its own. Kept here so the set is covered by
+ * a test
  */
 export const PROMPT_SUGGESTIONS = [
   "a 20mm cube with a 6mm hole through the middle",
@@ -538,4 +540,14 @@ export const PROMPT_SUGGESTIONS = [
   "a hex nut for an M10 bolt",
   "a 2x4 LEGO-style brick",
   "a rounded desk phone stand",
+  "a 60x40x20mm box with 2mm walls and a lid",
+  "a cable clip for a 6mm cord",
+  "a wall hook with two countersunk screw holes",
+  "a round coaster, 90mm across, with a raised rim",
+  "a spacer ring, 12mm outside and 8mm inside",
+  "a pencil cup with a hexagonal outside",
+  "a 100mm ruler with a notch every 10mm",
 ] as const;
+
+/** How many example prompts the Describe-a-part dialog shows at once */
+export const PROMPT_SUGGESTION_COUNT = 3;

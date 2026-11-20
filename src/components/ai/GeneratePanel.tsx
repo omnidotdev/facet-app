@@ -24,6 +24,7 @@ import {
   BALANCE_CAPTION,
   PANEL_COPY,
   PROMPT_SUGGESTIONS,
+  PROMPT_SUGGESTION_COUNT,
   SYNAPSE_KEY_URL,
   SYNAPSE_URL,
   addCardLabel,
@@ -1033,7 +1034,10 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         prompt={prompt}
         onPromptChange={setPrompt}
         placeholder="e.g. a 20mm cube with a 6mm hole through the middle"
+        // Example prompts while the prompt is empty, shuffled per open; a pick
+        // drafts it for editing, never generates
         suggestions={PROMPT_SUGGESTIONS}
+        suggestionCount={PROMPT_SUGGESTION_COUNT}
         onPickSuggestion={setPrompt}
         onGenerate={() => void onGenerate()}
         isPending={busy}
