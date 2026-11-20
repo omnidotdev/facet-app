@@ -4,6 +4,7 @@ import {
   BALANCE_CAPTION,
   PANEL_COPY,
   PROMPT_SUGGESTIONS,
+  PROMPT_SUGGESTION_COUNT,
   SYNAPSE_KEY_URL,
   addCardLabel,
   billingHubUrl,
@@ -605,12 +606,18 @@ describe("formatSpentNote", () => {
 });
 
 describe("PROMPT_SUGGESTIONS", () => {
-  test("offers a few non-empty, distinct starter prompts", () => {
-    expect(PROMPT_SUGGESTIONS.length).toBeGreaterThanOrEqual(3);
+  test("offers more distinct examples than show at once, so More ideas has more", () => {
+    expect(PROMPT_SUGGESTIONS.length).toBeGreaterThan(PROMPT_SUGGESTION_COUNT);
+    expect(new Set(PROMPT_SUGGESTIONS).size).toBe(PROMPT_SUGGESTIONS.length);
+  });
+
+  test("keeps each example short enough for a chip", () => {
     for (const suggestion of PROMPT_SUGGESTIONS) {
       expect(suggestion.trim().length).toBeGreaterThan(0);
+      expect(suggestion.length).toBeLessThanOrEqual(56);
+      expect(suggestion).not.toContain("\u2014");
+      expect(suggestion).not.toMatch(/[.!?]$/);
     }
-    expect(new Set(PROMPT_SUGGESTIONS).size).toBe(PROMPT_SUGGESTIONS.length);
   });
 });
 
