@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { buildModel } from "@/facet/modelEval";
 import { circleSegments, is2dBoolean, polygonize } from "@/facet/polygon2d";
 
 import type { MultiPolygon } from "polygon-clipping";
@@ -118,4 +119,67 @@ describe("helpers", () => {
     expect(circleSegments(1, 0.1, 0.3)).toBe(Math.ceil((2 * Math.PI) / 0.3));
     expect(circleSegments(100, 0.1, 0.3)).toBeGreaterThan(60);
   });
+});
+
+describe("clipper robustness", () => {
+  // A stroke-built glyph run as model code: round-capped segments, a ring, and
+  // a tail whose cap sits on the ring's center line (so it just touches both
+  // ring edges). At these settings polygon-clipping throws "Unable to find
+  // segment" on the raw floating-point input
+  const GLYPH = `
+    function seg(p, q) {
+      const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      const ang = (Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI;
+      return square([len, w], { center: true })
+        .rotate(ang)
+        .translate((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
+        .union(circle(w / 2, { segments: 24 }).translate(p[0], p[1]))
+        .union(circle(w / 2, { segments: 24 }).translate(q[0], q[1]));
+    }
+    function arc(cx, cy, r) {
+      let out = null;
+      for (let i = 0; i < 16; i++) {
+        const t0 = Math.PI - (Math.PI * i) / 16;
+        const t1 = Math.PI - (Math.PI * (i + 1)) / 16;
+        const piece = seg(
+          [cx + Math.cos(t0) * r, cy + Math.sin(t0) * r],
+          [cx + Math.cos(t1) * r, cy + Math.sin(t1) * r],
+        );
+        out = out ? out.union(piece) : piece;
+      }
+      return out;
+    }
+    const a = (-150 * Math.PI) / 180;
+    let sym = seg([2, 2], [2, 26]);
+    sym = sym.union(arc(8, 26, 6));
+    sym = sym.union(seg([14, 2], [14, 26]));
+    sym = sym.union(arc(20, 26, 6));
+    sym = sym.union(seg([26, 2], [26, 26]));
+    sym = sym.union(
+      circle(5.5 + w / 2, { segments: 64 })
+        .subtract(circle(5.5 - w / 2, { segments: 64 }))
+        .translate(32.5, 12),
+    );
+    sym = sym.union(seg([32.5 + Math.cos(a) * 5.5, 12 + Math.sin(a) * 5.5], [20, -3]));
+    return extrude(sym, 4);
+  `;
+
+  for (const [width, stroke] of [
+    [30, 3],
+    [52, 5],
+    [60, 6],
+  ]) {
+    test(`merges a near-tangent glyph (width ${width}, stroke ${stroke})`, () => {
+      const w = stroke / (width / 43);
+      const res = buildModel(`const w = ${w};\n${GLYPH}`, {});
+      expect(res.ok).toBe(true);
+      if (!res.ok || res.node.op !== "extrude") return;
+      const shape = polygonize(res.node.child, {
+        chordTolerance: 0.01,
+        angularTolerance: 0.1,
+      });
+      // One connected outline: the glyph, with the loop's opening as a hole
+      expect(shape).toHaveLength(1);
+    });
+  }
 });

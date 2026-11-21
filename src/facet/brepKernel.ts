@@ -18,6 +18,7 @@ import type { Drawing, Face, Shape3D } from "replicad";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
 import type { EvaluateOptions, ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode } from "./opgraph";
+import type { PolygonizeOptions } from "./polygon2d";
 
 /** The replicad module surface, typed without pulling it into the bundle. */
 type Replicad = typeof import("replicad");
@@ -29,6 +30,13 @@ type Keep = ReturnType<Replicad["localGC"]>[0];
 // mesh. The linear tolerance is in model units, the angular one in radians
 const MESH_TOLERANCE = 0.1;
 const MESH_ANGULAR_TOLERANCE = 0.3;
+
+// Flattening for the polygon fallback when an exact 2D merge fails. Finer than
+// the display mesh, since the result is what gets exported and printed
+const FALLBACK_POLYGON_TOLERANCE: PolygonizeOptions = {
+  chordTolerance: 0.01,
+  angularTolerance: 0.1,
+};
 
 // Degrees to radians, for the mesh-level rotation fallback
 const DEG_TO_RAD = Math.PI / 180;
@@ -267,12 +275,16 @@ let previewMode = false;
  * null to keep the exact path when the subtree has a piece with no polygon form,
  * or if the clipper rejects the input
  */
-function previewDrawing(rc: Replicad, node: OpNode): Drawing | null {
+function previewDrawing(
+  rc: Replicad,
+  node: OpNode,
+  tolerance: PolygonizeOptions = {
+    chordTolerance: MESH_TOLERANCE,
+    angularTolerance: MESH_ANGULAR_TOLERANCE,
+  },
+): Drawing | null {
   try {
-    const shape = polygonize(node, {
-      chordTolerance: MESH_TOLERANCE,
-      angularTolerance: MESH_ANGULAR_TOLERANCE,
-    });
+    const shape = polygonize(node, tolerance);
     if (!shape?.length) return null;
     const blueprints = shape.map((polygon) => {
       const rings = polygon.map((ring) => {
@@ -570,11 +582,13 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       }
     }
     case "union2d":
-      return drawing2dOp(rc, keep, node.children, (a, b) => a.fuse(b));
+      return drawing2dOp(rc, keep, node, node.children, (a, b) => a.fuse(b));
     case "difference2d":
-      return drawing2dOp(rc, keep, node.children, (a, b) => a.cut(b));
+      return drawing2dOp(rc, keep, node, node.children, (a, b) => a.cut(b));
     case "intersect2d":
-      return drawing2dOp(rc, keep, node.children, (a, b) => a.intersect(b));
+      return drawing2dOp(rc, keep, node, node.children, (a, b) =>
+        a.intersect(b),
+      );
     case "offset2d": {
       const drawing = requireDrawing(evalNode(rc, keep, node.child), "Offset");
       // Positive grows the outline outward, negative shrinks it inward
@@ -905,6 +919,7 @@ function requireDrawing(geom: Geom, op: string): Drawing {
 function drawing2dOp(
   rc: Replicad,
   keep: Keep,
+  node: OpNode,
   children: OpNode[],
   combine: (a: Drawing, b: Drawing) => Drawing,
 ): Geom {
@@ -913,7 +928,23 @@ function drawing2dOp(
   const drawings = children.map((child) =>
     requireDrawing(evalNode(rc, keep, child), "A 2D boolean"),
   );
-  return { kind: "drawing", drawing: drawings.reduce((a, b) => combine(a, b)) };
+  try {
+    return {
+      kind: "drawing",
+      drawing: drawings.reduce((a, b) => combine(a, b)),
+    };
+  } catch (err) {
+    // replicad's exact curve booleans can throw on near-coincident or tangent
+    // curves (a chain of short round-capped strokes hits this at some stroke
+    // widths), which would fail the whole model. Merge the subtree as polygons
+    // instead, flattened finer than the display mesh so prints keep their
+    // curves; only a subtree with no polygon form (text, SVG, offsets) still
+    // fails
+    const drawing = previewDrawing(rc, node, FALLBACK_POLYGON_TOLERANCE);
+    if (!drawing) throw err;
+    console.warn("Facet: exact 2D merge failed, using the polygon merge:", err);
+    return { kind: "drawing", drawing };
+  }
 }
 
 // Cache the one-time async load so selecting the kernel again is instant

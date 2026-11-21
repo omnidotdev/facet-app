@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { evaluateOpGraph, exportOpGraphStep } from "./brepKernel";
 import { meshBounds } from "./kernel";
 import { meshKernel } from "./meshKernel";
+import { buildModel } from "./modelEval";
 
 import type { OpNode } from "./opgraph";
 
@@ -876,6 +877,54 @@ describe("2D transforms agree between the B-rep and mesh kernels", () => {
     for (let a = 0; a < 2; a++) {
       expect(brep.min[a]).toBeCloseTo(mesh.min[a], 3);
       expect(brep.max[a]).toBeCloseTo(mesh.max[a], 3);
+    }
+  });
+});
+
+describe("OCCT B-rep kernel 2D merge fallback", () => {
+  // A loop drawn as a chain of 24 short round-capped strokes. At this stroke
+  // width replicad's exact curve boolean throws ("Bug in the intersection algo
+  // on non crossing point"); the kernel must fall back to the polygon merge
+  // rather than fail the model
+  const LOOP = `
+    const w = 4 / (60 / 43);
+    function seg(p, q) {
+      const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      const ang = (Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI;
+      return square([len, w], { center: true })
+        .rotate(ang)
+        .translate((p[0] + q[0]) / 2, (p[1] + q[1]) / 2)
+        .union(circle(w / 2, { segments: 24 }).translate(p[0], p[1]))
+        .union(circle(w / 2, { segments: 24 }).translate(q[0], q[1]));
+    }
+    let loop = null;
+    for (let i = 0; i < 24; i++) {
+      const t0 = ((150 - (300 * i) / 24) * Math.PI) / 180;
+      const t1 = ((150 - (300 * (i + 1)) / 24) * Math.PI) / 180;
+      const piece = seg(
+        [32.5 + Math.cos(t0) * 5.5, 12 + Math.sin(t0) * 5.5],
+        [32.5 + Math.cos(t1) * 5.5, 12 + Math.sin(t1) * 5.5],
+      );
+      loop = loop ? loop.union(piece) : piece;
+    }
+    return extrude(loop, 4);
+  `;
+
+  test.skipIf(!rc)("builds a 2D merge the exact path cannot resolve", () => {
+    const res = buildModel(LOOP, {});
+    expect(res.ok).toBe(true);
+    if (!res.ok || !rc) return;
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      const mesh = evaluateOpGraph(rc, res.node);
+      expect(mesh.triangleCount).toBeGreaterThan(0);
+      const b = meshBounds(mesh);
+      // The loop's outer edge: radius 5.5 plus half a stroke around x = 32.5
+      expect(b.max[0]).toBeCloseTo(32.5 + 5.5 + 4 / (60 / 43) / 2, 1);
+      expect(b.max[2]).toBeCloseTo(4, 3);
+    } finally {
+      console.warn = warn;
     }
   });
 });
