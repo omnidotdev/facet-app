@@ -1,3 +1,4 @@
+import { NativeSelect } from "@omnidotdev/thornberry/native-select";
 import { useEffect, useRef, useState } from "react";
 
 import GeneratePanel from "@/components/ai/GeneratePanel";
@@ -927,14 +928,10 @@ export default function FacetStudio() {
             >
               <label className="settings-row">
                 <span className="settings-label">Kernel</span>
-                <select
-                  ref={kernelRef}
-                  className="kernel-select"
-                  defaultValue="ts"
-                >
+                <NativeSelect ref={kernelRef} defaultValue="ts" size="sm">
                   <option value="ts">TS (mesh)</option>
                   <option value="brep">B-rep (OCCT)</option>
-                </select>
+                </NativeSelect>
               </label>
               <div
                 className="settings-row"
@@ -945,7 +942,8 @@ export default function FacetStudio() {
               </div>
               <label className="settings-row">
                 <span className="settings-label">Renderer</span>
-                <select
+                <NativeSelect
+                  size="sm"
                   value={rendererPref}
                   onChange={(e) => {
                     const next = parseRendererPreference(e.target.value);
@@ -957,15 +955,15 @@ export default function FacetStudio() {
                   <option value="auto">Auto</option>
                   <option value="webgpu">WebGPU</option>
                   <option value="webgl">WebGL</option>
-                </select>
+                </NativeSelect>
               </label>
               <label className="settings-row">
                 <span className="settings-label">Export format</span>
-                <select ref={formatRef} defaultValue="stl">
+                <NativeSelect ref={formatRef} defaultValue="stl" size="sm">
                   <option value="stl">STL</option>
                   <option value="3mf">3MF</option>
                   <option value="step">STEP</option>
-                </select>
+                </NativeSelect>
               </label>
               <button
                 ref={themeBtnRef}

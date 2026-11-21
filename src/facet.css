@@ -109,7 +109,7 @@ body,
   }
 }
 
-.facet-app select,
+.facet-app select.param-select,
 .facet-app button {
   font: inherit;
   font-size: 13px;
@@ -121,7 +121,6 @@ body,
   cursor: pointer;
 }
 /* Keep each control on one line so a label never wraps to a second row */
-.facet-app header select,
 .facet-app header button {
   white-space: nowrap;
 }
@@ -143,7 +142,7 @@ body,
   filter: brightness(1.08);
 }
 .facet-app button:hover,
-.facet-app select:hover {
+.facet-app select.param-select:hover {
   border-color: var(--accent);
 }
 .facet-app button.icon-btn {
@@ -928,7 +927,6 @@ button.ai-job-btn:focus-visible {
   .facet-app .tag {
     display: none;
   }
-  .facet-app header select,
   .facet-app header button {
     padding: 5px 8px;
     font-size: 12px;
@@ -1256,10 +1254,6 @@ button.ai-job-btn:focus-visible {
 .facet-app .settings-value {
   font-size: 12px;
   color: var(--text);
-}
-.facet-app .settings-dropdown select {
-  font: inherit;
-  flex: 0 1 auto;
 }
 .facet-app button.settings-row-btn {
   background: transparent;
