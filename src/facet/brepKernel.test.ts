@@ -928,3 +928,100 @@ describe("OCCT B-rep kernel 2D merge fallback", () => {
     }
   });
 });
+
+describe("OCCT B-rep kernel profile cross-check", () => {
+  // A self-crossing stroke drawn as a polyline of bars and round joints. Here
+  // replicad's exact merge returns without error but drops a sliver where the
+  // stroke crosses itself, leaving a pinhole: three outlines instead of two.
+  // The kernel must notice against the polygon merge and use that instead
+  const CROSSING = `
+    const w = 4 / (45 / 40);
+    function path(pts) {
+      let out = circle(w / 2, { segments: 24 }).translate(pts[0][0], pts[0][1]);
+      for (let i = 1; i < pts.length; i++) {
+        const [p, q] = [pts[i - 1], pts[i]];
+        const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+        const ang = (Math.atan2(q[1] - p[1], q[0] - p[0]) * 180) / Math.PI;
+        out = out
+          .union(
+            square([len, w], { center: true })
+              .rotate(ang)
+              .translate((p[0] + q[0]) / 2, (p[1] + q[1]) / 2),
+          )
+          .union(circle(w / 2, { segments: 24 }).translate(q[0], q[1]));
+      }
+      return out;
+    }
+    const ctrl = [
+      [26, 26], [26, 18], [26, 10], [26, 4],
+      [26, 0], [30, -1], [34, 0.5],
+      [38, 2], [40, 5], [39.5, 10],
+      [39, 15], [36, 17.5], [32, 17],
+      [28, 16.5], [23, 15], [19, 13],
+    ];
+    const pts = [ctrl[0]];
+    for (let k = 0; k + 3 < ctrl.length; k += 3) {
+      for (let i = 1; i <= 8; i++) {
+        const t = i / 8;
+        const u = 1 - t;
+        const c = [u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t];
+        pts.push([0, 1].map((d) =>
+          c.reduce((sum, ci, j) => sum + ci * ctrl[k + j][d], 0),
+        ));
+      }
+    }
+    return extrude(path(pts).scale(45 / 40), 4);
+  `;
+
+  /** Closed outlines on the top face: the part's boundary plus its holes */
+  const topOutlines = (positions: Float32Array): number => {
+    const key = (i: number) =>
+      `${positions[i].toFixed(4)},${positions[i + 1].toFixed(4)}`;
+    let zTop = Number.NEGATIVE_INFINITY;
+    for (let i = 2; i < positions.length; i += 3)
+      zTop = Math.max(zTop, positions[i]);
+    const edges = new Set<string>();
+    for (let t = 0; t < positions.length; t += 9) {
+      if (![2, 5, 8].every((o) => Math.abs(positions[t + o] - zTop) < 1e-6))
+        continue;
+      for (let k = 0; k < 3; k++)
+        edges.add(`${key(t + k * 3)}>${key(t + ((k + 1) % 3) * 3)}`);
+    }
+    const next = new Map<string, string>();
+    for (const e of edges) {
+      const [a, b] = e.split(">");
+      if (!edges.has(`${b}>${a}`)) next.set(a, b);
+    }
+    const seen = new Set<string>();
+    let loops = 0;
+    for (const start of next.keys()) {
+      if (seen.has(start)) continue;
+      loops++;
+      for (
+        let v: string | undefined = start;
+        v && !seen.has(v);
+        v = next.get(v)
+      )
+        seen.add(v);
+    }
+    return loops;
+  };
+
+  test.skipIf(!rc)(
+    "replaces an exact merge that silently lost material",
+    () => {
+      const res = buildModel(CROSSING, {});
+      expect(res.ok).toBe(true);
+      if (!res.ok || !rc) return;
+      const warn = console.warn;
+      console.warn = () => {};
+      try {
+        const mesh = evaluateOpGraph(rc, res.node);
+        // The stroke's outline and the loop it closes, with no pinhole
+        expect(topOutlines(mesh.positions)).toBe(2);
+      } finally {
+        console.warn = warn;
+      }
+    },
+  );
+});
