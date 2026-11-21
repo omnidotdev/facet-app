@@ -18,12 +18,36 @@ describe("3mf export", () => {
     expect(text).toContain("PK\x05\x06");
   });
 
-  test("emits one triangle element per mesh triangle (non-indexed vertices)", () => {
+  test("welds shared vertices into a closed indexed mesh", () => {
     const mesh = meshKernel.evaluate(cube(10).node);
     const text = new TextDecoder().decode(meshTo3mf(mesh));
-    const triCount = (text.match(/<triangle /g) ?? []).length;
+    const triangles = [
+      ...text.matchAll(/<triangle v1="(\d+)" v2="(\d+)" v3="(\d+)"\/>/g),
+    ].map((m) => [Number(m[1]), Number(m[2]), Number(m[3])]);
     const vertCount = (text.match(/<vertex /g) ?? []).length;
-    expect(triCount).toBe(mesh.triangleCount); // 12 for a cube
-    expect(vertCount).toBe(mesh.triangleCount * 3);
+    expect(triangles).toHaveLength(mesh.triangleCount); // 12 for a cube
+    // A cube has 8 corners; unwelded it would be 36 loose vertices
+    expect(vertCount).toBe(8);
+    // Watertight: every edge is shared by exactly two triangles
+    const edges = new Map<string, number>();
+    for (const tri of triangles) {
+      for (let k = 0; k < 3; k++) {
+        const a = tri[k];
+        const b = tri[(k + 1) % 3];
+        const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+        edges.set(key, (edges.get(key) ?? 0) + 1);
+      }
+    }
+    for (const count of edges.values()) expect(count).toBe(2);
+  });
+
+  test("drops triangles that collapse under coordinate rounding", () => {
+    const mesh = {
+      positions: new Float32Array([0, 0, 0, 0.00001, 0, 0, 1, 1, 0]),
+      normals: new Float32Array(9),
+      triangleCount: 1,
+    };
+    const text = new TextDecoder().decode(meshTo3mf(mesh));
+    expect(text).not.toContain("<triangle ");
   });
 });

@@ -87,12 +87,26 @@ fn triangulate(ring: &[Pt]) -> Vec<[usize; 3]> {
     tris
 }
 
+/// The ring in counter-clockwise order, reversed when it winds clockwise.
+fn ccw_ring(ring: &[Pt]) -> Vec<Pt> {
+    let mut out = ring.to_vec();
+    if signed_area(ring) < 0.0 {
+        out.reverse();
+    }
+    out
+}
+
 /// Cap polygons from a ring of 3D points and triangle indices.
 fn cap_polys(points: &[Vec3], tris: &[[usize; 3]], normal: Vec3, flip: bool) -> Vec<Polygon> {
     tris.iter()
         .map(|&[i, j, k]| {
             let order = if flip { [k, j, i] } else { [i, j, k] };
-            Polygon::new(order.iter().map(|&n| Vertex::new(points[n], normal)).collect())
+            Polygon::new(
+                order
+                    .iter()
+                    .map(|&n| Vertex::new(points[n], normal))
+                    .collect(),
+            )
         })
         .collect()
 }
@@ -102,7 +116,12 @@ pub fn extrude_profile(ring: &[Pt], height: f64, twist: f64, scale: f64) -> Resu
     if ring.len() < 3 {
         return Err("extrude needs a profile with 3+ points".to_string());
     }
-    let ccw = signed_area(ring) >= 0.0;
+    // Wind every face for a CCW ring, which `triangulate` also assumes, so a CW
+    // profile (or a mirrored one) does not come out inside-out. A downward sweep
+    // mirrors the solid through the XY plane, so it reverses each face too
+    let ring = ccw_ring(ring);
+    let ring = ring.as_slice();
+    let up = height >= 0.0;
     let tris = triangulate(ring);
 
     // A twist makes walls non-planar, so slice the height into near-planar
@@ -123,11 +142,15 @@ pub fn extrude_profile(ring: &[Pt], height: f64, twist: f64, scale: f64) -> Resu
             })
             .collect()
     };
-    let levels: Vec<Vec<Vec3>> = (0..=layers).map(|l| ring_at(l as f64 / layers as f64)).collect();
+    let levels: Vec<Vec<Vec3>> = (0..=layers)
+        .map(|l| ring_at(l as f64 / layers as f64))
+        .collect();
 
     let mut polys: Vec<Polygon> = Vec::new();
-    polys.extend(cap_polys(&levels[0], &tris, Vec3::new(0.0, 0.0, -1.0), ccw));
-    polys.extend(cap_polys(&levels[layers], &tris, Vec3::new(0.0, 0.0, 1.0), !ccw));
+    // Caps: the start face points away from the sweep and the end face along it
+    let along = Vec3::new(0.0, 0.0, if up { 1.0 } else { -1.0 });
+    polys.extend(cap_polys(&levels[0], &tris, along.times(-1.0), up));
+    polys.extend(cap_polys(&levels[layers], &tris, along, !up));
 
     let n = ring.len();
     for l in 0..layers {
@@ -135,14 +158,34 @@ pub fn extrude_profile(ring: &[Pt], height: f64, twist: f64, scale: f64) -> Resu
             let j = (i + 1) % n;
             let (b0, b1) = (levels[l][i], levels[l][j]);
             let (t0, t1) = (levels[l + 1][i], levels[l + 1][j]);
-            let mut normal = b1.minus(b0).cross(t0.minus(b0)).unit();
-            if ccw {
-                normal = normal.times(-1.0);
+            let quad = if up {
+                [b0, b1, t1, t0]
+            } else {
+                [b0, t0, t1, b1]
+            };
+            // A twisted wall quad is not planar, and the BSP booleans recurse
+            // without end on a polygon that leaves its own plane, so split it
+            // into triangles. Fanning around the quad's center keeps the wall
+            // on the twisted surface, where a single diagonal would shave a
+            // sliver off every wall
+            let faces: Vec<Vec<Vec3>> = if twist == 0.0 {
+                vec![quad.to_vec()]
+            } else {
+                let mid = quad[0]
+                    .plus(quad[1])
+                    .plus(quad[2])
+                    .plus(quad[3])
+                    .times(0.25);
+                (0..4)
+                    .map(|k| vec![quad[k], quad[(k + 1) % 4], mid])
+                    .collect()
+            };
+            for face in faces {
+                let normal = face[1].minus(face[0]).cross(face[2].minus(face[0])).unit();
+                polys.push(Polygon::new(
+                    face.iter().map(|&p| Vertex::new(p, normal)).collect(),
+                ));
             }
-            let quad = if ccw { [b0, t0, t1, b1] } else { [b0, b1, t1, t0] };
-            polys.push(Polygon::new(
-                quad.iter().map(|&p| Vertex::new(p, normal)).collect(),
-            ));
         }
     }
     Ok(Csg::from_polygons(polys))
@@ -155,7 +198,13 @@ pub fn revolve_profile(ring: &[Pt], angle: f64, segments: i32) -> Result<Csg, St
     }
     let steps = segments.max(3) as usize;
     let full = (angle % 360.0).abs() < 1e-6 && angle != 0.0;
-    let total = (if full { 360.0 } else { angle }) * DEG;
+    let total = (if full { 360.0 * angle.signum() } else { angle }) * DEG;
+    // Wind every face for a CCW profile, which `triangulate` also assumes, so a
+    // CW profile does not come out inside-out. A clockwise sweep (negative
+    // angle) mirrors the solid, so it reverses each face too
+    let ring = ccw_ring(ring);
+    let ring = ring.as_slice();
+    let ccw_sweep = total >= 0.0;
 
     let at = |p: Pt, t: f64| Vec3::new(p.0 * t.cos(), p.0 * t.sin(), p.1);
 
@@ -173,9 +222,14 @@ pub fn revolve_profile(ring: &[Pt], angle: f64, segments: i32) -> Result<Csg, St
             let b = at(ring[j], t0);
             let c = at(ring[j], t1);
             let d = at(ring[i], t1);
-            let normal = b.minus(a).cross(d.minus(a)).unit();
+            let quad = if ccw_sweep {
+                [a, d, c, b]
+            } else {
+                [a, b, c, d]
+            };
+            let normal = quad[1].minus(quad[0]).cross(quad[3].minus(quad[0])).unit();
             polys.push(Polygon::new(
-                [a, b, c, d].iter().map(|&p| Vertex::new(p, normal)).collect(),
+                quad.iter().map(|&p| Vertex::new(p, normal)).collect(),
             ));
         }
     }
@@ -184,11 +238,13 @@ pub fn revolve_profile(ring: &[Pt], angle: f64, segments: i32) -> Result<Csg, St
         let tris = triangulate(ring);
         let start_pts: Vec<Vec3> = ring.iter().map(|&p| at(p, 0.0)).collect();
         let end_pts: Vec<Vec3> = ring.iter().map(|&p| at(p, total)).collect();
-        let ccw = signed_area(ring) >= 0.0;
-        let n_start = Vec3::new(0.0, -1.0, 0.0);
-        let n_end = Vec3::new(total.sin(), -total.cos(), 0.0).unit();
-        polys.extend(cap_polys(&start_pts, &tris, n_start, !ccw));
-        polys.extend(cap_polys(&end_pts, &tris, n_end, ccw));
+        // Normals are the plane normals of the two cut faces, facing out of the
+        // swept wedge
+        let dir = if ccw_sweep { 1.0 } else { -1.0 };
+        let n_start = Vec3::new(0.0, -dir, 0.0);
+        let n_end = Vec3::new(dir * total.sin(), -dir * total.cos(), 0.0).unit();
+        polys.extend(cap_polys(&start_pts, &tris, n_start, !ccw_sweep));
+        polys.extend(cap_polys(&end_pts, &tris, n_end, ccw_sweep));
     }
     Ok(Csg::from_polygons(polys))
 }
@@ -221,7 +277,7 @@ pub fn profile_ring(node: &OpNode) -> Option<Vec<Pt>> {
             })
         }
         OpNode::Polygon2d { points } => {
-            if points.len() < 6 || points.len() % 2 != 0 {
+            if points.len() < 6 || !points.len().is_multiple_of(2) {
                 return None;
             }
             Some(points.chunks(2).map(|c| (c[0], c[1])).collect())
@@ -249,7 +305,11 @@ pub fn profile_ring(node: &OpNode) -> Option<Vec<Pt>> {
         }
         OpNode::Scale2d { factor, child } => {
             let ring = profile_ring(child)?;
-            Some(ring.iter().map(|&(x, y)| (x * factor, y * factor)).collect())
+            Some(
+                ring.iter()
+                    .map(|&(x, y)| (x * factor, y * factor))
+                    .collect(),
+            )
         }
         OpNode::Mirror2d { normal, child } => {
             let ring = profile_ring(child)?;

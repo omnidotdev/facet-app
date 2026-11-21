@@ -103,3 +103,95 @@ describe("mesh kernel tessellated sweeps", () => {
     expect(() => ev(circle(5).node)).toThrow(/B-rep/);
   });
 });
+
+/** Signed volume of a closed mesh: positive when its faces point outward */
+const signedVolume = (node: OpNode): number => {
+  const { positions: p, triangleCount } = ev(node);
+  let v = 0;
+  for (let t = 0; t < triangleCount; t++) {
+    const [ax, ay, az, bx, by, bz, cx, cy, cz] = p.subarray(t * 9, t * 9 + 9);
+    v +=
+      (ax * (by * cz - bz * cy) -
+        ay * (bx * cz - bz * cx) +
+        az * (bx * cy - by * cx)) /
+      6;
+  }
+  return v;
+};
+
+describe("mesh kernel sweeps face outward", () => {
+  const cwTriangle = () =>
+    polygon([
+      [0, 0],
+      [0, 10],
+      [10, 0],
+    ]);
+  const ccwTriangle = () =>
+    polygon([
+      [0, 0],
+      [10, 0],
+      [0, 10],
+    ]);
+  const ring = () => circle(2, { segments: 48 }).translate(10, 0);
+  // Exact volume of the true solid; the tolerance covers tessellation
+  const cases: [string, () => OpNode, number][] = [
+    ["a CCW profile extrude", () => extrude(ccwTriangle(), 5).node, 250],
+    ["a CW profile extrude", () => extrude(cwTriangle(), 5).node, 250],
+    ["a rect extrude", () => extrude(square([10, 6]), 8).node, 480],
+    ["a downward extrude", () => extrude(square([10, 6]), -8).node, 480],
+    [
+      "a mirrored profile extrude",
+      () => extrude(ccwTriangle().mirror([1, 0]), 5).node,
+      250,
+    ],
+    [
+      "a twisted, tapered extrude",
+      () =>
+        extrude(square([10, 6], { center: true }), 12, {
+          twist: -90,
+          scale: 0.5,
+        }).node,
+      // A taper scales the section by (1 + s + s^2) / 3 on average
+      (60 * 12 * (1 + 0.5 + 0.25)) / 3,
+    ],
+    [
+      "a full revolve",
+      () => revolve(ring(), { segments: 96 }).node,
+      2 * Math.PI ** 2 * 10 * 4,
+    ],
+    [
+      "a negative-angle revolve",
+      () => revolve(ring(), { angle: -90, segments: 96 }).node,
+      (Math.PI ** 2 * 10 * 4) / 2,
+    ],
+    [
+      "a CW profile revolve",
+      () =>
+        revolve(
+          polygon([
+            [10, 0],
+            [10, 4],
+            [12, 0],
+          ]),
+          { segments: 96 },
+        ).node,
+      // Pappus: area 4 swept by its centroid at r = 32/3
+      4 * 2 * Math.PI * (32 / 3),
+    ],
+  ];
+  for (const [name, build, expected] of cases) {
+    test(`${name} has positive volume`, () => {
+      const v = signedVolume(build());
+      expect(v).toBeGreaterThan(expected * 0.98);
+      expect(v).toBeLessThan(expected * 1.02);
+    });
+  }
+
+  test("a twisted extrude survives a boolean", () => {
+    // Non-planar twisted walls sent the BSP into unbounded recursion
+    const node = extrude(square([10, 6], { center: true }), 12, {
+      twist: 60,
+    }).subtract(cube([2, 2, 30], { center: true })).node;
+    expect(signedVolume(node)).toBeGreaterThan(0);
+  });
+});

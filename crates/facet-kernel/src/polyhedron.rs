@@ -76,7 +76,10 @@ pub fn decode_polyhedron(points: &[f64], faces: &[f64]) -> Result<DecodedPolyhed
         face_list.push(face);
         j += n;
     }
-    Ok(DecodedPolyhedron { points: point_list, faces: face_list })
+    Ok(DecodedPolyhedron {
+        points: point_list,
+        faces: face_list,
+    })
 }
 
 /// Fan-triangulate one face into triangle-index triples: `(i0, ik, ik+1)` for
@@ -103,7 +106,10 @@ mod tests {
         ];
         let d = decode_polyhedron(&points, &faces).expect("decode");
         assert_eq!(d.points.len(), 4);
-        assert_eq!(d.faces, vec![vec![0, 2, 1], vec![0, 1, 3], vec![1, 2, 3], vec![2, 0, 3]]);
+        assert_eq!(
+            d.faces,
+            vec![vec![0, 2, 1], vec![0, 1, 3], vec![1, 2, 3], vec![2, 0, 3]]
+        );
     }
 
     #[test]
