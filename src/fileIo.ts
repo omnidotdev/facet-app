@@ -30,6 +30,16 @@ export const suggestedFileName = (modelName: string): string => {
 };
 
 /**
+ * Build a download name for an exported model (STL, 3MF, STEP) from the model
+ * (tab) name, sanitized like `suggestedFileName`, e.g. "Hex Nut" + "step" ->
+ * "Hex Nut.step". Falls back to "model" when the name is empty.
+ */
+export const exportFileName = (modelName: string, format: string): string => {
+  const base = stripFacetExt(modelName).replace(UNSAFE, "").trim();
+  return `${base || "model"}.${format.toLowerCase()}`;
+};
+
+/**
  * Derive a tab name from a file name: drop a `.facet.ts` (or plain `.ts`)
  * suffix so an opened `hex-nut.facet.ts` becomes the tab "hex-nut".
  */

@@ -16,7 +16,7 @@ import {
 import { loadBrepWorkerKernel } from "@/facet/brepWorkerClient";
 import { ModelRunner } from "@/facet/modelRunner";
 import { loadWasmKernel } from "@/facet/wasmKernel";
-import { openModelFromFile, saveModelToFile } from "@/fileIo";
+import { exportFileName, openModelFromFile, saveModelToFile } from "@/fileIo";
 import {
   loadRendererPreference,
   parseRendererPreference,
@@ -752,8 +752,11 @@ export default function FacetStudio() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        // Lowercase extension, so facet-model.step for a STEP export
-        a.download = `facet-model.${format}`;
+        // Name the file after the active model (tab), e.g. "Hex Nut.step"
+        a.download = exportFileName(
+          activeTab(tabsRef.current)?.name ?? "model",
+          format,
+        );
         a.click();
         URL.revokeObjectURL(url);
       } catch (err) {
