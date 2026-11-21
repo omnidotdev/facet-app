@@ -1,5 +1,47 @@
 # @omnidotdev/facet
 
+## 0.8.0
+
+### Minor Changes
+
+- [#110](https://github.com/omnidotdev/facet-app/pull/110) [`05c787d`](https://github.com/omnidotdev/facet-app/commit/05c787d792833aa011c966dad95e3873d08f0452) Thanks [@coopbri](https://github.com/coopbri)! - Add an "Upgrade to Pro" link for free-tier users in the Describe a part panel, and point "Buy credits" at the credits section of the personal workspace Facet bills. The panel now refreshes your balance and plan when you return to the tab, clears the out-of-credits notice once credits land, and tells you when the render check or refine after a successful draft was stopped by credits, plan, or a usage limit (the draft is always kept). The render check now works on more GPUs and when the 3D view is hidden on narrow screens. Sign-in now asks for workspace access, and sessions from before that change are asked to sign in again.
+
+- [#112](https://github.com/omnidotdev/facet-app/pull/112) [`65671fe`](https://github.com/omnidotdev/facet-app/commit/65671fe8c49d5b34fd672b7210a5863399ffd07d) Thanks [@coopbri](https://github.com/coopbri)! - Managed AI generation is now for paying customers: Facet Pro, or a workspace that has bought Omni credits (Facet Free no longer includes managed credits). Signed-in users who have not paid yet now see the Describe a part panel in a paid-access state that explains AI generation uses Omni credits and offers "Buy credits", "Upgrade to Pro", and "Use your own Synapse key", so you can still generate with your own key. After you buy credits or upgrade and return to the tab, the panel switches to generating on its own. A generation refused because you have not paid yet now opens that same state instead of saying you are out of credits.
+
+- [#114](https://github.com/omnidotdev/facet-app/pull/114) [`6fc9824`](https://github.com/omnidotdev/facet-app/commit/6fc9824e6f6e2e5283c5ce41462acad9d87e5ef7) Thanks [@coopbri](https://github.com/coopbri)! - AI generation now runs in the background. Generate queues your part and frees the panel right away, so you can keep modeling, close the panel, or even leave the page while it generates. A queue in the "Describe a part" panel shows each part as Queued, Generating, Ready, or Failed, and the button shows how many are generating or ready. Open a ready part to load it into a new model tab (it is still checked and refined as before), retry a failed one, or discard what you do not need. A short message lets you know when a part finishes while you are elsewhere in the app. Ready parts wait for up to 24 hours. Generating with your own Synapse key works as before.
+
+- [#116](https://github.com/omnidotdev/facet-app/pull/116) [`c4c886a`](https://github.com/omnidotdev/facet-app/commit/c4c886a87c41ad3adb2f8778d0003920a9b603f9) Thanks [@coopbri](https://github.com/coopbri)! - Offer free AI credits when generation needs payment
+
+  The paid-access state now links to the account hub with "Add a card to unlock 50 free AI credits a month" while the gateway reports card-verified free AI credits are offered (never while the offer is off).
+
+- [#125](https://github.com/omnidotdev/facet-app/pull/125) [`73e6fe1`](https://github.com/omnidotdev/facet-app/commit/73e6fe1b8dcb32996e5949be9dc2355df06f9cfc) Thanks [@coopbri](https://github.com/coopbri)! - Shuffle the example prompts in Describe a part
+
+  The Describe a part dialog now shows three example prompts at a time, drawn in a random order each time it opens, with **More ideas** to see others from a larger set (a box with a lid, a cable clip, a wall hook, a spacer ring, and more). Picking one drafts it into the prompt and focuses it so you can edit it first; nothing generates until you select Generate. The examples hide once you type and come back if you clear the prompt.
+
+- [#118](https://github.com/omnidotdev/facet-app/pull/118) [`7df413c`](https://github.com/omnidotdev/facet-app/commit/7df413c44a2560fd5040752bc68a783e0ced86bb) Thanks [@coopbri](https://github.com/coopbri)! - The 3D preview now falls back to WebGL when the browser has no working WebGPU (common in Chromium-based browsers on Linux), instead of showing a notice. A label in the corner of the viewport shows which renderer is drawing, and Settings has a Renderer choice (Auto, WebGPU, WebGL) for when WebGPU is present but the preview stays blank or black.
+
+### Patch Changes
+
+- [#113](https://github.com/omnidotdev/facet-app/pull/113) [`eb8fbf3`](https://github.com/omnidotdev/facet-app/commit/eb8fbf36108961e221c93630880e4086e517709b) Thanks [@coopbri](https://github.com/coopbri)! - Call the shared balance "AI credits" in the AI panel: it shows "N AI credits, shared across Omni products", and the paid-access notice says "Generation uses AI credits."
+
+- [#119](https://github.com/omnidotdev/facet-app/pull/119) [`4b9c62a`](https://github.com/omnidotdev/facet-app/commit/4b9c62a7ed913f25efa945d32e54a9163c39a189) Thanks [@coopbri](https://github.com/coopbri)! - On desktop Linux, the Auto renderer now starts with WebGL, since WebGPU there is still off by default and turning it on often shows a black preview. Pick WebGPU in Settings to use it anyway.
+
+- [#122](https://github.com/omnidotdev/facet-app/pull/122) [`da09e82`](https://github.com/omnidotdev/facet-app/commit/da09e8239306086782b653be92b19e553fddaaef) Thanks [@coopbri](https://github.com/coopbri)! - Dragging a slider on a detailed part no longer freezes the Studio. Parts that use exact geometry (fillets, chamfers, shells, curved sketches) now rebuild in the background, so the cursor, slider, and view stay responsive and the part updates as each rebuild finishes. STEP, STL, and 3MF exports run in the background too.
+
+- [#126](https://github.com/omnidotdev/facet-app/pull/126) [`c9b372a`](https://github.com/omnidotdev/facet-app/commit/c9b372a27c0eb3000c2ccd8a0f77b3d4e4a18019) Thanks [@coopbri](https://github.com/coopbri)! - On a phone, the Describe a part dialog now shows your credit balance above Cancel and Generate instead of squeezing it into a narrow column beside them, and the buttons are easier to tap.
+
+- [#127](https://github.com/omnidotdev/facet-app/pull/127) [`0443f35`](https://github.com/omnidotdev/facet-app/commit/0443f35fe335adb8bb27822579021ebaf79a5d39) Thanks [@coopbri](https://github.com/coopbri)! - Name exported files after the model
+
+  Downloading a model as STL, 3MF, or STEP now names the file after the model's tab (for example `Hex Nut.step`) instead of a generic `facet-model.step`.
+
+- [#124](https://github.com/omnidotdev/facet-app/pull/124) [`fbd2f60`](https://github.com/omnidotdev/facet-app/commit/fbd2f6007357ca032ff0462f8c6e9cf59741727b) Thanks [@coopbri](https://github.com/coopbri)! - Parts now update continuously while you drag a slider. During the drag, sketches built from many pieces rebuild as a fast draft (several times a second instead of about once a second), and the exact part rebuilds when you let go. Exports always use the exact part.
+
+- [#117](https://github.com/omnidotdev/facet-app/pull/117) [`3fcba30`](https://github.com/omnidotdev/facet-app/commit/3fcba30c9e8823bc5e77925ea5136e00dd9b6d8c) Thanks [@coopbri](https://github.com/coopbri)! - Sliders show their units, like "50 mm" or "45°", when a model declares one with `param.number(name, { unit: "mm" })`, and Settings notes that models and exported files are in millimeters.
+
+- [#121](https://github.com/omnidotdev/facet-app/pull/121) [`a657f7f`](https://github.com/omnidotdev/facet-app/commit/a657f7fed2e0339c886ec1fa8090eef70b49aa1c) Thanks [@coopbri](https://github.com/coopbri)! - Move to the `@omnidotdev/providers` v0.2.0 release.
+
+- [#115](https://github.com/omnidotdev/facet-app/pull/115) [`d8de03f`](https://github.com/omnidotdev/facet-app/commit/d8de03fc7b0d9c291b89f893e4fe33b2cdd7da7f) Thanks [@coopbri](https://github.com/coopbri)! - Fix generated code showing the "Generated by Facet AI" header twice after the render check refined a part
+
 ## 0.7.0
 
 ### Minor Changes
