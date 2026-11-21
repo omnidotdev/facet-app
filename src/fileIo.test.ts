@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  exportFileName,
   modelNameFromFile,
   suggestedFileName,
   validateModelFile,
@@ -27,6 +28,26 @@ describe("suggestedFileName", () => {
   test("falls back to model for an empty or all-unsafe name", () => {
     expect(suggestedFileName("")).toBe("model.facet.ts");
     expect(suggestedFileName("///")).toBe("model.facet.ts");
+  });
+});
+
+describe("exportFileName", () => {
+  test("names the export after the model with the format extension", () => {
+    expect(exportFileName("Hex Nut", "step")).toBe("Hex Nut.step");
+    expect(exportFileName("bracket", "3mf")).toBe("bracket.3mf");
+  });
+
+  test("lowercases the extension", () => {
+    expect(exportFileName("gear", "STL")).toBe("gear.stl");
+  });
+
+  test("drops a .facet.ts suffix and strips unsafe characters", () => {
+    expect(exportFileName("gear.facet.ts", "stl")).toBe("gear.stl");
+    expect(exportFileName('a/b:c"d', "stl")).toBe("abcd.stl");
+  });
+
+  test("falls back to model for an empty name", () => {
+    expect(exportFileName("  ", "stl")).toBe("model.stl");
   });
 });
 

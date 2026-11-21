@@ -3,10 +3,9 @@
   // Route files are only imported by the generated (gitignored) routeTree.gen.ts,
   // so treat them as entry points. src/facet/index.ts is the engine's public API
   // barrel, exercised by the app and its tests.
-  "entry": ["src/main.tsx", "src/routes/**/*.tsx", "src/facet/index.ts"],
+  "entry": ["src/routes/**/*.tsx", "src/facet/index.ts"],
   // Generated wasm-pack output.
   "ignore": ["src/wasm/**"],
-  "ignoreUnresolved": ["@/routeTree.gen"],
   // `box` is an intentional alias of `cube` in the authoring API.
   "rules": { "duplicates": "off" },
   // Types/interfaces consumed only within their own module (used in signatures there).
@@ -16,7 +15,6 @@
   // Tauri plugin JS layers for the Rust plugins registered in src-tauri/src/lib.rs.
   // Wired and ready for adopters even though the current UI does not call them yet.
   "ignoreDependencies": [
-    "@tauri-apps/api",
     "@tauri-apps/plugin-deep-link",
     "@tauri-apps/plugin-geolocation",
     "@tauri-apps/plugin-notification",
@@ -25,12 +23,6 @@
     "@tauri-apps/plugin-updater",
     // Runtime peer dependency of @omnidotdev/thornberry's shipped components
     // (its `cn` helper), resolved at runtime but not imported by app source.
-    "tailwind-merge",
-    // Peer dependencies of @omnidotdev/thornberry's code-editor component
-    // (basicSetup from `codemirror`, indentWithTab from `@codemirror/commands`).
-    // No longer imported directly by app source since the editor adopted the
-    // shared component, but still required to satisfy its peers.
-    "codemirror",
-    "@codemirror/commands"
+    "tailwind-merge"
   ]
 }

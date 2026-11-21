@@ -16,7 +16,7 @@ import {
 import { loadBrepWorkerKernel } from "@/facet/brepWorkerClient";
 import { ModelRunner } from "@/facet/modelRunner";
 import { loadWasmKernel } from "@/facet/wasmKernel";
-import { openModelFromFile, saveModelToFile } from "@/fileIo";
+import { exportFileName, openModelFromFile, saveModelToFile } from "@/fileIo";
 import {
   loadRendererPreference,
   parseRendererPreference,
@@ -380,6 +380,30 @@ export default function FacetStudio() {
 
   useEffect(() => {
     if (inited.current) return; // guard StrictMode double-invoke
+    // Every element the imperative wiring drives is always mounted (hidden, not
+    // unmounted), so bind each once here and skip setup if any is missing
+    const viewportEl = viewportMount.current;
+    const paramsEl = paramsMount.current;
+    const statusEl = statusRef.current;
+    const editorEl = editorMount.current;
+    const themeLabelEl = themeLabelRef.current;
+    const themeBtnEl = themeBtnRef.current;
+    const kernelEl = kernelRef.current;
+    const exportEl = exportRef.current;
+    // The restored workspace (shared with the useState seed above)
+    const workspace = initialWorkspaceRef.current;
+    if (
+      !workspace ||
+      !viewportEl ||
+      !paramsEl ||
+      !statusEl ||
+      !editorEl ||
+      !themeLabelEl ||
+      !themeBtnEl ||
+      !kernelEl ||
+      !exportEl
+    )
+      return;
     inited.current = true;
 
     const store = new ParamStore();
@@ -391,7 +415,7 @@ export default function FacetStudio() {
     const initialTheme = getTheme();
 
     const viewport = new Viewport(
-      viewportMount.current!,
+      viewportEl,
       initialTheme,
       // Read the saved choice directly: this setup effect runs once
       loadRendererPreference(),
@@ -411,14 +435,11 @@ export default function FacetStudio() {
     let currentNode: OpNode | null = null;
     let paramsSignature = " ";
 
-    // The restored workspace (shared with the useState seed above).
-    const workspace = initialWorkspaceRef.current!;
     // The model the editor opens with: the active tab's code.
     const initialDoc =
       workspace.tabs.find((t) => t.id === workspace.activeId)?.code ?? "";
 
     const renderParams = () => {
-      const paramsEl = paramsMount.current!;
       const decls = store.list();
       const sig = store.signature();
       if (sig === paramsSignature) return;
@@ -507,7 +528,6 @@ export default function FacetStudio() {
     ) => {
       waiters.add(onResult);
       const t0 = performance.now();
-      const statusEl = statusRef.current!;
       const seq = ++runSeq;
       // Evaluate the model in the sandbox worker, mesh it (the B-rep kernel in
       // its own worker), then render on the main thread
@@ -617,7 +637,7 @@ export default function FacetStudio() {
       }, 400);
     };
 
-    editor = createEditor(editorMount.current!, {
+    editor = createEditor(editorEl, {
       doc: initialDoc,
       onChange: () => {
         scheduleRun();
@@ -633,7 +653,7 @@ export default function FacetStudio() {
     // re-theme whoever flips it (the palette action, the `t` hotkey, or this
     // button), keeping the imperative viewport/editor in sync with the store.
     const syncThemeLabel = (next: Theme) => {
-      themeLabelRef.current!.textContent = next === "dark" ? "Dark" : "Light";
+      themeLabelEl.textContent = next === "dark" ? "Dark" : "Light";
     };
     syncThemeLabel(initialTheme);
 
@@ -643,7 +663,7 @@ export default function FacetStudio() {
       syncThemeLabel(next);
     });
 
-    themeBtnRef.current!.addEventListener("click", toggleTheme);
+    themeBtnEl.addEventListener("click", toggleTheme);
 
     // The restored model is not necessarily a named example (it may be a custom
     // edit, which storage keeps as code only). Point the dropdown at the example
@@ -671,7 +691,6 @@ export default function FacetStudio() {
     // front so a switch away during the load is respected (manual path) and the
     // pending switch is visible (auto path)
     const activateBrepKernel = (reframe = false) => {
-      const statusEl = statusRef.current!;
       if (kernelRef.current) kernelRef.current.value = "brep";
       if (kernels.brep) {
         activeKernel = kernels.brep;
@@ -728,12 +747,11 @@ export default function FacetStudio() {
       saveSoon();
     };
 
-    kernelRef.current!.addEventListener("change", () => {
-      selectKernel(kernelRef.current!.value);
+    kernelEl.addEventListener("change", () => {
+      selectKernel(kernelEl.value);
     });
 
-    exportRef.current!.addEventListener("click", async () => {
-      const statusEl = statusRef.current!;
+    exportEl.addEventListener("click", async () => {
       if (!currentNode) {
         statusEl.className = "status err";
         statusEl.textContent = "✗ Nothing to export - fix the model first.";
@@ -752,8 +770,11 @@ export default function FacetStudio() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        // Lowercase extension, so facet-model.step for a STEP export
-        a.download = `facet-model.${format}`;
+        // Name the file after the active model (tab), e.g. "Hex Nut.step"
+        a.download = exportFileName(
+          activeTab(tabsRef.current)?.name ?? "model",
+          format,
+        );
         a.click();
         URL.revokeObjectURL(url);
       } catch (err) {
