@@ -101,7 +101,12 @@ fn cap_polys(points: &[Vec3], tris: &[[usize; 3]], normal: Vec3, flip: bool) -> 
     tris.iter()
         .map(|&[i, j, k]| {
             let order = if flip { [k, j, i] } else { [i, j, k] };
-            Polygon::new(order.iter().map(|&n| Vertex::new(points[n], normal)).collect())
+            Polygon::new(
+                order
+                    .iter()
+                    .map(|&n| Vertex::new(points[n], normal))
+                    .collect(),
+            )
         })
         .collect()
 }
@@ -137,7 +142,9 @@ pub fn extrude_profile(ring: &[Pt], height: f64, twist: f64, scale: f64) -> Resu
             })
             .collect()
     };
-    let levels: Vec<Vec<Vec3>> = (0..=layers).map(|l| ring_at(l as f64 / layers as f64)).collect();
+    let levels: Vec<Vec<Vec3>> = (0..=layers)
+        .map(|l| ring_at(l as f64 / layers as f64))
+        .collect();
 
     let mut polys: Vec<Polygon> = Vec::new();
     // Caps: the start face points away from the sweep and the end face along it
@@ -151,7 +158,11 @@ pub fn extrude_profile(ring: &[Pt], height: f64, twist: f64, scale: f64) -> Resu
             let j = (i + 1) % n;
             let (b0, b1) = (levels[l][i], levels[l][j]);
             let (t0, t1) = (levels[l + 1][i], levels[l + 1][j]);
-            let quad = if up { [b0, b1, t1, t0] } else { [b0, t0, t1, b1] };
+            let quad = if up {
+                [b0, b1, t1, t0]
+            } else {
+                [b0, t0, t1, b1]
+            };
             // A twisted wall quad is not planar, and the BSP booleans recurse
             // without end on a polygon that leaves its own plane, so split it
             // into triangles. Fanning around the quad's center keeps the wall
@@ -160,8 +171,14 @@ pub fn extrude_profile(ring: &[Pt], height: f64, twist: f64, scale: f64) -> Resu
             let faces: Vec<Vec<Vec3>> = if twist == 0.0 {
                 vec![quad.to_vec()]
             } else {
-                let mid = quad[0].plus(quad[1]).plus(quad[2]).plus(quad[3]).times(0.25);
-                (0..4).map(|k| vec![quad[k], quad[(k + 1) % 4], mid]).collect()
+                let mid = quad[0]
+                    .plus(quad[1])
+                    .plus(quad[2])
+                    .plus(quad[3])
+                    .times(0.25);
+                (0..4)
+                    .map(|k| vec![quad[k], quad[(k + 1) % 4], mid])
+                    .collect()
             };
             for face in faces {
                 let normal = face[1].minus(face[0]).cross(face[2].minus(face[0])).unit();
@@ -205,7 +222,11 @@ pub fn revolve_profile(ring: &[Pt], angle: f64, segments: i32) -> Result<Csg, St
             let b = at(ring[j], t0);
             let c = at(ring[j], t1);
             let d = at(ring[i], t1);
-            let quad = if ccw_sweep { [a, d, c, b] } else { [a, b, c, d] };
+            let quad = if ccw_sweep {
+                [a, d, c, b]
+            } else {
+                [a, b, c, d]
+            };
             let normal = quad[1].minus(quad[0]).cross(quad[3].minus(quad[0])).unit();
             polys.push(Polygon::new(
                 quad.iter().map(|&p| Vertex::new(p, normal)).collect(),
@@ -256,7 +277,7 @@ pub fn profile_ring(node: &OpNode) -> Option<Vec<Pt>> {
             })
         }
         OpNode::Polygon2d { points } => {
-            if points.len() < 6 || points.len() % 2 != 0 {
+            if points.len() < 6 || !points.len().is_multiple_of(2) {
                 return None;
             }
             Some(points.chunks(2).map(|c| (c[0], c[1])).collect())
@@ -284,7 +305,11 @@ pub fn profile_ring(node: &OpNode) -> Option<Vec<Pt>> {
         }
         OpNode::Scale2d { factor, child } => {
             let ring = profile_ring(child)?;
-            Some(ring.iter().map(|&(x, y)| (x * factor, y * factor)).collect())
+            Some(
+                ring.iter()
+                    .map(|&(x, y)| (x * factor, y * factor))
+                    .collect(),
+            )
         }
         OpNode::Mirror2d { normal, child } => {
             let ring = profile_ring(child)?;

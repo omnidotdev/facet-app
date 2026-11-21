@@ -166,9 +166,21 @@ fn csg_polyhedron(points: &[f64], faces: &[f64]) -> Result<Csg, String> {
     let mut polygons: Vec<Polygon> = Vec::new();
     for face in &decoded.faces {
         for [a, b, c] in crate::polyhedron::triangulate_face(face) {
-            let pa = Vec3::new(decoded.points[a][0], decoded.points[a][1], decoded.points[a][2]);
-            let pb = Vec3::new(decoded.points[b][0], decoded.points[b][1], decoded.points[b][2]);
-            let pc = Vec3::new(decoded.points[c][0], decoded.points[c][1], decoded.points[c][2]);
+            let pa = Vec3::new(
+                decoded.points[a][0],
+                decoded.points[a][1],
+                decoded.points[a][2],
+            );
+            let pb = Vec3::new(
+                decoded.points[b][0],
+                decoded.points[b][1],
+                decoded.points[b][2],
+            );
+            let pc = Vec3::new(
+                decoded.points[c][0],
+                decoded.points[c][1],
+                decoded.points[c][2],
+            );
             let raw = pb.minus(pa).cross(pc.minus(pa));
             // Drop a zero-area triangle: its unit normal would be NaN, and the
             // Polygon plane to_mesh reads back would carry that NaN into the mesh
@@ -300,14 +312,30 @@ fn csg_sphere(r: f64, slices: u32, stacks: u32) -> Csg {
     for i in 0..slices {
         for j in 0..stacks {
             let mut verts: Vec<Vertex> = Vec::new();
-            vertex(i as f64 / slices as f64, j as f64 / stacks as f64, &mut verts);
+            vertex(
+                i as f64 / slices as f64,
+                j as f64 / stacks as f64,
+                &mut verts,
+            );
             if j > 0 {
-                vertex((i + 1) as f64 / slices as f64, j as f64 / stacks as f64, &mut verts);
+                vertex(
+                    (i + 1) as f64 / slices as f64,
+                    j as f64 / stacks as f64,
+                    &mut verts,
+                );
             }
             if j < stacks - 1 {
-                vertex((i + 1) as f64 / slices as f64, (j + 1) as f64 / stacks as f64, &mut verts);
+                vertex(
+                    (i + 1) as f64 / slices as f64,
+                    (j + 1) as f64 / stacks as f64,
+                    &mut verts,
+                );
             }
-            vertex(i as f64 / slices as f64, (j + 1) as f64 / stacks as f64, &mut verts);
+            vertex(
+                i as f64 / slices as f64,
+                (j + 1) as f64 / stacks as f64,
+                &mut verts,
+            );
             polygons.push(Polygon::new(verts));
         }
     }
@@ -330,21 +358,31 @@ fn csg_cylinder(r: f64, h: f64, center: bool, slices: u32) -> Csg {
         let angle = slice * std::f64::consts::TAU;
         let out = axis_x.times(angle.cos()).plus(axis_y.times(angle.sin()));
         let pos = s.plus(ray.times(stack)).plus(out.times(r));
-        let normal = out.times(1.0 - normal_blend.abs()).plus(axis_z.times(normal_blend));
+        let normal = out
+            .times(1.0 - normal_blend.abs())
+            .plus(axis_z.times(normal_blend));
         Vertex::new(pos, normal)
     };
     let mut polygons: Vec<Polygon> = Vec::new();
     for i in 0..slices {
         let t0 = i as f64 / slices as f64;
         let t1 = (i + 1) as f64 / slices as f64;
-        polygons.push(Polygon::new(vec![start, point(0.0, t0, -1.0), point(0.0, t1, -1.0)]));
+        polygons.push(Polygon::new(vec![
+            start,
+            point(0.0, t0, -1.0),
+            point(0.0, t1, -1.0),
+        ]));
         polygons.push(Polygon::new(vec![
             point(0.0, t1, 0.0),
             point(0.0, t0, 0.0),
             point(1.0, t0, 0.0),
             point(1.0, t1, 0.0),
         ]));
-        polygons.push(Polygon::new(vec![end, point(1.0, t1, 1.0), point(1.0, t0, 1.0)]));
+        polygons.push(Polygon::new(vec![
+            end,
+            point(1.0, t1, 1.0),
+            point(1.0, t0, 1.0),
+        ]));
     }
     Csg::from_polygons(polygons)
 }
@@ -437,7 +475,10 @@ mod tests {
         for (r1, r2) in [(2.0_f64, 0.0_f64), (2.0, 1.0)] {
             let csg = csg_cone(r1, r2, 4.0, true, 32);
             let (positions, _normals) = crate::csg::to_mesh(&csg);
-            assert!(positions.len() / 9 > 0, "expected a positive triangle count");
+            assert!(
+                positions.len() / 9 > 0,
+                "expected a positive triangle count"
+            );
             let mut min_x = f32::INFINITY;
             let mut max_x = f32::NEG_INFINITY;
             let mut min_z = f32::INFINITY;
@@ -449,8 +490,16 @@ mod tests {
                 max_z = max_z.max(p[2]);
             }
             // Bottom radius 2 sets the X diameter (4), centered height 4 runs -2 to 2 in Z
-            assert!((max_x - min_x - 4.0).abs() < 1e-3, "x span was {}", max_x - min_x);
-            assert!((max_z - min_z - 4.0).abs() < 1e-3, "z span was {}", max_z - min_z);
+            assert!(
+                (max_x - min_x - 4.0).abs() < 1e-3,
+                "x span was {}",
+                max_x - min_x
+            );
+            assert!(
+                (max_z - min_z - 4.0).abs() < 1e-3,
+                "z span was {}",
+                max_z - min_z
+            );
         }
     }
 
@@ -518,7 +567,10 @@ mod tests {
         let node: OpNode = serde_json::from_str(&json).expect("parse hull graph");
         let csg = eval_node(&node).expect("evaluate hull");
         let (positions, _normals) = crate::csg::to_mesh(&csg);
-        assert!(positions.len() / 9 > 0, "expected a positive triangle count");
+        assert!(
+            positions.len() / 9 > 0,
+            "expected a positive triangle count"
+        );
         let mut min = [f32::INFINITY; 3];
         let mut max = [f32::NEG_INFINITY; 3];
         for p in positions.chunks(3) {
@@ -611,7 +663,9 @@ mod tests {
         let json = r#"{"op":"translate2d","v":[2,0],
             "child":{"op":"circle2d","r":5,"segments":64}}"#;
         let node: OpNode = serde_json::from_str(json).expect("parse graph");
-        let err = eval_node(&node).err().expect("bare transform must be rejected");
+        let err = eval_node(&node)
+            .err()
+            .expect("bare transform must be rejected");
         assert!(err.contains("B-rep kernel"), "unexpected message: {err}");
     }
 }

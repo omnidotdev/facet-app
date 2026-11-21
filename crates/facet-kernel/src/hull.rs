@@ -53,7 +53,11 @@ fn make_face(points: &[[f64; 3]], interior: [f64; 3], a: usize, b: usize, c: usi
     };
     let w = dot(n, points[a]);
     if dot(n, interior) - w > 0.0 {
-        Face { v: [a, c, b], n: [-n[0], -n[1], -n[2]], w: -w }
+        Face {
+            v: [a, c, b],
+            n: [-n[0], -n[1], -n[2]],
+            w: -w,
+        }
     } else {
         Face { v: [a, b, c], n, w }
     }
@@ -224,8 +228,13 @@ mod tests {
 
     #[test]
     fn tetrahedron_is_its_own_hull() {
-        let tris = hull3d(&[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
-            .expect("hull");
+        let tris = hull3d(&[
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ])
+        .expect("hull");
         assert_eq!(tris.len(), 4);
     }
 

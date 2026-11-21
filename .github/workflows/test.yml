@@ -29,7 +29,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            crates/facet-kernel
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -67,3 +69,14 @@ jobs:
 
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      # The geometry kernel is a separate crate (compiled to the committed wasm
+      # bundle), so it needs its own lint, format, and test gates
+      - name: Kernel clippy
+        run: cargo clippy --manifest-path crates/facet-kernel/Cargo.toml --all-targets -- -D warnings
+
+      - name: Kernel formatting
+        run: cargo fmt --manifest-path crates/facet-kernel/Cargo.toml --check
+
+      - name: Kernel tests
+        run: cargo test --manifest-path crates/facet-kernel/Cargo.toml

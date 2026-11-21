@@ -55,7 +55,10 @@ impl Vertex {
         Vertex { pos, normal }
     }
     fn interpolate(self, other: Vertex, t: f64) -> Vertex {
-        Vertex::new(self.pos.lerp(other.pos, t), self.normal.lerp(other.normal, t))
+        Vertex::new(
+            self.pos.lerp(other.pos, t),
+            self.normal.lerp(other.normal, t),
+        )
     }
 }
 
@@ -74,7 +77,10 @@ pub struct Plane {
 impl Plane {
     pub fn from_points(a: Vec3, b: Vec3, c: Vec3) -> Plane {
         let n = b.minus(a).cross(c.minus(a)).unit();
-        Plane { normal: n, w: n.dot(a) }
+        Plane {
+            normal: n,
+            w: n.dot(a),
+        }
     }
     fn flip(&mut self) {
         self.normal = self.normal.negated();
