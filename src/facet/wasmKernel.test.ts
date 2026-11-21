@@ -271,4 +271,44 @@ describe("Rust/WASM kernel", () => {
         expect(rust.normals[i]).toBeCloseTo(ts.normals[i], 9);
     },
   );
+
+  // The sweep winding fixes (CW profiles, downward and negative sweeps, split
+  // twisted walls) must land identically in both kernels
+  const cwTriangle: OpNode = {
+    op: "polygon2d",
+    points: [0, 0, 0, 10, 10, 0],
+  };
+  const ring: OpNode = {
+    op: "translate2d",
+    v: [10, 0],
+    child: { op: "circle2d", r: 2, segments: 24 },
+  };
+  for (const [name, node] of [
+    [
+      "a CW profile extrude",
+      { op: "extrude", height: 5, twist: 0, scale: 1, child: cwTriangle },
+    ],
+    [
+      "a downward extrude",
+      { op: "extrude", height: -5, twist: 0, scale: 1, child: cwTriangle },
+    ],
+    [
+      "a twisted extrude",
+      { op: "extrude", height: 12, twist: 60, scale: 0.5, child: cwTriangle },
+    ],
+    [
+      "a negative-angle revolve",
+      { op: "revolve", angle: -90, segments: 24, child: ring },
+    ],
+  ] as [string, OpNode][]) {
+    test.skipIf(!kernel)(`${name} matches the TS mesh kernel`, () => {
+      const ts = meshKernel.evaluate(node);
+      const rust = kernel?.evaluate(node);
+      expect(rust).toBeTruthy();
+      if (!rust) return;
+      expect(rust.triangleCount).toBe(ts.triangleCount);
+      for (let i = 0; i < ts.positions.length; i++)
+        expect(rust.positions[i]).toBeCloseTo(ts.positions[i], 9);
+    });
+  }
 });

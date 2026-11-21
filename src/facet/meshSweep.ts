@@ -114,7 +114,11 @@ export function extrudeProfileMesh(
 ): CSG {
   if (ring.length < 3)
     throw new Error("extrude needs a profile with 3+ points");
-  const ccw = signedArea(ring) >= 0;
+  // Wind every face for a CCW ring, which `triangulate` also assumes, so a CW
+  // profile (or a mirrored one) does not come out inside-out. A downward sweep
+  // mirrors the solid through the XY plane, so it reverses each face too
+  if (signedArea(ring) < 0) ring = [...ring].reverse();
+  const up = height >= 0;
   const tris = triangulate(ring);
 
   // A twist makes the side walls non-planar, so slice the height into layers
@@ -138,9 +142,10 @@ export function extrudeProfileMesh(
   for (let l = 0; l <= layers; l++) levels.push(ringAt(l / layers));
 
   const polys: Polygon[] = [];
-  // Caps: bottom faces -Z (flip so its normal points down), top faces +Z
-  polys.push(...capPolys(levels[0], tris, new Vector(0, 0, -1), ccw));
-  polys.push(...capPolys(levels[layers], tris, new Vector(0, 0, 1), !ccw));
+  // Caps: the start face points away from the sweep and the end face along it
+  const along = new Vector(0, 0, up ? 1 : -1);
+  polys.push(...capPolys(levels[0], tris, along.times(-1), up));
+  polys.push(...capPolys(levels[layers], tris, along, !up));
 
   // Side walls per layer: one quad per edge, wound so the normal faces outward
   const n = ring.length;
@@ -153,10 +158,21 @@ export function extrudeProfileMesh(
       const b1 = lower[j];
       const t0 = upper[i];
       const t1 = upper[j];
-      let normal = b1.minus(b0).cross(t0.minus(b0)).unit();
-      if (ccw) normal = normal.times(-1);
-      const quad = ccw ? [b0, t0, t1, b1] : [b0, b1, t1, t0];
-      polys.push(new Polygon(quad.map((p) => new Vertex(p, normal))));
+      const quad = up ? [b0, b1, t1, t0] : [b0, t0, t1, b1];
+      // A twisted wall quad is not planar, and the BSP booleans recurse without
+      // end on a polygon that leaves its own plane, so split it into triangles.
+      // Fanning around the quad's center keeps the wall on the twisted surface,
+      // where a single diagonal would shave a sliver off every wall
+      const mid = quad[0].plus(quad[1]).plus(quad[2]).plus(quad[3]).times(0.25);
+      const faces =
+        twist === 0 ? [quad] : quad.map((p, k) => [p, quad[(k + 1) % 4], mid]);
+      for (const face of faces) {
+        const normal = face[1]
+          .minus(face[0])
+          .cross(face[2].minus(face[0]))
+          .unit();
+        polys.push(new Polygon(face.map((p) => new Vertex(p, normal))));
+      }
     }
   }
   return CSG.fromPolygons(polys);
@@ -176,7 +192,12 @@ export function revolveProfileMesh(
     throw new Error("revolve needs a profile with 3+ points");
   const steps = Math.max(3, Math.floor(segments));
   const full = Math.abs(angle % 360) < 1e-6 && angle !== 0;
-  const total = (full ? 360 : angle) * DEG;
+  const total = (full ? 360 * Math.sign(angle) : angle) * DEG;
+  // Wind every face for a CCW profile, which `triangulate` also assumes, so a
+  // CW profile does not come out inside-out. A clockwise sweep (negative angle)
+  // mirrors the solid, so it reverses each face too
+  if (signedArea(ring) < 0) ring = [...ring].reverse();
+  const ccwSweep = total >= 0;
 
   // A point at (radius, height) rotated to angle t
   const at = (p: Pt, t: number): Vector =>
@@ -189,14 +210,18 @@ export function revolveProfileMesh(
     const t1 = ((s + 1) / steps) * total;
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
+      // Skip a degenerate quad on the axis (both profile points at radius 0)
+      if (ring[i][0] === 0 && ring[j][0] === 0) continue;
       const a = at(ring[i], t0);
       const b = at(ring[j], t0);
       const c = at(ring[j], t1);
       const d = at(ring[i], t1);
-      // Skip a degenerate quad on the axis (both profile points at radius 0)
-      if (ring[i][0] === 0 && ring[j][0] === 0) continue;
-      const normal = b.minus(a).cross(d.minus(a)).unit();
-      polys.push(new Polygon([a, b, c, d].map((p) => new Vertex(p, normal))));
+      const quad = ccwSweep ? [a, d, c, b] : [a, b, c, d];
+      const normal = quad[1]
+        .minus(quad[0])
+        .cross(quad[3].minus(quad[0]))
+        .unit();
+      polys.push(new Polygon(quad.map((p) => new Vertex(p, normal))));
     }
   }
 
@@ -205,12 +230,17 @@ export function revolveProfileMesh(
     const tris = triangulate(ring);
     const startPts = ring.map((p) => at(p, 0));
     const endPts = ring.map((p) => at(p, total));
-    const ccw = signedArea(ring) >= 0;
-    // Normals are the plane normals of the two cut faces
-    const nStart = new Vector(0, -1, 0);
-    const nEnd = new Vector(Math.sin(total), -Math.cos(total), 0).unit();
-    polys.push(...capPolys(startPts, tris, nStart, !ccw));
-    polys.push(...capPolys(endPts, tris, nEnd, ccw));
+    // Normals are the plane normals of the two cut faces, facing out of the
+    // swept wedge
+    const dir = ccwSweep ? 1 : -1;
+    const nStart = new Vector(0, -dir, 0);
+    const nEnd = new Vector(
+      dir * Math.sin(total),
+      -dir * Math.cos(total),
+      0,
+    ).unit();
+    polys.push(...capPolys(startPts, tris, nStart, !ccwSweep));
+    polys.push(...capPolys(endPts, tris, nEnd, ccwSweep));
   }
   return CSG.fromPolygons(polys);
 }

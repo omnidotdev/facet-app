@@ -1,11 +1,15 @@
+import { repairForExport } from "./meshRepair";
+
 import type { Mesh } from "./kernel";
 
 /**
  * 3MF export. A 3MF file is an OPC (ZIP) package holding an XML mesh, so this
  * writes a minimal stored (uncompressed) ZIP with the three required parts:
- * the content-types map, the root relationships, and the 3D model. Vertices are
- * written non-indexed (three per triangle), matching how the kernel emits them;
- * slicers weld coincident vertices on import.
+ * the content-types map, the root relationships, and the 3D model. 3MF is an
+ * indexed format and slicers take its connectivity as given, so the mesh is
+ * welded and closed first (see meshRepair.ts): written as the kernel's loose
+ * triangles, the part loads as disconnected pieces and slicer mesh repair
+ * fills inner loops such as a key-ring hole.
  */
 
 const CRC_TABLE = (() => {
@@ -46,7 +50,7 @@ function zipStore(entries: ZipEntry[]): Uint8Array {
     const local = new DataView(new ArrayBuffer(30));
     local.setUint32(0, 0x04034b50, true);
     local.setUint16(4, 20, true);
-    local.setUint16(10, 0x21, true); // dos date: 1980-01-01
+    local.setUint16(12, 0x21, true); // dos date: 1980-01-01
     local.setUint32(14, crc, true);
     local.setUint32(18, size, true);
     local.setUint32(22, size, true);
@@ -95,18 +99,18 @@ function zipStore(entries: ZipEntry[]): Uint8Array {
 const num = (v: number) => String(Number(v.toFixed(4)));
 
 function modelXml(mesh: Mesh): string {
-  const p = mesh.positions;
-  const tris = mesh.triangleCount;
+  const { vertices, triangles } = repairForExport(mesh);
   const verts: string[] = [];
   const faces: string[] = [];
-  for (let i = 0; i < tris * 3; i++) {
-    const b = i * 3;
+  for (let i = 0; i < vertices.length; i += 3) {
     verts.push(
-      `<vertex x="${num(p[b])}" y="${num(p[b + 1])}" z="${num(p[b + 2])}"/>`,
+      `<vertex x="${num(vertices[i])}" y="${num(vertices[i + 1])}" z="${num(vertices[i + 2])}"/>`,
     );
   }
-  for (let t = 0; t < tris; t++) {
-    faces.push(`<triangle v1="${t * 3}" v2="${t * 3 + 1}" v3="${t * 3 + 2}"/>`);
+  for (let t = 0; t < triangles.length; t += 3) {
+    faces.push(
+      `<triangle v1="${triangles[t]}" v2="${triangles[t + 1]}" v3="${triangles[t + 2]}"/>`,
+    );
   }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
