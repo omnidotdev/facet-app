@@ -1006,6 +1006,60 @@ button.ai-job-btn:focus-visible {
   color: var(--muted);
   margin-bottom: 8px;
 }
+/* Collapsed, the panel folds to its title so it stops covering the model */
+.params[data-collapsed] {
+  min-width: 0;
+  padding: 6px 10px;
+}
+/* The title is the fold toggle; .facet-app scope beats the shared button
+   padding, border, and background */
+.facet-app .params-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.facet-app .params-toggle:hover {
+  color: var(--text);
+}
+.facet-app .params-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.params[data-collapsed] .params-toggle {
+  margin-bottom: 0;
+}
+.params-chevron {
+  flex: none;
+  transition: transform 120ms ease;
+}
+.params[data-collapsed] .params-chevron {
+  transform: rotate(-90deg);
+}
+/* How many sliders are folded away, shown only while collapsed */
+.params-count {
+  display: none;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  letter-spacing: 0;
+  color: var(--text);
+  background: var(--panel-2);
+}
+.params[data-collapsed] .params-count {
+  display: inline-block;
+}
 .param-row {
   display: grid;
   grid-template-columns: 1fr auto;

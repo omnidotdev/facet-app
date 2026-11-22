@@ -29,7 +29,12 @@ import {
 import { VIEW_KEYS } from "@/gpu/views";
 import { ParamStore, formatParamNumber, parseParamInput } from "@/params";
 import { createRunWaiters } from "@/runWaiters";
-import { loadWorkspace, saveWorkspace } from "@/storage";
+import {
+  loadParamsCollapsed,
+  loadWorkspace,
+  saveParamsCollapsed,
+  saveWorkspace,
+} from "@/storage";
 import {
   activeTab,
   addTab,
@@ -454,6 +459,8 @@ export default function FacetStudio() {
     let announceAutoSwitch = false;
     let currentNode: OpNode | null = null;
     let paramsSignature = " ";
+    // Whether the parameters panel is folded down to its title
+    let paramsCollapsed = loadParamsCollapsed();
 
     // The model the editor opens with: the active tab's code.
     const initialDoc =
@@ -469,10 +476,36 @@ export default function FacetStudio() {
       paramsEl.hidden = decls.length === 0;
       if (!decls.length) return;
 
-      const title = document.createElement("div");
-      title.className = "params-title";
-      title.textContent = "Parameters";
-      paramsEl.appendChild(title);
+      // The title doubles as a toggle that folds the sliders away, so the
+      // panel can get out of the model's way; the choice persists per browser
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "params-title params-toggle";
+      toggle.setAttribute("aria-controls", "params-body");
+      toggle.innerHTML =
+        '<svg class="params-chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const label = document.createElement("span");
+      label.textContent = "Parameters";
+      const count = document.createElement("span");
+      count.className = "params-count";
+      count.textContent = String(decls.length);
+      toggle.append(label, count);
+      const body = document.createElement("div");
+      body.className = "params-body";
+      body.id = "params-body";
+      const applyCollapsed = () => {
+        body.hidden = paramsCollapsed;
+        toggle.setAttribute("aria-expanded", String(!paramsCollapsed));
+        toggle.title = paramsCollapsed ? "Show parameters" : "Hide parameters";
+        paramsEl.toggleAttribute("data-collapsed", paramsCollapsed);
+      };
+      toggle.addEventListener("click", () => {
+        paramsCollapsed = !paramsCollapsed;
+        saveParamsCollapsed(paramsCollapsed);
+        applyCollapsed();
+      });
+      paramsEl.append(toggle, body);
+      applyCollapsed();
 
       for (const d of decls) {
         const row = document.createElement("label");
@@ -612,7 +645,7 @@ export default function FacetStudio() {
           row.append(name, select);
         }
 
-        paramsEl.appendChild(row);
+        body.appendChild(row);
       }
     };
 
