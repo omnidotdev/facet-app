@@ -52,4 +52,52 @@ describe("command palette actions", () => {
     dark?.onSelect();
     expect(toggled).toBe(1);
   });
+
+  test("lists camera commands only while a viewport is registered", () => {
+    const base = {
+      navigate: () => {},
+      theme: "dark" as const,
+      onToggleTheme: () => {},
+    };
+    expect(buildCommands(base).some((c) => c.group === "View")).toBe(false);
+
+    const calls: string[] = [];
+    const commands = buildCommands({
+      ...base,
+      view: {
+        setView: (v) => calls.push(`view:${v}`),
+        flipView: () => calls.push("flip"),
+        frameModel: () => calls.push("frame"),
+        toggleProjection: () => calls.push("projection"),
+      },
+    });
+    const view = commands.filter((c) => c.group === "View");
+    expect(view.map((c) => c.id)).toEqual([
+      "view-top",
+      "view-front",
+      "view-right",
+      "view-bottom",
+      "view-back",
+      "view-left",
+      "view-home",
+      "view-flip",
+      "view-frame",
+      "view-projection",
+    ]);
+    for (const id of [
+      "view-top",
+      "view-home",
+      "view-flip",
+      "view-frame",
+      "view-projection",
+    ])
+      commands.find((c) => c.id === id)?.onSelect();
+    expect(calls).toEqual([
+      "view:top",
+      "view:home",
+      "flip",
+      "frame",
+      "projection",
+    ]);
+  });
 });

@@ -1,4 +1,5 @@
 import { NativeSelect } from "@omnidotdev/thornberry/native-select";
+import { Box, Focus, House, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import GeneratePanel from "@/components/ai/GeneratePanel";
@@ -6,6 +7,7 @@ import AccountControl from "@/components/auth/AccountControl";
 import ExamplesMenu from "@/components/ExamplesMenu";
 import ImportArtButton from "@/components/ImportArtButton";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import ViewNavButton from "@/components/ViewNavButton";
 import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
 import {
@@ -24,6 +26,7 @@ import {
   rendererLabel,
   saveRendererPreference,
 } from "@/gpu/rendererPreference";
+import { VIEW_KEYS } from "@/gpu/views";
 import { ParamStore, formatParamValue } from "@/params";
 import { createRunWaiters } from "@/runWaiters";
 import { loadWorkspace, saveWorkspace } from "@/storage";
@@ -37,6 +40,7 @@ import {
   setActiveCode,
 } from "@/tabs";
 import { getTheme, subscribe, toggleTheme } from "@/themeStore";
+import { registerViewControl } from "@/viewControl";
 import { Viewport } from "@/viewport";
 
 import type { FacetEditor } from "@/editor";
@@ -47,7 +51,7 @@ import type { RendererPreference } from "@/gpu/rendererPreference";
 import type { SavedWorkspace } from "@/storage";
 import type { TabsState } from "@/tabs";
 import type { Theme } from "@/theme";
-import type { ViewportCapture } from "@/viewport";
+import type { Projection, ViewportCapture } from "@/viewport";
 import "@/facet.css";
 
 // Value of the examples-dropdown placeholder, selected when the restored model
@@ -160,6 +164,10 @@ export default function FacetStudio() {
 
   const editorMount = useRef<HTMLDivElement>(null);
   const viewportMount = useRef<HTMLDivElement>(null);
+  // Where the viewport draws its navigation gizmo
+  const gizmoMount = useRef<HTMLDivElement>(null);
+  // Mirrors the viewport's projection for the toggle button
+  const [projection, setProjection] = useState<Projection>("perspective");
   // The live Viewport instance, so the AI handle can capture the current render
   const viewportRef = useRef<Viewport | null>(null);
   const paramsMount = useRef<HTMLDivElement>(null);
@@ -423,6 +431,8 @@ export default function FacetStudio() {
       setActiveRenderer,
     );
     viewportRef.current = viewport;
+    viewport.onProjectionChange = setProjection;
+    if (gizmoMount.current) viewport.mountGizmo(gizmoMount.current);
     // The B-rep kernel runs in its own worker (AsyncKernel); the mesh and Rust
     // kernels are fast enough to stay in-process
     const kernels: Record<string, Kernel | AsyncKernel> = { ts: meshKernel };
@@ -840,6 +850,19 @@ export default function FacetStudio() {
     return () => unsubscribeTheme();
   }, []);
 
+  // Offer the viewport's camera actions to the app-wide command palette while
+  // the Studio is open. Declared after the setup effect, so the viewport exists
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    return registerViewControl({
+      setView: (view) => viewport.setView(view),
+      flipView: () => viewport.flipView(),
+      frameModel: () => viewport.frameModel(),
+      toggleProjection: () => viewport.toggleProjection(),
+    });
+  }, []);
+
   // Keep the retained name current while the confirm dialog is open
   if (closing) closingNameRef.current = closing.name;
 
@@ -1081,6 +1104,41 @@ export default function FacetStudio() {
         </section>
         <section className="viewport">
           <div className="viewport-canvas" ref={viewportMount} />
+          <div className="view-nav">
+            <div className="view-nav-gizmo" ref={gizmoMount} />
+            <div className="view-nav-buttons">
+              <ViewNavButton
+                label={
+                  projection === "orthographic"
+                    ? "Switch to perspective"
+                    : "Switch to orthographic"
+                }
+                shortcut={VIEW_KEYS.projection}
+                pressed={projection === "orthographic"}
+                onClick={() => viewportRef.current?.toggleProjection()}
+              >
+                {projection === "orthographic" ? (
+                  <Square size={15} />
+                ) : (
+                  <Box size={15} />
+                )}
+              </ViewNavButton>
+              <ViewNavButton
+                label="Fit the model in view"
+                shortcut={VIEW_KEYS.frame}
+                onClick={() => viewportRef.current?.frameModel()}
+              >
+                <Focus size={15} />
+              </ViewNavButton>
+              <ViewNavButton
+                label="Reset to the home view"
+                shortcut={VIEW_KEYS.home}
+                onClick={() => viewportRef.current?.setView("home")}
+              >
+                <House size={15} />
+              </ViewNavButton>
+            </div>
+          </div>
           {activeRenderer && (
             <div
               className="viewport-renderer"

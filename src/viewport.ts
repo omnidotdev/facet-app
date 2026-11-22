@@ -4,15 +4,28 @@ import { OrbitState } from "./gpu/orbit";
 import { paletteFor } from "./gpu/palette";
 import { captureSize, isUniform } from "./gpu/readback";
 import { isDesktopLinux, rendererOrder } from "./gpu/rendererPreference";
+import {
+  AXIS_VIEWS,
+  HOME_ANGLES,
+  OPPOSITE,
+  currentAxisView,
+  fitView,
+  viewKeyAction,
+} from "./gpu/views";
 import { createWebGlBackend } from "./gpu/webglBackend";
 import { createWebGpuBackend } from "./gpu/webgpuBackend";
+import { ViewGizmo } from "./viewGizmo";
 
 import type { Mesh } from "./facet";
 import type { FrameParams, RenderBackend, RendererKind } from "./gpu/backend";
 import type { BoundingSphere, Vec3 } from "./gpu/camera";
 import type { Palette } from "./gpu/palette";
 import type { RendererPreference } from "./gpu/rendererPreference";
+import type { ViewAngles, ViewName } from "./gpu/views";
 import type { Theme } from "./theme";
+
+/** How the viewport projects the scene */
+export type Projection = "perspective" | "orthographic";
 
 /** `navigator` with the Chromium-only User-Agent Client Hints */
 type PlatformNavigator = Navigator & { userAgentData?: { platform?: string } };
@@ -77,6 +90,19 @@ const encodePng = (
     : null;
 };
 
+/** Circumscribing sphere of a mesh's bounding box */
+const boundingSphere = (mesh: Mesh): BoundingSphere => {
+  const { min, max } = meshBounds(mesh);
+  return {
+    center: [
+      (min[0] + max[0]) / 2,
+      (min[1] + max[1]) / 2,
+      (min[2] + max[2]) / 2,
+    ],
+    radius: Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2,
+  };
+};
+
 /**
  * A Z-up viewport that renders Facet meshes with flat, faceted shading. It
  * owns the camera, input, and framing, and draws through a {@link RenderBackend}:
@@ -111,6 +137,19 @@ export class Viewport {
   /** Bumped per setup so a superseded async init does not attach */
   private generation = 0;
 
+  private projection: Projection = "perspective";
+  /**
+   * Set when an axis view switched to orthographic on its own, so orbiting
+   * away returns to perspective. An explicit toggle clears it
+   */
+  private autoOrthographic = false;
+  private gizmo: ViewGizmo | null = null;
+  /** Whether the pointer is over the viewport, which scopes the view keys */
+  private hovering = false;
+
+  /** Told whenever the projection changes, so the UI can show it */
+  onProjectionChange: (projection: Projection) => void = () => {};
+
   private width = 1;
   private height = 1;
   private near = 0.1;
@@ -134,6 +173,17 @@ export class Viewport {
     this.palette = paletteFor(theme);
     this.preference = preference;
     this.onRenderer = onRenderer;
+    // Focusable, so the view keys work from the keyboard alone (Tab to the
+    // view) as well as while the pointer is over it
+    container.tabIndex = 0;
+    container.setAttribute("role", "application");
+    container.setAttribute(
+      "aria-label",
+      "3D view. Number keys change the view: 1 front, 3 right, 7 top, Ctrl for the opposite side, 0 home, arrows orbit, plus and minus zoom, 5 orthographic, Home frames the model",
+    );
+    container.addEventListener("pointerenter", this.onPointerEnter);
+    container.addEventListener("pointerleave", this.onPointerLeave);
+    window.addEventListener("keydown", this.onKeyDown);
     void this.init();
   }
 
@@ -260,31 +310,12 @@ export class Viewport {
   }
   /** Point the camera at the model and pull back to fit it, jumping the view once. */
   private frameMesh(mesh: Mesh): void {
-    const { min, max } = meshBounds(mesh);
-    // Circumscribing sphere of the AABB: center at the midpoint, radius the half-diagonal
-    const sphere: BoundingSphere = {
-      center: [
-        (min[0] + max[0]) / 2,
-        (min[1] + max[1]) / 2,
-        (min[2] + max[2]) / 2,
-      ],
-      radius: Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2,
-    };
-    // frameSphere owns the framing constants (direction, distance, near, far)
-    const { eye, target, near, far } = frameSphere(sphere);
-    this.near = near;
-    this.far = far;
-
-    // A fresh orbit state resets to the canonical framing direction (1, -1, 0.7);
-    // recenter on the model and dolly out to the framing distance
+    // A fresh orbit state starts at the home view; fit the model there and
+    // jump straight to it, the same framing the Home view eases to later
     const orbit = new OrbitState();
+    const { target, distance } = this.fit(mesh, HOME_ANGLES);
     orbit.target = target;
-    const distance = Math.hypot(
-      eye[0] - target[0],
-      eye[1] - target[1],
-      eye[2] - target[2],
-    );
-    orbit.dolly(distance - orbit.targetRadius);
+    orbit.zoomTo(distance);
     orbit.settle();
     this.orbit = orbit;
   }
@@ -355,6 +386,7 @@ export class Viewport {
     const orbit = this.orbit;
     if (this.disposed || !orbit) return null;
     orbit.update();
+    this.gizmo?.update(orbit.azimuth, orbit.polar);
     return {
       viewProj: viewProjection({
         eye: orbit.eye(),
@@ -364,6 +396,7 @@ export class Viewport {
         aspect,
         near: this.near,
         far: this.far,
+        orthographic: this.projection === "orthographic",
       }),
       lightDir: LIGHT_DIR,
       baseColor: this.palette.baseColor,
@@ -384,6 +417,9 @@ export class Viewport {
       lastX = e.clientX;
       lastY = e.clientY;
       canvas.setPointerCapture(e.pointerId);
+      // The default is prevented below, so take keyboard focus by hand: after
+      // clicking the view, its keys work even once the pointer leaves
+      this.container.focus({ preventScroll: true });
       e.preventDefault();
     });
 
@@ -394,7 +430,7 @@ export class Viewport {
       lastX = e.clientX;
       lastY = e.clientY;
       if (dragging === "orbit") {
-        this.orbit.rotate(-dx * ORBIT_SPEED, dy * ORBIT_SPEED);
+        this.orbitBy(dx, dy);
       } else {
         const scale = this.orbit.radius * PAN_SPEED;
         this.orbit.pan(dx * scale, dy * scale);
@@ -449,10 +485,189 @@ export class Viewport {
     s.color = this.theme === "dark" ? "#c9d3de" : "#3a3326";
   }
 
+  /** Orbit by a pointer drag, leaving an automatic orthographic view */
+  private orbitBy(dx: number, dy: number): void {
+    this.orbitAngles(-dx * ORBIT_SPEED, dy * ORBIT_SPEED);
+  }
+
+  /** Orbit by angles, leaving an automatic orthographic view */
+  private orbitAngles(azimuth: number, polar: number): void {
+    if (!this.orbit) return;
+    this.orbit.rotate(azimuth, polar);
+    if (this.autoOrthographic) this.setProjection("perspective");
+  }
+
+  /**
+   * Show the navigation gizmo in `mount`: the world axes as the camera sees
+   * them. Clicking an axis looks from that side (clicking the side already in
+   * view flips to the opposite one), and dragging it orbits
+   */
+  mountGizmo(mount: HTMLElement): void {
+    if (this.gizmo) return;
+    this.gizmo = new ViewGizmo(
+      (view) => {
+        const showing = this.orbit
+          ? currentAxisView(this.orbit.targetAzimuth, this.orbit.targetPolar)
+          : null;
+        this.setView(showing === view ? OPPOSITE[view] : view);
+      },
+      (dx, dy) => this.orbitBy(dx, dy),
+    );
+    mount.appendChild(this.gizmo.el);
+  }
+
+  /**
+   * Turn to a standard view. An axis view also switches to orthographic when
+   * the view was in perspective, the usual auto-perspective behavior, and
+   * orbiting away switches back. Home returns to the default three-quarter
+   * view and fits the model
+   */
+  setView(view: ViewName): void {
+    const orbit = this.orbit;
+    if (!orbit) return;
+    if (view === "home") {
+      orbit.lookFrom(HOME_ANGLES.azimuth, HOME_ANGLES.polar);
+      if (this.autoOrthographic) this.setProjection("perspective");
+      this.frameModel();
+      return;
+    }
+    const { azimuth, polar } = AXIS_VIEWS[view];
+    orbit.lookFrom(azimuth, polar);
+    if (this.projection === "perspective") {
+      this.setProjection("orthographic");
+      this.autoOrthographic = true;
+    }
+  }
+
+  /** Look from the opposite side of the model */
+  flipView(): void {
+    const orbit = this.orbit;
+    if (!orbit) return;
+    const showing = currentAxisView(orbit.targetAzimuth, orbit.targetPolar);
+    if (showing) {
+      this.setView(OPPOSITE[showing]);
+      return;
+    }
+    orbit.lookFrom(orbit.targetAzimuth + Math.PI, Math.PI - orbit.targetPolar);
+  }
+
+  /**
+   * Recenter on the model and zoom so its outline fills the view from where
+   * the camera is heading, keeping the view direction
+   */
+  frameModel(): void {
+    const orbit = this.orbit;
+    const mesh = this.lastMesh;
+    if (!orbit || !mesh) return;
+    const { target, distance } = this.fit(mesh, {
+      azimuth: orbit.targetAzimuth,
+      polar: orbit.targetPolar,
+    });
+    orbit.moveTarget(target);
+    orbit.zoomTo(distance);
+  }
+
+  /**
+   * The orbit target and distance that fit the model from the given angles,
+   * also setting the depth range from the model's size
+   */
+  private fit(
+    mesh: Mesh,
+    angles: ViewAngles,
+  ): { target: Vec3; distance: number } {
+    const { near, far } = frameSphere(boundingSphere(mesh));
+    this.near = near;
+    this.far = far;
+    const { min, max } = meshBounds(mesh);
+    return fitView(
+      min,
+      max,
+      angles,
+      this.width / Math.max(this.height, 1),
+      FOV_Y,
+      this.projection === "orthographic",
+    );
+  }
+
+  /** The projection in use */
+  get currentProjection(): Projection {
+    return this.projection;
+  }
+
+  /** Switch between perspective and orthographic */
+  toggleProjection(): void {
+    this.setProjection(
+      this.projection === "perspective" ? "orthographic" : "perspective",
+    );
+  }
+
+  private setProjection(projection: Projection): void {
+    // Any explicit or automatic change settles the automatic state
+    this.autoOrthographic = false;
+    if (projection === this.projection) return;
+    this.projection = projection;
+    this.onProjectionChange(projection);
+  }
+
+  private onPointerEnter = (): void => {
+    this.hovering = true;
+  };
+
+  private onPointerLeave = (): void => {
+    this.hovering = false;
+  };
+
+  /**
+   * The view keys, active while the pointer is over the viewport or keyboard
+   * focus is in it (the view, the gizmo, or its buttons), so typing in the
+   * editor or a field never moves the camera
+   */
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (!this.orbit) return;
+    const scope = this.container.parentElement ?? this.container;
+    const focused = scope.contains(document.activeElement);
+    if (!this.hovering && !focused) return;
+    const target = e.target as HTMLElement | null;
+    if (
+      target?.closest("input, textarea, select, [contenteditable], .cm-editor")
+    )
+      return;
+    const action = viewKeyAction(e);
+    if (!action) return;
+    // Orbit and zoom keys may repeat while held; the view jumps should not
+    if (e.repeat && action.kind !== "orbit" && action.kind !== "zoom") return;
+    e.preventDefault();
+    switch (action.kind) {
+      case "view":
+        this.setView(action.view);
+        break;
+      case "opposite":
+        this.flipView();
+        break;
+      case "frame":
+        this.frameModel();
+        break;
+      case "projection":
+        this.toggleProjection();
+        break;
+      case "orbit":
+        this.orbitAngles(action.azimuth, action.polar);
+        break;
+      case "zoom":
+        this.orbit.zoomTo(this.orbit.targetRadius * action.factor);
+        break;
+    }
+  };
+
   /** Release GPU resources, listeners, and the render loop. */
   dispose(): void {
     this.disposed = true;
     this.teardown();
     this.notice?.remove();
+    this.gizmo?.el.remove();
+    this.gizmo = null;
+    this.container.removeEventListener("pointerenter", this.onPointerEnter);
+    this.container.removeEventListener("pointerleave", this.onPointerLeave);
+    window.removeEventListener("keydown", this.onKeyDown);
   }
 }
