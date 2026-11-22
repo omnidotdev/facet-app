@@ -1,9 +1,11 @@
 import { vec3 } from "wgpu-matrix";
 
+import { HOME_ANGLES, POLE_EPS, nearestAzimuth } from "./views";
+
 import type { Vec3 } from "./camera";
 
 /** Smallest offset kept between the polar angle and either pole */
-const EPS = 1e-3;
+const EPS = POLE_EPS;
 
 /** Exponential smoothing factor applied each update toward the target state */
 const DAMPING = 0.15;
@@ -22,13 +24,15 @@ const MIN_RADIUS = 0.01;
  * The eye offset from the target is therefore
  *   [ sin(polar) * cos(azimuth), sin(polar) * sin(azimuth), cos(polar) ] * radius
  *
- * The defaults reproduce the old three.js framing direction (1, -1, 0.7):
- * azimuth -PI/4 and polar acos(0.7 / |(1, -1, 0.7)|) look down at the model
- * from the same quadrant.
+ * The defaults are the home view (see views.ts), looking down at the model
+ * from the (1, -1) quadrant.
  */
 export class OrbitState {
   /** Orbit center in world space, moved by pan */
   target: Vec3 = [0, 0, 0];
+
+  /** Where an animated recenter is easing the target toward, if anywhere */
+  private goalTarget: Vec3 | null = null;
 
   private _azimuth: number;
   private _polar: number;
@@ -39,9 +43,7 @@ export class OrbitState {
   private _targetRadius: number;
 
   constructor() {
-    const dir = vec3.normalize([1, -1, 0.7]);
-    const azimuth = Math.atan2(dir[1], dir[0]);
-    const polar = Math.acos(dir[2]);
+    const { azimuth, polar } = HOME_ANGLES;
     const radius = 3;
 
     this._azimuth = azimuth;
@@ -86,8 +88,29 @@ export class OrbitState {
     );
   }
 
+  /**
+   * Turn to look from the given angles, easing there through the damping. The
+   * azimuth goes the short way round, so a view change never spins a full turn
+   */
+  lookFrom(azimuth: number, polar: number): void {
+    this._targetAzimuth = nearestAzimuth(this._azimuth, azimuth);
+    this._targetPolar = clamp(polar, EPS, Math.PI - EPS);
+  }
+
+  /** Ease the orbit center to a new point, as when framing the model */
+  moveTarget(target: Vec3): void {
+    this.goalTarget = [...target];
+  }
+
+  /** Ease the eye to a distance from the target */
+  zoomTo(radius: number): void {
+    this._targetRadius = Math.max(radius, MIN_RADIUS);
+  }
+
   /** Shift the orbit target in the camera's screen plane (right/up, Z-up) */
   pan(deltaX: number, deltaY: number): void {
+    // A direct pan takes over from any recenter still easing in
+    this.goalTarget = null;
     const forward = this.forward();
     const right = vec3.normalize(vec3.cross(forward, [0, 0, 1]));
     const up = vec3.cross(right, forward);
@@ -106,6 +129,14 @@ export class OrbitState {
     this._azimuth += (this._targetAzimuth - this._azimuth) * DAMPING;
     this._polar += (this._targetPolar - this._polar) * DAMPING;
     this._radius += (this._targetRadius - this._radius) * DAMPING;
+    const goal = this.goalTarget;
+    if (goal) {
+      this.target = [
+        this.target[0] + (goal[0] - this.target[0]) * DAMPING,
+        this.target[1] + (goal[1] - this.target[1]) * DAMPING,
+        this.target[2] + (goal[2] - this.target[2]) * DAMPING,
+      ];
+    }
   }
 
   /** Snap the current state to the target immediately */
@@ -113,6 +144,8 @@ export class OrbitState {
     this._azimuth = this._targetAzimuth;
     this._polar = this._targetPolar;
     this._radius = this._targetRadius;
+    if (this.goalTarget) this.target = [...this.goalTarget];
+    this.goalTarget = null;
   }
 
   /** World-space eye position from the current spherical coords around target */

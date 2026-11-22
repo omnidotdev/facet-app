@@ -26,6 +26,25 @@
   --ok: #2f7d4f;
 }
 
+/*
+ * World axis colors for the view gizmo, following the near-universal 3D
+ * convention (X red, Y green, Z blue). No semantic token carries this meaning,
+ * so they stay explicit, tuned per theme for contrast against the viewport
+ */
+.facet-app {
+  --axis-x: #ff4d5e;
+  --axis-y: #7ccc2e;
+  --axis-z: #3d8bff;
+  --axis-ink: #10161d;
+}
+
+[data-theme="light"] .facet-app {
+  --axis-x: #e0283c;
+  --axis-y: #4c9a12;
+  --axis-z: #1f6fe0;
+  --axis-ink: #ffffff;
+}
+
 html,
 body,
 #root {
@@ -817,6 +836,154 @@ button.ai-job-btn:focus-visible {
   background: var(--panel);
   pointer-events: auto;
   user-select: none;
+}
+
+/*
+ * View navigation: the axis gizmo with the projection, frame, and home
+ * buttons. The button rules carry the .facet-app scope so they win over the
+ * Studio-wide button padding and border, which would push the icon off center
+ */
+.view-nav {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.view-nav-gizmo {
+  width: 96px;
+  height: 96px;
+}
+.view-gizmo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  cursor: grab;
+  touch-action: none;
+}
+.view-gizmo:active {
+  cursor: grabbing;
+}
+.view-gizmo:focus {
+  outline: none;
+}
+.view-gizmo:focus-visible .view-gizmo-backdrop {
+  opacity: 0.55;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+/* The 3D view takes keyboard focus for the view keys; ring it only when
+   reached from the keyboard */
+.viewport-canvas:focus {
+  outline: none;
+}
+.viewport-canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.view-gizmo-backdrop {
+  fill: var(--panel);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.view-gizmo:hover .view-gizmo-backdrop {
+  opacity: 0.55;
+}
+.view-gizmo-line {
+  stroke-width: 2.5;
+  stroke-linecap: round;
+}
+.view-gizmo-line.axis-x {
+  stroke: var(--axis-x);
+}
+.view-gizmo-line.axis-y {
+  stroke: var(--axis-y);
+}
+.view-gizmo-line.axis-z {
+  stroke: var(--axis-z);
+}
+.view-gizmo-axis {
+  cursor: pointer;
+}
+.view-gizmo-axis.axis-x {
+  --axis: var(--axis-x);
+}
+.view-gizmo-axis.axis-y {
+  --axis: var(--axis-y);
+}
+.view-gizmo-axis.axis-z {
+  --axis: var(--axis-z);
+}
+.view-gizmo-axis circle {
+  fill: var(--axis);
+  stroke: var(--axis);
+  stroke-width: 1.5;
+  transition: r 100ms ease;
+}
+/* Negative ends are hollow so the positive direction reads at a glance */
+.view-gizmo-axis.negative circle {
+  fill: color-mix(in srgb, var(--axis) 30%, var(--panel));
+}
+.view-gizmo-axis:hover circle {
+  stroke: var(--text);
+}
+.view-gizmo-axis text {
+  fill: var(--axis-ink);
+  font:
+    700 10px / 1 system-ui,
+    sans-serif;
+  pointer-events: none;
+}
+.view-nav-buttons {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(6px);
+}
+.facet-app .view-nav-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+.facet-app .view-nav-btn:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+.facet-app .view-nav-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Tooltip on the view buttons: what it does, then the matching key */
+.view-nav-tip {
+  gap: 8px;
+  height: auto;
+  font-size: 12px;
+  white-space: nowrap;
+}
+/* The Studio's --muted alias (muted text) shadows the Sigil surface token the
+   key chip's bg-muted reads, which would paint the chip in its own text color */
+.view-nav-tip kbd {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--line);
+}
+.facet-app .view-nav-btn[aria-pressed="true"] {
+  color: var(--accent);
 }
 
 .params {
