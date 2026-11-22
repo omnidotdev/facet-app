@@ -19,34 +19,37 @@ export type { OpNode } from "./opgraph.gen";
 
 export type Vec3 = [number, number, number];
 
+/** Why a graph needs the B-rep kernel, in terms a user would recognize */
+export type BrepNeed = "fillet" | "text" | "svg" | "sketch";
+
 /**
- * Whether the graph contains a B-rep-only op (fillet/chamfer/shell), which only
- * the B-rep (OCCT) kernel can evaluate. The mesh and Rust kernels reject these,
- * so the Studio uses this to load and switch to the B-rep kernel on demand.
- * Walks the whole tree, recursing through single-child transforms and the
- * children arrays of boolean ops.
+ * The first reason the graph needs the B-rep (OCCT) kernel, or null when the
+ * mesh and Rust kernels can evaluate it: an exact-geometry op (fillet,
+ * chamfer, shell), text or SVG outlines, or combined 2D sketches (offsets and
+ * 2D booleans, which need planar clipping). Walks the whole tree, recursing
+ * through single-child transforms and the children arrays of boolean ops.
  */
-export function requiresBrep(node: OpNode): boolean {
+export function brepNeed(node: OpNode): BrepNeed | null {
   switch (node.op) {
-    // Exact-geometry ops, curved/combined 2D profiles, and the 2D-combinator
-    // ops (offset + booleans, which need planar clipping/offsetting) exist only
-    // in the B-rep kernel; a graph that touches any of them must run there
     case "fillet":
     case "chamfer":
     case "shell":
-    case "svg2d":
+      return "fillet";
     case "text2d":
+      return "text";
+    case "svg2d":
+      return "svg";
     case "offset2d":
     case "union2d":
     case "difference2d":
     case "intersect2d":
-      return true;
+      return "sketch";
     // Simple single-ring profiles tessellate in the mesh kernel (as the child of
     // a sweep); a bare one errors there the same as it would in B-rep
     case "circle2d":
     case "rect2d":
     case "polygon2d":
-      return false;
+      return null;
     // A sweep follows its profile: a simple ring stays in the mesh kernel, a
     // curved/combined profile forces B-rep
     case "extrude":
@@ -62,19 +65,32 @@ export function requiresBrep(node: OpNode): boolean {
     case "rotate2d":
     case "scale2d":
     case "mirror2d":
-      return requiresBrep(node.child);
+      return brepNeed(node.child);
     case "union":
     case "difference":
     case "intersect":
     case "hull":
-      return node.children.some(requiresBrep);
+      for (const child of node.children) {
+        const need = brepNeed(child);
+        if (need) return need;
+      }
+      return null;
     case "cube":
     case "sphere":
     case "cylinder":
     case "cone":
     case "polyhedron":
-      return false;
+      return null;
   }
+}
+
+/**
+ * Whether the graph contains anything only the B-rep (OCCT) kernel can
+ * evaluate (see {@link brepNeed}). The mesh and Rust kernels reject these, so
+ * the Studio uses this to load and switch to the B-rep kernel on demand.
+ */
+export function requiresBrep(node: OpNode): boolean {
+  return brepNeed(node) !== null;
 }
 
 /**
