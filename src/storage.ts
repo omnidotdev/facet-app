@@ -130,3 +130,26 @@ export function saveWorkspace(workspace: SavedWorkspace): void {
     // storage unavailable or over quota - degrade without breaking the Studio
   }
 }
+
+const PARAMS_COLLAPSED_KEY = "facet:params-collapsed:v1";
+
+/**
+ * Whether the parameters panel is collapsed. A per-browser view preference,
+ * like the theme, so it survives reloads and model switches
+ */
+export function loadParamsCollapsed(): boolean {
+  try {
+    return localStorage.getItem(PARAMS_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Persist the parameters panel state. Silently no-ops without storage */
+export function saveParamsCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(PARAMS_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    // storage unavailable - the panel still toggles, it just won't persist
+  }
+}

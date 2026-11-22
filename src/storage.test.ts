@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+  loadParamsCollapsed,
   loadProject,
   loadWorkspace,
+  saveParamsCollapsed,
   saveProject,
   saveWorkspace,
 } from "./storage";
@@ -128,5 +130,28 @@ describe("workspace storage", () => {
     g.localStorage = undefined;
     expect(() => saveWorkspace(sample())).not.toThrow();
     expect(loadWorkspace()).toBeNull();
+  });
+});
+
+describe("parameters panel state", () => {
+  beforeEach(() => {
+    g.localStorage = mockStorage();
+  });
+  afterEach(() => {
+    g.localStorage = undefined;
+  });
+
+  test("starts expanded and remembers a collapse", () => {
+    expect(loadParamsCollapsed()).toBe(false);
+    saveParamsCollapsed(true);
+    expect(loadParamsCollapsed()).toBe(true);
+    saveParamsCollapsed(false);
+    expect(loadParamsCollapsed()).toBe(false);
+  });
+
+  test("stays expanded when storage is unavailable", () => {
+    g.localStorage = undefined;
+    expect(loadParamsCollapsed()).toBe(false);
+    expect(() => saveParamsCollapsed(true)).not.toThrow();
   });
 });
