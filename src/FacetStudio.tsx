@@ -12,8 +12,8 @@ import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
 import {
   KernelError,
+  brepNeed,
   meshKernel,
-  requiresBrep,
   shouldAutoSwitchToBrep,
 } from "@/facet";
 import { loadBrepWorkerKernel } from "@/facet/brepWorkerClient";
@@ -46,6 +46,7 @@ import { Viewport } from "@/viewport";
 import type { FacetEditor } from "@/editor";
 import type { ExportFormat, Kernel, OpNode } from "@/facet";
 import type { AsyncKernel } from "@/facet/kernel";
+import type { BrepNeed } from "@/facet/opgraph";
 import type { RendererKind } from "@/gpu/backend";
 import type { RendererPreference } from "@/gpu/rendererPreference";
 import type { SavedWorkspace } from "@/storage";
@@ -61,6 +62,14 @@ const CUSTOM_OPTION = "";
 // Starter code for a brand-new tab, so it renders something immediately instead
 // of opening onto a "must return a shape" error
 const NEW_TAB_STARTER = "return cube(10);";
+
+// What the status line names when a model switches to the B-rep kernel
+const BREP_NEED_LABELS: Record<BrepNeed, string> = {
+  fillet: "fillets, chamfers, and shells",
+  text: "text",
+  svg: "SVG shapes",
+  sketch: "combined 2D sketches",
+};
 
 /**
  * Terminal outcome of a run, reported to a caller that drives the editor (the
@@ -658,15 +667,15 @@ export default function FacetStudio() {
             viewport.setMesh(mesh, reframe);
             currentNode = node;
             renderParams();
-            if (announceAutoSwitch && requiresBrep(node)) {
+            const need = brepNeed(node);
+            if (announceAutoSwitch && need) {
               // First successful render of a B-rep model after an automatic
-              // switch: say why the kernel changed, then fall back to the usual
-              // stats. Gate on requiresBrep so a failed first eval cannot
+              // switch: say what in this model needed it, then fall back to the
+              // usual stats. Gate on the need so a failed first eval cannot
               // mislabel a later non-B-rep render with the switch notice
               announceAutoSwitch = false;
               statusEl.className = "status ok";
-              statusEl.textContent =
-                "✓ Using the B-rep kernel for fillet/chamfer/shell";
+              statusEl.textContent = `✓ Using the B-rep kernel for ${BREP_NEED_LABELS[need]}`;
             } else {
               const ms = (performance.now() - t0).toFixed(0);
               statusEl.className = "status ok";

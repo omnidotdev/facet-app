@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { meshKernel } from "./meshKernel";
+import { brepNeed } from "./opgraph";
 
 import type { OpNode, Vec3 } from "./opgraph";
 import type { OpNode as GeneratedOpNode } from "./opgraph.gen";
@@ -103,5 +104,38 @@ describe("op-graph contract", () => {
       "chamfer",
       "shell",
     ]);
+  });
+});
+
+describe("brepNeed", () => {
+  test("names why a model needs the B-rep kernel", () => {
+    const box: OpNode = { op: "cube", size: [10, 10, 10], center: true };
+    const circle: OpNode = { op: "circle2d", r: 2, segments: 32 };
+    const sweep = (child: OpNode): OpNode => ({
+      op: "extrude",
+      height: 4,
+      twist: 0,
+      scale: 1,
+      child,
+    });
+    expect(brepNeed(box)).toBeNull();
+    expect(brepNeed(sweep(circle))).toBeNull();
+    expect(brepNeed({ op: "fillet", radius: 1, child: box })).toBe("fillet");
+    expect(brepNeed(sweep({ op: "union2d", children: [circle, circle] }))).toBe(
+      "sketch",
+    );
+    expect(
+      brepNeed({
+        op: "union",
+        children: [
+          box,
+          sweep({
+            op: "scale2d",
+            factor: 2,
+            child: { op: "union2d", children: [circle, circle] },
+          }),
+        ],
+      }),
+    ).toBe("sketch");
   });
 });
