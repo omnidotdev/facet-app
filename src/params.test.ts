@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { ParamStore, formatParamValue } from "./params";
+import {
+  ParamStore,
+  evaluateArithmetic,
+  formatParamNumber,
+  parseParamInput,
+} from "./params";
 
 /** Simulate a model run: begin, then the model's param calls. */
 const run = (
@@ -150,10 +155,82 @@ describe("param units", () => {
     });
     expect(store.list()[0]).toMatchObject({ unit: "millimet" });
   });
+});
 
-  test("formats a value with its unit", () => {
-    expect(formatParamValue(50, "mm")).toBe("50 mm");
-    expect(formatParamValue("45", "°")).toBe("45°");
-    expect(formatParamValue(3)).toBe("3");
+describe("typed parameter values", () => {
+  const range = { min: 0, max: 100, unit: "mm" };
+
+  test("evaluates simple arithmetic", () => {
+    expect(evaluateArithmetic("50/2")).toBe(25);
+    expect(evaluateArithmetic(" 12 + 3.5 ")).toBe(15.5);
+    expect(evaluateArithmetic("2*(3+4)")).toBe(14);
+    expect(evaluateArithmetic("-4 + 10")).toBe(6);
+    expect(evaluateArithmetic(".5*4")).toBe(2);
+    expect(evaluateArithmetic("1e2")).toBe(100);
+  });
+
+  test("rejects anything that is not arithmetic", () => {
+    for (const bad of [
+      "",
+      "abc",
+      "2+",
+      "(3",
+      "3)",
+      "1/0",
+      "alert(1)",
+      "2**3",
+      "4 4",
+    ])
+      expect(evaluateArithmetic(bad)).toBeNull();
+  });
+
+  test("accepts the parameter's unit after the number", () => {
+    expect(parseParamInput("25mm", range)).toEqual({
+      ok: true,
+      value: 25,
+      clamped: false,
+    });
+    expect(parseParamInput("25 MM", range)).toEqual({
+      ok: true,
+      value: 25,
+      clamped: false,
+    });
+    expect(parseParamInput("45°", { min: 0, max: 360, unit: "°" })).toEqual({
+      ok: true,
+      value: 45,
+      clamped: false,
+    });
+  });
+
+  test("keeps exact values off the slider step", () => {
+    expect(parseParamInput("4.25", range)).toEqual({
+      ok: true,
+      value: 4.25,
+      clamped: false,
+    });
+  });
+
+  test("clamps to the declared range and says so", () => {
+    expect(parseParamInput("150", range)).toEqual({
+      ok: true,
+      value: 100,
+      clamped: true,
+    });
+    expect(parseParamInput("-3", range)).toEqual({
+      ok: true,
+      value: 0,
+      clamped: true,
+    });
+  });
+
+  test("flags input it cannot read", () => {
+    expect(parseParamInput("wide", range)).toEqual({ ok: false });
+    expect(parseParamInput("25 in", range)).toEqual({ ok: false });
+  });
+
+  test("writes numbers back without float noise", () => {
+    expect(formatParamNumber(0.1 + 0.2)).toBe("0.3");
+    expect(formatParamNumber(50)).toBe("50");
+    expect(formatParamNumber(4.25)).toBe("4.25");
   });
 });

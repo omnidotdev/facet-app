@@ -27,7 +27,7 @@ import {
   saveRendererPreference,
 } from "@/gpu/rendererPreference";
 import { VIEW_KEYS } from "@/gpu/views";
-import { ParamStore, formatParamValue } from "@/params";
+import { ParamStore, formatParamNumber, parseParamInput } from "@/params";
 import { createRunWaiters } from "@/runWaiters";
 import { loadWorkspace, saveWorkspace } from "@/storage";
 import {
@@ -473,23 +473,108 @@ export default function FacetStudio() {
         name.textContent = d.name;
 
         if (d.kind === "number") {
+          // The value reads like a label but is an editable field: click (or
+          // Tab to) it and type an exact value, which the slider can't hit
           const value = document.createElement("span");
           value.className = "param-value";
-          value.textContent = formatParamValue(d.value, d.unit);
+          const field = document.createElement("input");
+          field.type = "text";
+          field.inputMode = "decimal";
+          field.className = "param-value-input";
+          field.spellcheck = false;
+          field.autocomplete = "off";
+          field.setAttribute(
+            "aria-label",
+            d.unit ? `${d.name} in ${d.unit}` : d.name,
+          );
+          field.title =
+            "Type an exact value (math like 50/2 works). Enter applies, Esc cancels, arrow keys step";
+          value.appendChild(field);
+          if (d.unit) {
+            const unit = document.createElement("span");
+            unit.className = "param-unit";
+            // A degree sign sits flush against its number
+            if (d.unit === "°") unit.classList.add("flush");
+            unit.textContent = d.unit;
+            value.appendChild(unit);
+          }
+
           const input = document.createElement("input");
           input.type = "range";
           input.min = String(d.min);
           input.max = String(d.max);
           input.step = String(d.step);
           input.value = String(d.value);
+          input.setAttribute("aria-label", d.name);
+
+          let current = d.value;
+          const show = (v: number) => {
+            field.value = formatParamNumber(v);
+            sizeField();
+          };
+          const sizeField = () =>
+            field.style.setProperty(
+              "--chars",
+              String(Math.max(2, field.value.length)),
+            );
+          const apply = (v: number) => {
+            current = v;
+            store.set(d.name, v);
+            input.value = String(v);
+            show(v);
+            scheduleLive();
+          };
+          const commit = () => {
+            const typed = parseParamInput(field.value, d);
+            if (!typed.ok) {
+              // Flag the entry briefly, then put the last good value back
+              field.setAttribute("aria-invalid", "true");
+              show(current);
+              window.setTimeout(
+                () => field.removeAttribute("aria-invalid"),
+                1200,
+              );
+              return;
+            }
+            field.removeAttribute("aria-invalid");
+            if (typed.value !== current) apply(typed.value);
+            else show(current);
+          };
+          show(current);
+
           // While dragging, rebuild a fast draft each frame; the release
           // ("change") rebuilds the exact part
           input.addEventListener("input", () => {
-            store.set(d.name, Number(input.value));
-            value.textContent = formatParamValue(input.value, d.unit);
+            current = Number(input.value);
+            store.set(d.name, current);
+            show(current);
             scheduleLive(true);
           });
           input.addEventListener("change", () => scheduleLive());
+
+          field.addEventListener("focus", () => field.select());
+          field.addEventListener("input", sizeField);
+          field.addEventListener("blur", commit);
+          field.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+              field.select();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              field.removeAttribute("aria-invalid");
+              show(current);
+              field.select();
+            } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+              // Step like the slider, ten steps with Shift
+              e.preventDefault();
+              const delta =
+                (e.key === "ArrowUp" ? 1 : -1) * d.step * (e.shiftKey ? 10 : 1);
+              const next = Math.min(Math.max(current + delta, d.min), d.max);
+              if (next !== current) apply(Number(next.toPrecision(10)));
+              field.select();
+            }
+          });
           row.append(name, value, input);
         } else if (d.kind === "boolean") {
           const input = document.createElement("input");
