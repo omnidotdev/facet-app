@@ -59,13 +59,102 @@ const normalizeUnit = (unit: unknown): string | undefined => {
 };
 
 /**
- * A slider value with its unit: "50 mm", or "45°" since a degree sign sits
- * flush against the number.
+ * Evaluate a typed arithmetic expression: numbers with + - * / and
+ * parentheses, so a value can be entered as "50/2" or "12 + 3.5". Returns
+ * null for anything else; nothing is ever passed to eval
  */
-export const formatParamValue = (value: number | string, unit?: string) => {
-  if (!unit) return String(value);
-  return unit === "°" ? `${value}°` : `${value} ${unit}`;
+export const evaluateArithmetic = (text: string): number | null => {
+  const src = text;
+  let i = 0;
+  // Whitespace separates tokens but never joins them, so "4 4" is not 44
+  const peek = () => {
+    while (src[i] === " " || src[i] === "\t") i++;
+    return src[i];
+  };
+
+  // expr := term (('+' | '-') term)*
+  const expr = (): number | null => {
+    let left = term();
+    while (left !== null && (peek() === "+" || peek() === "-")) {
+      const op = src[i++];
+      const right = term();
+      if (right === null) return null;
+      left = op === "+" ? left + right : left - right;
+    }
+    return left;
+  };
+  // term := factor (('*' | '/') factor)*
+  const term = (): number | null => {
+    let left = factor();
+    while (left !== null && (peek() === "*" || peek() === "/")) {
+      const op = src[i++];
+      const right = factor();
+      if (right === null) return null;
+      left = op === "*" ? left * right : left / right;
+    }
+    return left;
+  };
+  // factor := ('-' | '+') factor | '(' expr ')' | number
+  const factor = (): number | null => {
+    if (peek() === "-" || peek() === "+") {
+      const sign = src[i++] === "-" ? -1 : 1;
+      const v = factor();
+      return v === null ? null : sign * v;
+    }
+    if (peek() === "(") {
+      i++;
+      const v = expr();
+      if (v === null || peek() !== ")") return null;
+      i++;
+      return v;
+    }
+    peek();
+    const match = /^(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?/i.exec(src.slice(i));
+    if (!match) return null;
+    i += match[0].length;
+    return Number(match[0]);
+  };
+
+  const value = expr();
+  peek();
+  return value !== null && i === src.length && Number.isFinite(value)
+    ? value
+    : null;
 };
+
+/** The outcome of typing a value for a number parameter */
+export type TypedParamValue =
+  | { ok: true; value: number; clamped: boolean }
+  | { ok: false };
+
+/**
+ * Read a typed value for a number parameter: an exact number or simple
+ * arithmetic, optionally followed by the parameter's own unit ("25 mm"),
+ * clamped to the declared range so a model never sees a value its author
+ * ruled out. It is not snapped to the slider step, so exact values survive
+ */
+export const parseParamInput = (
+  text: string,
+  { min, max, unit }: { min: number; max: number; unit?: string },
+): TypedParamValue => {
+  let body = text.trim();
+  if (unit) {
+    const lower = body.toLowerCase();
+    const suffix = unit.toLowerCase();
+    if (lower.endsWith(suffix)) body = body.slice(0, -suffix.length);
+  }
+  const value = evaluateArithmetic(body);
+  if (value === null) return { ok: false };
+  const clampedValue = Math.min(Math.max(value, min), max);
+  return { ok: true, value: clampedValue, clamped: clampedValue !== value };
+};
+
+/**
+ * A number as typed back into a value field: rounded off at float noise
+ * (0.1 + 0.2 reads as 0.3) but otherwise exact
+ */
+export const formatParamNumber = (value: number): string =>
+  String(Number(value.toPrecision(10)));
 
 export class ParamStore {
   private values = new Map<string, ParamValue>();
