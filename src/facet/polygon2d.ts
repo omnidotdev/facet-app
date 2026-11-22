@@ -153,13 +153,55 @@ export function polygonize(
       const [first, ...rest] = parts;
       if (!rest.length) return first;
       // One n-ary call per op, so the clipper sweeps every piece together
-      if (node.op === "union2d") return polygonClipping.union(first, ...rest);
-      if (node.op === "difference2d")
-        return polygonClipping.difference(first, ...rest);
-      return polygonClipping.intersection(first, ...rest);
+      return clip(node.op, first, rest);
     }
     default:
       return null;
+  }
+}
+
+/**
+ * Grids to snap to when the clipper throws, finest first. polygon-clipping is
+ * floating-point and can fail ("Unable to find segment") on nearly coincident
+ * edges, which round-capped strokes produce at some widths; snapping to a fine
+ * grid resolves those near-coincidences into exact ones it handles. Too coarse
+ * a grid (1e-4 mm) manufactures new near-misses, so these stay well below any
+ * printable feature
+ */
+const SNAP_GRIDS = [1e-6, 1e-5, 1e-7];
+
+const snapShape = (shape: MultiPolygon, grid: number): MultiPolygon =>
+  mapRings(shape, (x, y) => [
+    Math.round(x / grid) * grid,
+    Math.round(y / grid) * grid,
+  ]);
+
+/** Run one n-ary clipper op, retrying on snapped input if it throws */
+function clip(
+  op: "union2d" | "difference2d" | "intersect2d",
+  first: MultiPolygon,
+  rest: MultiPolygon[],
+): MultiPolygon {
+  const run = (a: MultiPolygon, b: MultiPolygon[]) =>
+    op === "union2d"
+      ? polygonClipping.union(a, ...b)
+      : op === "difference2d"
+        ? polygonClipping.difference(a, ...b)
+        : polygonClipping.intersection(a, ...b);
+  try {
+    return run(first, rest);
+  } catch (err) {
+    for (const grid of SNAP_GRIDS) {
+      try {
+        return run(
+          snapShape(first, grid),
+          rest.map((part) => snapShape(part, grid)),
+        );
+      } catch {
+        // Try the next grid
+      }
+    }
+    throw err;
   }
 }
 

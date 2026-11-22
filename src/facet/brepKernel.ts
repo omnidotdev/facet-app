@@ -14,10 +14,12 @@ import { meshToStlBinary } from "./stl";
 import { drawSvgPath } from "./svgPath";
 import { meshTo3mf } from "./threeMf";
 
-import type { Drawing, Face, Shape3D } from "replicad";
+import type { MultiPolygon } from "polygon-clipping";
+import type { Drawing, Face, Shape2D, Shape3D } from "replicad";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
 import type { EvaluateOptions, ExportFormat, Kernel, Mesh } from "./kernel";
 import type { OpNode } from "./opgraph";
+import type { PolygonizeOptions } from "./polygon2d";
 
 /** The replicad module surface, typed without pulling it into the bundle. */
 type Replicad = typeof import("replicad");
@@ -29,6 +31,13 @@ type Keep = ReturnType<Replicad["localGC"]>[0];
 // mesh. The linear tolerance is in model units, the angular one in radians
 const MESH_TOLERANCE = 0.1;
 const MESH_ANGULAR_TOLERANCE = 0.3;
+
+// Flattening for the polygon fallback when an exact 2D merge fails. Finer than
+// the display mesh, since the result is what gets exported and printed
+const FALLBACK_POLYGON_TOLERANCE: PolygonizeOptions = {
+  chordTolerance: 0.01,
+  angularTolerance: 0.1,
+};
 
 // Degrees to radians, for the mesh-level rotation fallback
 const DEG_TO_RAD = Math.PI / 180;
@@ -267,12 +276,16 @@ let previewMode = false;
  * null to keep the exact path when the subtree has a piece with no polygon form,
  * or if the clipper rejects the input
  */
-function previewDrawing(rc: Replicad, node: OpNode): Drawing | null {
+function previewDrawing(
+  rc: Replicad,
+  node: OpNode,
+  tolerance: PolygonizeOptions = {
+    chordTolerance: MESH_TOLERANCE,
+    angularTolerance: MESH_ANGULAR_TOLERANCE,
+  },
+): Drawing | null {
   try {
-    const shape = polygonize(node, {
-      chordTolerance: MESH_TOLERANCE,
-      angularTolerance: MESH_ANGULAR_TOLERANCE,
-    });
+    const shape = polygonize(node, tolerance);
     if (!shape?.length) return null;
     const blueprints = shape.map((polygon) => {
       const rings = polygon.map((ring) => {
@@ -570,18 +583,20 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       }
     }
     case "union2d":
-      return drawing2dOp(rc, keep, node.children, (a, b) => a.fuse(b));
+      return drawing2dOp(rc, keep, node, node.children, (a, b) => a.fuse(b));
     case "difference2d":
-      return drawing2dOp(rc, keep, node.children, (a, b) => a.cut(b));
+      return drawing2dOp(rc, keep, node, node.children, (a, b) => a.cut(b));
     case "intersect2d":
-      return drawing2dOp(rc, keep, node.children, (a, b) => a.intersect(b));
+      return drawing2dOp(rc, keep, node, node.children, (a, b) =>
+        a.intersect(b),
+      );
     case "offset2d": {
       const drawing = requireDrawing(evalNode(rc, keep, node.child), "Offset");
       // Positive grows the outline outward, negative shrinks it inward
       return { kind: "drawing", drawing: drawing.offset(node.distance) };
     }
     case "extrude": {
-      const drawing = requireDrawing(evalNode(rc, keep, node.child), "Extrude");
+      const drawing = verifiedProfile(rc, keep, node.child, "Extrude");
       // Sketch on XY and extrude +Z, matching the conventional linear extrude. A twist
       // (degrees over the height) and an end scale (taper) are optional profile
       // tweaks; omit them when they are the no-op defaults so a straight prism
@@ -601,7 +616,7 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
       return { kind: "brep", shape: keep(solid) };
     }
     case "revolve": {
-      const drawing = requireDrawing(evalNode(rc, keep, node.child), "Revolve");
+      const drawing = verifiedProfile(rc, keep, node.child, "Revolve");
       // Sketch on XZ so the profile's X is the radius and its Y is the height,
       // then spin about Z, the conventional rotate-extrude convention. 360 is a full
       // solid of revolution; a smaller angle leaves a wedge open
@@ -889,6 +904,70 @@ function booleanOp(
  * the 2D booleans only make sense on a planar drawing, so a child that
  * evaluated to a solid (or a mesh) is a modeling mistake the user can fix.
  */
+/** Does this 2D subtree merge sketches anywhere (through its transforms)? */
+function hasBoolean2d(node: OpNode): boolean {
+  if (is2dBoolean(node)) return true;
+  return "child" in node && hasBoolean2d(node.child);
+}
+
+/**
+ * Outline count per separate region (the outer ring plus its holes), sorted,
+ * so two merges of the same sketch can be compared by topology
+ */
+function ringSignature(shape: MultiPolygon): string {
+  return shape
+    .map((polygon) => polygon.length)
+    .sort((a, b) => a - b)
+    .join(",");
+}
+
+/** The same signature for an exact drawing, or null when it has no outline */
+function drawingSignature(rc: Replicad, drawing: Drawing): string | null {
+  // replicad keeps the merged outline on a field its types mark private; read
+  // it here only, to count rings without an extra OCCT face build
+  const inner = (drawing as unknown as { innerShape: Shape2D }).innerShape;
+  if (!inner) return null;
+  const parts = inner instanceof rc.Blueprints ? inner.blueprints : [inner];
+  return parts
+    .map((part) =>
+      part instanceof rc.CompoundBlueprint ? part.blueprints.length : 1,
+    )
+    .sort((a, b) => a - b)
+    .join(",");
+}
+
+/**
+ * The 2D profile an extrude or revolve consumes. replicad's exact curve
+ * merge can also go wrong without throwing: on near-tangent strokes it has
+ * dropped a sliver of material, leaving a pinhole the sketch never had. So a
+ * merged profile is cross-checked against the polygon merge (milliseconds),
+ * and when their outline topology disagrees the polygon result is used
+ */
+function verifiedProfile(
+  rc: Replicad,
+  keep: Keep,
+  child: OpNode,
+  op: string,
+): Drawing {
+  const drawing = requireDrawing(evalNode(rc, keep, child), op);
+  if (previewMode || !hasBoolean2d(child)) return drawing;
+  let polygons: MultiPolygon | null = null;
+  try {
+    polygons = polygonize(child, FALLBACK_POLYGON_TOLERANCE);
+  } catch {
+    // No reference to check against, so trust the exact merge
+  }
+  if (!polygons?.length) return drawing;
+  const exact = drawingSignature(rc, drawing);
+  if (exact === null || exact === ringSignature(polygons)) return drawing;
+  const fallback = previewDrawing(rc, child, FALLBACK_POLYGON_TOLERANCE);
+  if (!fallback) return drawing;
+  console.warn(
+    `Facet: exact 2D merge disagreed with the polygon merge (rings ${exact} vs ${ringSignature(polygons)}), using the polygon merge`,
+  );
+  return fallback;
+}
+
 function requireDrawing(geom: Geom, op: string): Drawing {
   if (geom.kind !== "drawing")
     throw new BrepModelingError(
@@ -905,6 +984,7 @@ function requireDrawing(geom: Geom, op: string): Drawing {
 function drawing2dOp(
   rc: Replicad,
   keep: Keep,
+  node: OpNode,
   children: OpNode[],
   combine: (a: Drawing, b: Drawing) => Drawing,
 ): Geom {
@@ -913,7 +993,23 @@ function drawing2dOp(
   const drawings = children.map((child) =>
     requireDrawing(evalNode(rc, keep, child), "A 2D boolean"),
   );
-  return { kind: "drawing", drawing: drawings.reduce((a, b) => combine(a, b)) };
+  try {
+    return {
+      kind: "drawing",
+      drawing: drawings.reduce((a, b) => combine(a, b)),
+    };
+  } catch (err) {
+    // replicad's exact curve booleans can throw on near-coincident or tangent
+    // curves (a chain of short round-capped strokes hits this at some stroke
+    // widths), which would fail the whole model. Merge the subtree as polygons
+    // instead, flattened finer than the display mesh so prints keep their
+    // curves; only a subtree with no polygon form (text, SVG, offsets) still
+    // fails
+    const drawing = previewDrawing(rc, node, FALLBACK_POLYGON_TOLERANCE);
+    if (!drawing) throw err;
+    console.warn("Facet: exact 2D merge failed, using the polygon merge:", err);
+    return { kind: "drawing", drawing };
+  }
 }
 
 // Cache the one-time async load so selecting the kernel again is instant
