@@ -126,9 +126,14 @@ describe("view keys", () => {
     expect(key("Home")).toEqual({ kind: "frame" });
   });
 
+  test("Z cycles the display mode, but Ctrl Z stays undo", () => {
+    expect(key("KeyZ")).toEqual({ kind: "renderMode" });
+    expect(key("KeyZ", { ctrlKey: true })).toBeNull();
+  });
+
   test("ignores other keys and browser shortcuts", () => {
     expect(key("KeyA")).toBeNull();
-    expect(key("KeyZ")).toBeNull();
+    expect(key("KeyQ")).toBeNull();
     expect(key("Digit5", { ctrlKey: true })).toBeNull();
     expect(
       viewKeyAction({

@@ -6,14 +6,16 @@ import { SceneUniforms } from "./uniforms";
 
 describe("SceneUniforms", () => {
   it("has a stable, std140-compatible byte size", () => {
-    expect(d.sizeOf(SceneUniforms)).toBe(96);
+    expect(d.sizeOf(SceneUniforms)).toBe(128);
   });
 
-  it("orders fields viewProj, lightDir, baseColor", () => {
+  it("orders fields viewProj, lightDir, baseColor, style, edgeColor", () => {
     expect(Object.keys(SceneUniforms.propTypes)).toEqual([
       "viewProj",
       "lightDir",
       "baseColor",
+      "style",
+      "edgeColor",
     ]);
   });
 });

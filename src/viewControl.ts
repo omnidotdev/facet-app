@@ -1,3 +1,4 @@
+import type { RenderMode } from "@/gpu/renderMode";
 import type { ViewName } from "@/gpu/views";
 
 /**
@@ -11,6 +12,7 @@ export interface ViewControl {
   flipView: () => void;
   frameModel: () => void;
   toggleProjection: () => void;
+  setRenderMode: (mode: RenderMode) => void;
 }
 
 let control: ViewControl | null = null;

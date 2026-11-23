@@ -5,6 +5,14 @@ import { paletteFor } from "./gpu/palette";
 import { captureSize, isUniform } from "./gpu/readback";
 import { isDesktopLinux, rendererOrder } from "./gpu/rendererPreference";
 import {
+  allEdgeFlags,
+  creaseEdgeFlags,
+  needsCreases,
+  nextRenderMode,
+  noEdgeFlags,
+  renderStyleFor,
+} from "./gpu/renderMode";
+import {
   AXIS_VIEWS,
   HOME_ANGLES,
   OPPOSITE,
@@ -19,8 +27,10 @@ import { ViewGizmo } from "./viewGizmo";
 import type { Mesh } from "./facet";
 import type { FrameParams, RenderBackend, RendererKind } from "./gpu/backend";
 import type { BoundingSphere, Vec3 } from "./gpu/camera";
+import type { CreaseResponse } from "./gpu/creaseWorker";
 import type { Palette } from "./gpu/palette";
 import type { RendererPreference } from "./gpu/rendererPreference";
+import type { RenderMode } from "./gpu/renderMode";
 import type { ViewAngles, ViewName } from "./gpu/views";
 import type { Theme } from "./theme";
 
@@ -57,6 +67,13 @@ const NOTICE_COPY =
  * predictable cost, and so capture works when the viewport is hidden
  */
 const CAPTURE_LONG_EDGE = 768;
+
+/**
+ * Solids up to this many triangles get their crease edges found inline (tens
+ * of milliseconds at most); larger ones go to a worker so the view never
+ * stalls, and their lines appear a moment after the solid
+ */
+const INLINE_CREASE_LIMIT = 20_000;
 
 /** A rendered view, encoded for the AI render critique */
 export interface ViewportCapture {
@@ -148,6 +165,17 @@ export class Viewport {
   private hovering = false;
   /** Orbit drags (on the view and on the gizmo) turn the opposite way */
   private invertDrag = false;
+  private renderMode: RenderMode = "shaded";
+  /** The crease flags of the last solid, kept while it stays on screen */
+  private creases: { mesh: Mesh; flags: Float32Array } | null = null;
+  private creaseWorker: Worker | null = null;
+  /** Matches worker replies to the solid they were asked for */
+  private creaseRequest = 0;
+  /** The solid the latest worker request is for */
+  private pendingCreaseMesh: Mesh | null = null;
+
+  /** Told whenever the render mode changes, so the UI can show it */
+  onRenderModeChange: (mode: RenderMode) => void = () => {};
 
   /** Told whenever the projection changes, so the UI can show it */
   onProjectionChange: (projection: Projection) => void = () => {};
@@ -181,7 +209,7 @@ export class Viewport {
     container.setAttribute("role", "application");
     container.setAttribute(
       "aria-label",
-      "3D view. Number keys change the view: 1 front, 3 right, 7 top, Ctrl for the opposite side, 0 home, arrows orbit, plus and minus zoom, 5 orthographic, Home frames the model",
+      "3D view. Number keys change the view: 1 front, 3 right, 7 top, Ctrl for the opposite side, 0 home, arrows orbit, plus and minus zoom, 5 orthographic, Home frames the model, Z changes the display mode",
     );
     container.addEventListener("pointerenter", this.onPointerEnter);
     container.addEventListener("pointerleave", this.onPointerLeave);
@@ -241,7 +269,12 @@ export class Viewport {
     backend.resize(canvas.width, canvas.height);
     if (this.lastMesh) {
       const m = this.lastMesh;
-      backend.setMesh(m.positions, m.normals, m.triangleCount);
+      backend.setMesh(
+        m.positions,
+        m.normals,
+        this.edgeFlags(m),
+        m.triangleCount,
+      );
     }
     this.resizeObserver = new ResizeObserver(() => this.onResize());
     this.resizeObserver.observe(this.container);
@@ -296,8 +329,13 @@ export class Viewport {
     }
     // An empty recompute keeps the last solid on screen rather than blanking it
     if (!this.backend || mesh.triangleCount === 0) return;
-    this.backend.setMesh(mesh.positions, mesh.normals, mesh.triangleCount);
     this.lastMesh = mesh;
+    this.backend.setMesh(
+      mesh.positions,
+      mesh.normals,
+      this.edgeFlags(mesh),
+      mesh.triangleCount,
+    );
     if (reframe || !this.hasFramed) {
       this.frameMesh(mesh);
       this.hasFramed = true;
@@ -404,6 +442,7 @@ export class Viewport {
       baseColor: this.palette.baseColor,
       background: this.palette.background,
       grid: this.palette.grid,
+      ...renderStyleFor(this.renderMode, this.theme, window.devicePixelRatio),
     };
   }
 
@@ -485,6 +524,82 @@ export class Viewport {
     s.font = "500 0.95rem/1.5 system-ui, sans-serif";
     s.background = toCss(this.palette.background);
     s.color = this.theme === "dark" ? "#c9d3de" : "#3a3326";
+  }
+
+  /** The display mode in use */
+  get mode(): RenderMode {
+    return this.renderMode;
+  }
+
+  /**
+   * Draw the solid shaded, shaded with its edges, as a wireframe, or as an
+   * X-ray. Switching keeps the solid and the camera; only the edge flags and
+   * the shading change
+   */
+  setRenderMode(mode: RenderMode): void {
+    if (mode === this.renderMode) return;
+    this.renderMode = mode;
+    if (this.ready && this.backend && this.lastMesh)
+      this.backend.setEdges(this.edgeFlags(this.lastMesh));
+    this.onRenderModeChange(mode);
+  }
+
+  /** Step to the next display mode (the Z key and the mode button) */
+  cycleRenderMode(): void {
+    this.setRenderMode(nextRenderMode(this.renderMode));
+  }
+
+  /**
+   * The edge flags the current mode draws on `mesh`: none, every edge, or its
+   * creases. Creases are cached per solid, found inline for a modest mesh and
+   * in a worker for a large one (drawing no lines until the worker answers)
+   */
+  private edgeFlags(mesh: Mesh): Float32Array {
+    if (this.renderMode === "wireframe")
+      return allEdgeFlags(mesh.triangleCount);
+    if (!needsCreases(this.renderMode)) return noEdgeFlags(mesh.triangleCount);
+    if (this.creases?.mesh === mesh) return this.creases.flags;
+    if (mesh.triangleCount <= INLINE_CREASE_LIMIT) {
+      const flags = creaseEdgeFlags(mesh);
+      this.creases = { mesh, flags };
+      return flags;
+    }
+    this.requestCreases(mesh);
+    return noEdgeFlags(mesh.triangleCount);
+  }
+
+  private requestCreases(mesh: Mesh): void {
+    this.creaseWorker ??= this.startCreaseWorker();
+    const id = ++this.creaseRequest;
+    // Send a copy: the solid's own arrays stay with the viewport
+    const positions = mesh.positions.slice();
+    this.creaseWorker?.postMessage(
+      { id, positions, triangleCount: mesh.triangleCount },
+      [positions.buffer],
+    );
+    this.pendingCreaseMesh = mesh;
+  }
+
+  private startCreaseWorker(): Worker | null {
+    try {
+      const worker = new Worker(
+        new URL("./gpu/creaseWorker.ts", import.meta.url),
+        { type: "module" },
+      );
+      worker.onmessage = (event: MessageEvent<CreaseResponse>) => {
+        const { id, flags } = event.data;
+        const mesh = this.pendingCreaseMesh;
+        // A newer solid replaced this one while the worker ran
+        if (id !== this.creaseRequest || !mesh || mesh !== this.lastMesh)
+          return;
+        this.creases = { mesh, flags };
+        if (needsCreases(this.renderMode)) this.backend?.setEdges(flags);
+      };
+      return worker;
+    } catch (err) {
+      console.warn("Crease worker unavailable, drawing no edges:", err);
+      return null;
+    }
   }
 
   /**
@@ -668,6 +783,9 @@ export class Viewport {
       case "zoom":
         this.orbit.zoomTo(this.orbit.targetRadius * action.factor);
         break;
+      case "renderMode":
+        this.cycleRenderMode();
+        break;
     }
   };
 
@@ -681,5 +799,7 @@ export class Viewport {
     this.container.removeEventListener("pointerenter", this.onPointerEnter);
     this.container.removeEventListener("pointerleave", this.onPointerLeave);
     window.removeEventListener("keydown", this.onKeyDown);
+    this.creaseWorker?.terminate();
+    this.creaseWorker = null;
   }
 }

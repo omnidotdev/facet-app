@@ -69,6 +69,7 @@ describe("command palette actions", () => {
         flipView: () => calls.push("flip"),
         frameModel: () => calls.push("frame"),
         toggleProjection: () => calls.push("projection"),
+        setRenderMode: (mode) => calls.push(`display:${mode}`),
       },
     });
     const view = commands.filter((c) => c.group === "View");
@@ -83,6 +84,10 @@ describe("command palette actions", () => {
       "view-flip",
       "view-frame",
       "view-projection",
+      "view-display-shaded",
+      "view-display-edges",
+      "view-display-wireframe",
+      "view-display-xray",
     ]);
     for (const id of [
       "view-top",
@@ -90,6 +95,7 @@ describe("command palette actions", () => {
       "view-flip",
       "view-frame",
       "view-projection",
+      "view-display-xray",
     ])
       commands.find((c) => c.id === id)?.onSelect();
     expect(calls).toEqual([
@@ -98,6 +104,7 @@ describe("command palette actions", () => {
       "flip",
       "frame",
       "projection",
+      "display:xray",
     ]);
   });
 });

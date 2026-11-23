@@ -12,6 +12,15 @@ export interface FrameParams {
   background: Rgba;
   /** Grid rgb plus its theme opacity in the fourth channel */
   grid: Rgba;
+  /**
+   * The render mode's shading: fill opacity (0 drops the fill, below 1 turns on
+   * blending and stops depth writes so every layer shows), edge strength (0
+   * draws no lines), half the line width in device pixels, and a spare channel.
+   * See renderMode.ts
+   */
+  style: Rgba;
+  /** Line color for the edges the edge flags select */
+  edgeColor: Rgba;
 }
 
 /**
@@ -24,11 +33,19 @@ export interface RenderBackend {
   readonly kind: RendererKind;
   /** Match the drawing buffer to the canvas size, in device pixels */
   resize(width: number, height: number): void;
+  /**
+   * Upload the solid. `edges` holds three flags per vertex (the same for all
+   * three vertices of a triangle): flag `i` draws the edge opposite the
+   * triangle's vertex `i`
+   */
   setMesh(
     positions: Float32Array,
     normals: Float32Array,
+    edges: Float32Array,
     triangleCount: number,
   ): void;
+  /** Replace the edge flags of the current solid (same triangle count) */
+  setEdges(edges: Float32Array): void;
   /** Draw the on-screen frame */
   draw(frame: FrameParams): void;
   /**
