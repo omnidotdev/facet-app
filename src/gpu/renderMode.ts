@@ -124,12 +124,51 @@ export const needsCreases = (mode: RenderMode): boolean =>
   mode === "edges" || mode === "xray";
 
 /**
- * Per-vertex edge flags for drawing every triangle edge. Each vertex carries
- * the same three flags as the others in its triangle; flag `i` draws the edge
- * opposite the triangle's vertex `i`
+ * What an edge flag stores for a drawn edge: this marker plus where the
+ * triangle's third corner projects along the edge (0 at its start, 1 at its
+ * end). With it the shader measures how far along the edge a pixel lies, so a
+ * line stops at the edge's ends; distance to the edge's line alone would run
+ * the line on through a thin sliver triangle whose far corner lies beyond them
  */
-export const allEdgeFlags = (triangleCount: number): Float32Array =>
-  new Float32Array(triangleCount * 9).fill(1);
+export const EDGE_DRAWN = 1000;
+
+/**
+ * The flag value that draws edge `k` of triangle `t` (the edge opposite its
+ * vertex `k`, from vertex k+1 to vertex k+2)
+ */
+const drawnEdgeValue = (p: Float32Array, t: number, k: number): number => {
+  const c = t * 9 + k * 3;
+  const a = t * 9 + ((k + 1) % 3) * 3;
+  const b = t * 9 + ((k + 2) % 3) * 3;
+  const ex = p[b] - p[a];
+  const ey = p[b + 1] - p[a + 1];
+  const ez = p[b + 2] - p[a + 2];
+  const len2 = ex * ex + ey * ey + ez * ez;
+  const along =
+    len2 > 0
+      ? ((p[c] - p[a]) * ex +
+          (p[c + 1] - p[a + 1]) * ey +
+          (p[c + 2] - p[a + 2]) * ez) /
+        len2
+      : 0;
+  return EDGE_DRAWN + Math.min(Math.max(along, -999), 999);
+};
+
+/**
+ * Per-vertex edge flags for drawing every triangle edge. Each vertex carries
+ * the same three flags as the others in its triangle; flag `i` is 0 to skip
+ * the edge opposite the triangle's vertex `i`, or {@link EDGE_DRAWN} plus
+ * where vertex `i` projects along that edge to draw it
+ */
+export const allEdgeFlags = (mesh: Mesh): Float32Array => {
+  const flags = new Float32Array(mesh.triangleCount * 9);
+  for (let t = 0; t < mesh.triangleCount; t++)
+    for (let k = 0; k < 3; k++) {
+      const value = drawnEdgeValue(mesh.positions, t, k);
+      for (let vtx = 0; vtx < 3; vtx++) flags[t * 9 + vtx * 3 + k] = value;
+    }
+  return flags;
+};
 
 /** Per-vertex edge flags that draw nothing */
 export const noEdgeFlags = (triangleCount: number): Float32Array =>
@@ -161,6 +200,23 @@ const ON_LINE = 2e-4;
  * the thin slivers a T-junction split leaves and fake a crease
  */
 export const creaseEdgeFlags = (mesh: Mesh): Float32Array => {
+  // A model joined from color parts: each part is a closed solid of its own,
+  // while the parts' shared faces (an inlay in its pocket) would read as one
+  // tangled surface, so find each part's creases alone
+  if (mesh.parts && mesh.parts.length > 1) {
+    const flags = new Float32Array(mesh.triangleCount * 9);
+    let start = 0;
+    for (const count of mesh.parts) {
+      const part: Mesh = {
+        positions: mesh.positions.subarray(start * 9, (start + count) * 9),
+        normals: mesh.normals.subarray(start * 9, (start + count) * 9),
+        triangleCount: count,
+      };
+      flags.set(creaseEdgeFlags(part), start * 9);
+      start += count;
+    }
+    return flags;
+  }
   const n = mesh.triangleCount;
   const flags = new Float32Array(n * 9);
   if (n === 0) return flags;
@@ -319,7 +375,8 @@ export const creaseEdgeFlags = (mesh: Mesh): Float32Array => {
       // open boundary, which is drawn
       const crease = keys ? keys.every(isCrease) : !degenerate[t];
       if (!crease) continue;
-      for (let vtx = 0; vtx < 3; vtx++) flags[t * 9 + vtx * 3 + k] = 1;
+      const value = drawnEdgeValue(p, t, k);
+      for (let vtx = 0; vtx < 3; vtx++) flags[t * 9 + vtx * 3 + k] = value;
     }
   }
   return flags;

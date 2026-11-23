@@ -1,5 +1,6 @@
 import { repairForExport } from "./meshRepair";
 
+import type { EvaluatedPart } from "./colors";
 import type { Mesh } from "./kernel";
 
 /**
@@ -98,7 +99,8 @@ function zipStore(entries: ZipEntry[]): Uint8Array {
 /** Trim float noise so the XML stays compact without losing print precision. */
 const num = (v: number) => String(Number(v.toFixed(4)));
 
-function modelXml(mesh: Mesh): string {
+/** A welded, closed mesh as a 3MF `<mesh>` element */
+function meshXml(mesh: Mesh): string {
   const { vertices, triangles } = repairForExport(mesh);
   const verts: string[] = [];
   const faces: string[] = [];
@@ -112,17 +114,77 @@ function modelXml(mesh: Mesh): string {
       `<triangle v1="${triangles[t]}" v2="${triangles[t + 1]}" v3="${triangles[t + 2]}"/>`,
     );
   }
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
- <resources>
-  <object id="1" type="model">
-   <mesh>
+  return `<mesh>
     <vertices>${verts.join("")}</vertices>
     <triangles>${faces.join("")}</triangles>
-   </mesh>
+   </mesh>`;
+}
+
+const MODEL_OPEN = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">`;
+
+function modelXml(mesh: Mesh): string {
+  return `${MODEL_OPEN}
+ <resources>
+  <object id="1" type="model">
+   ${meshXml(mesh)}
   </object>
  </resources>
  <build><item objectid="1"/></build>
+</model>`;
+}
+
+/** Facet Amber, the color a part with no color of its own is shown in */
+const DEFAULT_PART_COLOR = "#DD6E33";
+
+const hexColor = (rgb: readonly [number, number, number]): string =>
+  `#${rgb
+    .map((c) =>
+      Math.round(Math.min(Math.max(c, 0), 1) * 255)
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")
+    .toUpperCase()}`;
+
+/**
+ * A colored model: each part is its own mesh object carrying its color from
+ * one shared base-material group, and one parent object holds them all as
+ * components. Slicers load that as a single object made of several parts, so
+ * the parts stay together where they were modeled and each can be given its
+ * own filament
+ */
+function partsModelXml(parts: EvaluatedPart[]): string {
+  const materials = parts
+    .map(
+      (part, i) =>
+        `<base name="Part ${i + 1}" displaycolor="${part.color ? hexColor(part.color) : DEFAULT_PART_COLOR}"/>`,
+    )
+    .join("");
+  // Resource ids: 1 is the material group, 2.. the parts, then the parent
+  const objects = parts
+    .map(
+      (
+        part,
+        i,
+      ) => `<object id="${i + 2}" name="Part ${i + 1}" type="model" pid="1" pindex="${i}">
+   ${meshXml(part.mesh)}
+  </object>`,
+    )
+    .join("\n  ");
+  const parentId = parts.length + 2;
+  const components = parts
+    .map((_, i) => `<component objectid="${i + 2}"/>`)
+    .join("");
+  return `${MODEL_OPEN}
+ <resources>
+  <basematerials id="1">${materials}</basematerials>
+  ${objects}
+  <object id="${parentId}" name="Model" type="model">
+   <components>${components}</components>
+  </object>
+ </resources>
+ <build><item objectid="${parentId}"/></build>
 </model>`;
 }
 
@@ -137,12 +199,21 @@ const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8"?>
  <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
 </Relationships>`;
 
-/** Encode a mesh as a 3MF (OPC/ZIP) package. */
-export function meshTo3mf(mesh: Mesh): Uint8Array {
+function package3mf(model: string): Uint8Array {
   const enc = new TextEncoder();
   return zipStore([
     { name: "[Content_Types].xml", data: enc.encode(CONTENT_TYPES) },
     { name: "_rels/.rels", data: enc.encode(ROOT_RELS) },
-    { name: "3D/3dmodel.model", data: enc.encode(modelXml(mesh)) },
+    { name: "3D/3dmodel.model", data: enc.encode(model) },
   ]);
+}
+
+/** Encode a mesh as a 3MF (OPC/ZIP) package. */
+export function meshTo3mf(mesh: Mesh): Uint8Array {
+  return package3mf(modelXml(mesh));
+}
+
+/** Encode a colored model's parts as one multi-part 3MF object */
+export function partsTo3mf(parts: EvaluatedPart[]): Uint8Array {
+  return package3mf(partsModelXml(parts));
 }

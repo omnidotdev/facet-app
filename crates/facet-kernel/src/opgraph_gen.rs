@@ -130,5 +130,9 @@ pub enum OpNode {
         normal: [f64; 3],
         child: Box<OpNode>,
     },
+    Color {
+        rgb: [f64; 3],
+        child: Box<OpNode>,
+    },
 }
 

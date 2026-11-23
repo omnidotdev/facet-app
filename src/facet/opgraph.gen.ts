@@ -33,5 +33,6 @@ export type OpNode =
   | { op: "mirror2d"; normal: [number, number]; child: OpNode }
   | { op: "extrude"; height: number; twist: number; scale: number; child: OpNode }
   | { op: "revolve"; angle: number; segments: number; child: OpNode }
-  | { op: "mirror"; normal: [number, number, number]; child: OpNode };
+  | { op: "mirror"; normal: [number, number, number]; child: OpNode }
+  | { op: "color"; rgb: [number, number, number]; child: OpNode };
 

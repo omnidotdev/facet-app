@@ -9,6 +9,18 @@ export interface Mesh {
   positions: Float32Array;
   normals: Float32Array;
   triangleCount: number;
+  /**
+   * Per-vertex rgba for a model with part colors (see colors.ts): alpha 1 for
+   * a colored part, 0 for one drawn in the default color. Absent when nothing
+   * in the model is colored
+   */
+  colors?: Float32Array;
+  /**
+   * For a model joined from color parts, each part's triangle count, in order.
+   * Parts touch or nest (an inlay sits in its pocket), so per-part analysis
+   * such as crease detection works on each part alone
+   */
+  parts?: number[];
 }
 
 export type ExportFormat = "stl" | "3mf" | "step";

@@ -15,6 +15,8 @@ export interface CreaseRequest {
   id: number;
   positions: Float32Array;
   triangleCount: number;
+  /** Per-part triangle counts for a model joined from color parts */
+  parts?: number[];
 }
 
 /** The reply: per-vertex edge flags for the same solid */
@@ -26,12 +28,13 @@ export interface CreaseResponse {
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 
 scope.onmessage = (event: MessageEvent<CreaseRequest>) => {
-  const { id, positions, triangleCount } = event.data;
+  const { id, positions, triangleCount, parts } = event.data;
   const flags = creaseEdgeFlags({
     positions,
     // Crease detection reads positions only
-    normals: new Float32Array(0),
+    normals: new Float32Array(positions.length),
     triangleCount,
+    parts,
   });
   const reply: CreaseResponse = { id, flags };
   scope.postMessage(reply, [flags.buffer]);

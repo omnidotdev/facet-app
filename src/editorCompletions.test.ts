@@ -57,6 +57,7 @@ describe("facet API completions", () => {
         "fillet",
         "chamfer",
         "shell",
+        "color",
       ]),
     );
     // Top-level primitives must not appear on a member access

@@ -1,3 +1,5 @@
+import { parseColor } from "./parseColor";
+
 import type { OpNode, Vec3 } from "./opgraph";
 
 /**
@@ -113,6 +115,21 @@ export class Shape {
    */
   shell(thickness: number): Shape {
     return this.wrap({ op: "shell", thickness, child: this.node });
+  }
+
+  /**
+   * Color this solid: a color name (`"red"`), a hex code (`"#e0218a"`), or
+   * `[r, g, b]` from 0 to 1. Differently colored parts of a union stay
+   * separate bodies, shown in their colors and exported to 3MF as separate
+   * parts so a multi-color printer can give each its own filament. An inner
+   * color wins over an outer one.
+   */
+  color(color: string | [number, number, number]): Shape {
+    return this.wrap({
+      op: "color",
+      rgb: parseColor(color),
+      child: this.node,
+    });
   }
 }
 

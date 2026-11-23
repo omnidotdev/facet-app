@@ -28,6 +28,14 @@ describe("Rust/WASM kernel", () => {
     },
   );
 
+  test.skipIf(!kernel)("evaluates a color as its child's geometry", () => {
+    const plain = cube(10).node;
+    const colored = cube(10).color("red").node;
+    expect(Array.from(kernel?.evaluate(colored).positions ?? [])).toEqual(
+      Array.from(kernel?.evaluate(plain).positions ?? []),
+    );
+  });
+
   // The hull algorithm is duplicated in TS (hull.ts) and Rust (hull.rs); they
   // must stay geometrically identical or the WASM kernel silently regresses
   // against the mesh kernel. Both run the same algorithm on the same point

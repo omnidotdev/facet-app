@@ -98,6 +98,12 @@ const SHAPE_METHODS: Completion[] = [
     detail: ".shell(thickness)",
     info: "Hollow to a wall of thickness, opening the top +Z face (B-rep kernel)",
   },
+  {
+    label: "color",
+    type: "method",
+    detail: '.color("red" | "#rrggbb" | [r, g, b])',
+    info: "Color this part; differently colored parts export to 3MF as separate parts, one filament each",
+  },
 ];
 
 /** Free functions and builders available at the top level. */

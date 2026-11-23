@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import { combineParts } from "@/facet/colors";
 import { meshKernel } from "@/facet/meshKernel";
 import {
+  EDGE_DRAWN,
   allEdgeFlags,
   creaseEdgeFlags,
   nextRenderMode,
@@ -19,7 +21,7 @@ const drawnEdges = (mesh: Mesh, flags: Float32Array) => {
     Array.from(p.subarray(t * 9 + k * 3, t * 9 + k * 3 + 3));
   for (let t = 0; t < mesh.triangleCount; t++)
     for (let k = 0; k < 3; k++)
-      if (flags[t * 9 + k] === 1)
+      if (flags[t * 9 + k] >= EDGE_DRAWN / 2)
         out.push({ a: vertex(t, (k + 1) % 3), b: vertex(t, (k + 2) % 3) });
   return out;
 };
@@ -140,8 +142,56 @@ describe("crease edges", () => {
     expect(drawn).toBeCloseTo(32 * 2 * 4 * Math.sin(Math.PI / 32), 2);
   });
 
-  test("wireframe flags every edge", () => {
-    expect(Array.from(allEdgeFlags(2))).toEqual(new Array(18).fill(1));
+  test("color parts find their creases one part at a time", () => {
+    // Two parts on the same spot share every face, like an inlay in its
+    // pocket; each must still draw its own 12 cube edges and no diagonals
+    const part = meshKernel.evaluate({
+      op: "cube",
+      size: [10, 10, 10],
+      center: true,
+    });
+    const mesh = combineParts([
+      { mesh: part, color: [1, 0, 0] },
+      { mesh: part, color: null },
+    ]);
+    const edges = drawnEdges(mesh, creaseEdgeFlags(mesh));
+    expect(edges.length).toBe(48);
+    for (const { a, b } of edges) {
+      const changed = [0, 1, 2].filter((i) => Math.abs(a[i] - b[i]) > 1e-6);
+      expect(changed.length).toBe(1);
+    }
+  });
+
+  test("wireframe flags every edge, with where each third corner projects", () => {
+    // A right triangle: each corner projects onto the opposite edge's middle
+    // or end, never outside it
+    const mesh = meshOf([
+      [
+        [0, 0, 0],
+        [2, 0, 0],
+        [0, 2, 0],
+      ],
+    ]);
+    const flags = allEdgeFlags(mesh);
+    expect(Array.from(flags.subarray(0, 3)).map((f) => f - EDGE_DRAWN)).toEqual(
+      [0.5, 1, 0],
+    );
+    // every vertex of the triangle carries the same flags
+    expect(Array.from(flags.subarray(3, 6))).toEqual(
+      Array.from(flags.subarray(0, 3)),
+    );
+  });
+
+  test("a sliver records that its far corner lies beyond the drawn edge", () => {
+    // The edge from (0,0) to (1,0), with the third corner far past its end
+    const mesh = meshOf([
+      [
+        [5, 0.01, 0],
+        [0, 0, 0],
+        [1, 0, 0],
+      ],
+    ]);
+    expect(allEdgeFlags(mesh)[0] - EDGE_DRAWN).toBeCloseTo(5, 3);
   });
 });
 

@@ -657,6 +657,10 @@ function evalNode(rc: Replicad, keep: Keep, node: OpNode): Geom {
         drawing: drawing.mirror([-ny, nx], [0, 0], "plane"),
       };
     }
+    // A color is presentation only; the Studio splits colored models into
+    // plain parts before evaluating (colors.ts), so this is a fallback
+    case "color":
+      return evalNode(rc, keep, node.child);
     case "mirror": {
       const child = requireSolidGeom(evalNode(rc, keep, node.child), "Mirror");
       if (child.kind === "mesh")

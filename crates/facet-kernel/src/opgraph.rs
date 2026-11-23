@@ -42,6 +42,9 @@ pub fn eval_node(node: &OpNode) -> Result<Csg, String> {
         }
         OpNode::Rotate { deg, child } => Ok(map_verts(&eval_node(child)?, |p| rotate_point(p, *deg))),
         OpNode::Mirror { normal, child } => Ok(mirror_csg(&eval_node(child)?, *normal)),
+        // A color is presentation only; the Studio splits colored models into
+        // plain parts before evaluating, so this is a fallback
+        OpNode::Color { child, .. } => eval_node(child),
         // Fillet, chamfer, and shell are exact-geometry ops the mesh/CSG kernel
         // cannot do; direct the user to the B-rep kernel instead of approximating
         OpNode::Fillet { .. } => {
@@ -448,6 +451,19 @@ mod tests {
         let reparsed: OpNode = serde_json::from_str(&wire).expect("reparse op-graph");
         let mesh = eval_node(&reparsed).expect("evaluate op-graph");
         assert!(!mesh.polygons.is_empty());
+    }
+
+    /// A color is presentation only: the colored graph parses from the TS
+    /// wire format and evaluates to exactly its child's geometry
+    #[test]
+    fn evaluates_a_color_as_its_child() {
+        let cube = r#"{"op":"cube","size":[10,10,10],"center":true}"#;
+        let colored = format!(r#"{{"op":"color","rgb":[1,0.5,0],"child":{cube}}}"#);
+        let plain: OpNode = serde_json::from_str(cube).expect("parse cube");
+        let node: OpNode = serde_json::from_str(&colored).expect("parse colored cube");
+        let (plain_positions, _) = crate::csg::to_mesh(&eval_node(&plain).expect("eval cube"));
+        let (positions, _) = crate::csg::to_mesh(&eval_node(&node).expect("eval colored cube"));
+        assert_eq!(positions, plain_positions);
     }
 
     /// The exact-geometry ops have no mesh/CSG equivalent, so this kernel must

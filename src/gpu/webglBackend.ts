@@ -32,9 +32,11 @@ uniform mat4 uViewProj;
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 aEdges;
+layout(location = 3) in vec4 aColor;
 out vec3 vNormal;
 out vec3 vBary;
 flat out vec3 vEdges;
+flat out vec4 vColor;
 void main() {
   gl_Position = uViewProj * vec4(aPosition, 1.0);
   ${DEPTH_REMAP}
@@ -42,6 +44,7 @@ void main() {
   int corner = gl_VertexID % 3;
   vBary = vec3(corner == 0 ? 1.0 : 0.0, corner == 1 ? 1.0 : 0.0, corner == 2 ? 1.0 : 0.0);
   vEdges = aEdges;
+  vColor = aColor;
 }`;
 
 // Mirrors the WebGPU mesh fragment shader: key light plus Z-up hemisphere
@@ -56,6 +59,7 @@ uniform vec4 uEdgeColor;
 in vec3 vNormal;
 in vec3 vBary;
 flat in vec3 vEdges;
+flat in vec4 vColor;
 out vec4 outColor;
 void main() {
   vec3 n = normalize(vNormal);
@@ -64,10 +68,20 @@ void main() {
   float hemiFactor = n.z * 0.5 + 0.5;
   vec3 hemi = mix(vec3(0.38, 0.38, 0.36), vec3(1.0), hemiFactor);
   vec3 lighting = hemi * 0.85 + vec3(key);
-  vec3 shaded = uBaseColor.rgb * lighting;
-  // Distance to each edge in device pixels; unflagged edges are pushed far away
+  // A part color where the model sets one, else the theme's base color. The
+  // lighting peaks near 1.7x on a top face, tuned for the default color; a
+  // chosen part color is exposed down so its lit top shows the color as picked
+  vec3 base = mix(uBaseColor.rgb, vColor.rgb, vColor.a);
+  vec3 shaded = base * lighting * mix(1.0, 0.6, vColor.a);
+  // Distance to each edge in device pixels; unflagged edges are pushed far
+  // away. A drawn edge stores 1000 plus where the opposite corner projects
+  // along it, which gives each pixel's place along the edge, so the line stops
+  // at the edge's ends instead of running on through a sliver triangle
   vec3 px = vBary / max(fwidth(vBary), vec3(1e-6));
-  vec3 dist = mix(vec3(1e6), px, vEdges);
+  vec3 drawn = step(500.0, vEdges);
+  vec3 along = vBary.zxy + vBary * (vEdges - 1000.0);
+  vec3 within = step(-0.001, along) * step(along, vec3(1.001));
+  vec3 dist = mix(vec3(1e6), px, drawn * within);
   float d = min(min(dist.x, dist.y), dist.z);
   float line = (1.0 - smoothstep(uStyle.z - 0.5, uStyle.z + 0.5, d)) * uStyle.y;
   float alpha = max(uStyle.x, line);
@@ -173,6 +187,7 @@ class WebGlBackend implements RenderBackend {
   private readonly positionBuffer: WebGLBuffer;
   private readonly normalBuffer: WebGLBuffer;
   private readonly edgeBuffer: WebGLBuffer;
+  private readonly colorBuffer: WebGLBuffer;
   private readonly gridBuffer: WebGLBuffer;
   private readonly loc: {
     meshViewProj: WebGLUniformLocation | null;
@@ -207,6 +222,7 @@ class WebGlBackend implements RenderBackend {
     this.positionBuffer = gl.createBuffer();
     this.normalBuffer = gl.createBuffer();
     this.edgeBuffer = gl.createBuffer();
+    this.colorBuffer = gl.createBuffer();
     this.meshVao = gl.createVertexArray();
     gl.bindVertexArray(this.meshVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
@@ -218,6 +234,9 @@ class WebGlBackend implements RenderBackend {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeBuffer);
     gl.enableVertexAttribArray(2);
     gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuffer);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 0, 0);
 
     this.gridBuffer = gl.createBuffer();
     this.gridVao = gl.createVertexArray();
@@ -249,6 +268,7 @@ class WebGlBackend implements RenderBackend {
     positions: Float32Array,
     normals: Float32Array,
     edges: Float32Array,
+    colors: Float32Array,
     triangleCount: number,
   ): void {
     if (this.lost) return;
@@ -259,6 +279,8 @@ class WebGlBackend implements RenderBackend {
     gl.bufferData(gl.ARRAY_BUFFER, normals, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, edges, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
     this.vertexCount = triangleCount * 3;
   }
 
@@ -386,6 +408,7 @@ class WebGlBackend implements RenderBackend {
     gl.deleteBuffer(this.positionBuffer);
     gl.deleteBuffer(this.normalBuffer);
     gl.deleteBuffer(this.edgeBuffer);
+    gl.deleteBuffer(this.colorBuffer);
     gl.deleteBuffer(this.gridBuffer);
     gl.deleteVertexArray(this.meshVao);
     gl.deleteVertexArray(this.gridVao);

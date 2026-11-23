@@ -48,15 +48,24 @@ const normalLayout = tgpu.vertexLayout((n: number) =>
 const edgeLayout = tgpu.vertexLayout((n: number) =>
   d.disarrayOf(d.float32x3, n),
 );
+// A part color per vertex (rgba; alpha 0 keeps the base color)
+const colorLayout = tgpu.vertexLayout((n: number) =>
+  d.disarrayOf(d.float32x4, n),
+);
 
 type MeshVertexSchema = ReturnType<typeof positionLayout.schemaForCount>;
 type MeshVertexBuffer = TgpuBuffer<MeshVertexSchema> & VertexFlag;
+type ColorVertexBuffer = TgpuBuffer<
+  ReturnType<typeof colorLayout.schemaForCount>
+> &
+  VertexFlag;
 
 const vertexMain = tgpu.vertexFn({
   in: {
     position: d.vec3f,
     normal: d.vec3f,
     edges: d.vec3f,
+    color: d.vec4f,
     index: d.builtin.vertexIndex,
   },
   out: {
@@ -64,6 +73,7 @@ const vertexMain = tgpu.vertexFn({
     worldNormal: d.vec3f,
     bary: d.vec3f,
     edges: d.vec3f,
+    color: d.vec4f,
   },
 })((input) => {
   "use gpu";
@@ -79,11 +89,17 @@ const vertexMain = tgpu.vertexFn({
     worldNormal: input.normal,
     bary: d.vec3f(first, 1 - first - last, last),
     edges: input.edges,
+    color: input.color,
   };
 });
 
 const fragmentMain = tgpu.fragmentFn({
-  in: { worldNormal: d.vec3f, bary: d.vec3f, edges: d.vec3f },
+  in: {
+    worldNormal: d.vec3f,
+    bary: d.vec3f,
+    edges: d.vec3f,
+    color: d.vec4f,
+  },
   out: d.vec4f,
 })((input) => {
   "use gpu";
@@ -96,7 +112,12 @@ const fragmentMain = tgpu.fragmentFn({
   const hemiFactor = n.z * 0.5 + 0.5;
   const hemi = std.mix(d.vec3f(0.38, 0.38, 0.36), d.vec3f(1, 1, 1), hemiFactor);
   const lighting = std.add(std.mul(hemi, 0.85), d.vec3f(key, key, key));
-  const shaded = std.mul(scene.baseColor.xyz, lighting);
+  // A part color where the model sets one, else the theme's base color. The
+  // lighting peaks near 1.7x on a top face, tuned for the default color; a
+  // chosen part color is exposed down so its lit top shows the color as picked
+  const base = std.mix(scene.baseColor.xyz, input.color.xyz, input.color.w);
+  const exposure = std.mix(1, 0.6, input.color.w);
+  const shaded = std.mul(base, std.mul(lighting, exposure));
   // The render mode's lines (style: fill opacity, edge strength, line
   // half-width in device pixels): distance to each flagged edge in pixels,
   // unflagged edges pushed far away
@@ -104,7 +125,19 @@ const fragmentMain = tgpu.fragmentFn({
     input.bary,
     std.max(std.fwidth(input.bary), d.vec3f(1e-6, 1e-6, 1e-6)),
   );
-  const dist = std.mix(d.vec3f(1e6, 1e6, 1e6), px, input.edges);
+  // A drawn edge stores 1000 plus where the opposite corner projects along
+  // it, which gives each pixel's place along the edge, so the line stops at
+  // the edge's ends instead of running on through a sliver triangle
+  const drawn = std.step(d.vec3f(500, 500, 500), input.edges);
+  const along = std.add(
+    input.bary.zxy,
+    std.mul(input.bary, std.sub(input.edges, d.vec3f(1000, 1000, 1000))),
+  );
+  const within = std.mul(
+    std.step(d.vec3f(-0.001, -0.001, -0.001), along),
+    std.step(along, d.vec3f(1.001, 1.001, 1.001)),
+  );
+  const dist = std.mix(d.vec3f(1e6, 1e6, 1e6), px, std.mul(drawn, within));
   const nearest = std.min(std.min(dist.x, dist.y), dist.z);
   const width = scene.style.z;
   const line =
@@ -142,6 +175,7 @@ export class MeshPipeline {
   private positions: MeshVertexBuffer | null = null;
   private normals: MeshVertexBuffer | null = null;
   private edges: MeshVertexBuffer | null = null;
+  private colors: ColorVertexBuffer | null = null;
   private vertexCount = 0;
   /** High-water vertex count the current buffers can hold, so slider recomputes reuse them. */
   private capacity = 0;
@@ -163,6 +197,7 @@ export class MeshPipeline {
           position: positionLayout.attrib,
           normal: normalLayout.attrib,
           edges: edgeLayout.attrib,
+          color: colorLayout.attrib,
         },
         primitive: { topology: "triangle-list", cullMode: "none" },
         depthStencil: {
@@ -186,6 +221,7 @@ export class MeshPipeline {
     positions: Float32Array,
     normals: Float32Array,
     edges: Float32Array,
+    colors: Float32Array,
     triangleCount: number,
   ): void {
     const vertexCount = triangleCount * 3;
@@ -193,11 +229,13 @@ export class MeshPipeline {
       !this.positions ||
       !this.normals ||
       !this.edges ||
+      !this.colors ||
       vertexCount > this.capacity
     ) {
       this.positions?.destroy();
       this.normals?.destroy();
       this.edges?.destroy();
+      this.colors?.destroy();
       this.positions = this.root
         .createBuffer(positionLayout.schemaForCount(vertexCount))
         .$usage("vertex");
@@ -206,6 +244,9 @@ export class MeshPipeline {
         .$usage("vertex");
       this.edges = this.root
         .createBuffer(edgeLayout.schemaForCount(vertexCount))
+        .$usage("vertex");
+      this.colors = this.root
+        .createBuffer(colorLayout.schemaForCount(vertexCount))
         .$usage("vertex");
       this.capacity = vertexCount;
     }
@@ -224,6 +265,11 @@ export class MeshPipeline {
       normals as Float32Array<ArrayBuffer>,
     );
     queue.writeBuffer(this.edges.buffer, 0, edges as Float32Array<ArrayBuffer>);
+    queue.writeBuffer(
+      this.colors.buffer,
+      0,
+      colors as Float32Array<ArrayBuffer>,
+    );
     this.vertexCount = vertexCount;
   }
 
@@ -250,12 +296,13 @@ export class MeshPipeline {
 
   /** Record the mesh draw into an already-open render pass. */
   render(pass: TgpuRenderPass, seeThrough = false): void {
-    if (!this.positions || !this.normals || !this.edges) return;
+    if (!this.positions || !this.normals || !this.edges || !this.colors) return;
     if (this.vertexCount === 0) return;
     (seeThrough ? this.seeThroughPipeline : this.pipeline)
       .with(positionLayout, this.positions)
       .with(normalLayout, this.normals)
       .with(edgeLayout, this.edges)
+      .with(colorLayout, this.colors)
       .with(this.bindGroup)
       .with(pass)
       .draw(this.vertexCount);
@@ -265,9 +312,11 @@ export class MeshPipeline {
     this.positions?.destroy();
     this.normals?.destroy();
     this.edges?.destroy();
+    this.colors?.destroy();
     this.positions = null;
     this.normals = null;
     this.edges = null;
+    this.colors = null;
     this.vertexCount = 0;
     this.capacity = 0;
     this.uniforms.destroy();
