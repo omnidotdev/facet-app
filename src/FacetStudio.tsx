@@ -19,6 +19,7 @@ import {
   shouldAutoSwitchToBrep,
 } from "@/facet";
 import { loadBrepWorkerKernel } from "@/facet/brepWorkerClient";
+import { evaluateColored, exportColored } from "@/facet/colors";
 import { ModelRunner } from "@/facet/modelRunner";
 import { loadWasmKernel } from "@/facet/wasmKernel";
 import { exportFileName, openModelFromFile, saveModelToFile } from "@/fileIo";
@@ -719,7 +720,8 @@ export default function FacetStudio() {
           }
 
           try {
-            const mesh = await activeKernel.evaluate(node, { preview });
+            // Colored models evaluate part by part (see colors.ts)
+            const mesh = await evaluateColored(activeKernel, node, { preview });
             if (seq < shownSeq) return; // a newer mesh is already showing
             shownSeq = seq;
             viewport.setMesh(mesh, reframe);
@@ -928,7 +930,7 @@ export default function FacetStudio() {
             ? "model/step"
             : "model/stl";
       try {
-        const data = await activeKernel.export(currentNode, format);
+        const data = await exportColored(activeKernel, currentNode, format);
         const blob = new Blob([data.buffer as ArrayBuffer], { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");

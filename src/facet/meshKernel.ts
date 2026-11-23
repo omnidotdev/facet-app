@@ -390,6 +390,10 @@ function evalNode(node: OpNode): CSG {
       return mapVerts(evalNode(node.child), (p) => rotatePoint(p, node.deg));
     case "mirror":
       return mirrorCsg(evalNode(node.child), node.normal);
+    // A color is presentation only; the Studio splits colored models into
+    // plain parts before evaluating (colors.ts), so this is a fallback
+    case "color":
+      return evalNode(node.child);
     case "union":
       return reduceBool(node.children, (a, b) => a.union(b));
     case "difference":

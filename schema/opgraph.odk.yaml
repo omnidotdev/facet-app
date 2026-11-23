@@ -146,3 +146,11 @@ unions:
       mirror:
         normal: number[3]
         child: OpNode
+      # Give a solid a color (sRGB, each channel 0 to 1). It changes nothing
+      # about the geometry: every kernel evaluates it as its child. The Studio
+      # splits a colored model into one plain graph per color before it
+      # evaluates (facet-app src/facet/colors.ts), to draw the parts in their
+      # colors and export them as separate 3MF parts
+      color:
+        rgb: number[3]
+        child: OpNode

@@ -75,6 +75,10 @@ const CAPTURE_LONG_EDGE = 768;
  */
 const INLINE_CREASE_LIMIT = 20_000;
 
+/** A mesh's part colors, or all-transparent (the base color) when it has none */
+const vertexColors = (mesh: Mesh): Float32Array =>
+  mesh.colors ?? new Float32Array(mesh.triangleCount * 12);
+
 /** A rendered view, encoded for the AI render critique */
 export interface ViewportCapture {
   mediaType: "image/png";
@@ -273,6 +277,7 @@ export class Viewport {
         m.positions,
         m.normals,
         this.edgeFlags(m),
+        vertexColors(m),
         m.triangleCount,
       );
     }
@@ -334,6 +339,7 @@ export class Viewport {
       mesh.positions,
       mesh.normals,
       this.edgeFlags(mesh),
+      vertexColors(mesh),
       mesh.triangleCount,
     );
     if (reframe || !this.hasFramed) {
@@ -555,8 +561,7 @@ export class Viewport {
    * in a worker for a large one (drawing no lines until the worker answers)
    */
   private edgeFlags(mesh: Mesh): Float32Array {
-    if (this.renderMode === "wireframe")
-      return allEdgeFlags(mesh.triangleCount);
+    if (this.renderMode === "wireframe") return allEdgeFlags(mesh);
     if (!needsCreases(this.renderMode)) return noEdgeFlags(mesh.triangleCount);
     if (this.creases?.mesh === mesh) return this.creases.flags;
     if (mesh.triangleCount <= INLINE_CREASE_LIMIT) {
@@ -574,7 +579,7 @@ export class Viewport {
     // Send a copy: the solid's own arrays stay with the viewport
     const positions = mesh.positions.slice();
     this.creaseWorker?.postMessage(
-      { id, positions, triangleCount: mesh.triangleCount },
+      { id, positions, triangleCount: mesh.triangleCount, parts: mesh.parts },
       [positions.buffer],
     );
     this.pendingCreaseMesh = mesh;

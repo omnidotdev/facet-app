@@ -45,9 +45,10 @@ class WebGpuBackend implements RenderBackend {
     positions: Float32Array,
     normals: Float32Array,
     edges: Float32Array,
+    colors: Float32Array,
     triangleCount: number,
   ): void {
-    this.mesh.setMesh(positions, normals, edges, triangleCount);
+    this.mesh.setMesh(positions, normals, edges, colors, triangleCount);
   }
 
   setEdges(edges: Float32Array): void {

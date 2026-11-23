@@ -65,6 +65,8 @@ export function brepNeed(node: OpNode): BrepNeed | null {
     case "rotate2d":
     case "scale2d":
     case "mirror2d":
+    // A color changes nothing about the geometry
+    case "color":
       return brepNeed(node.child);
     case "union":
     case "difference":

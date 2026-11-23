@@ -163,6 +163,29 @@ const ri = Math.min(inner, outer - 2) / 2;
 
 const ring = circle(ro).subtract(circle(ri));
 return extrude(ring, t);`,
+
+  "Two-color coaster": `// A coaster with a star set into its top. Each color is its own part:
+// export a 3MF and a multi-color printer gives each part its own filament
+const r = param.number("radius", { min: 30, max: 60, default: 45, step: 1, unit: "mm" });
+const points = param.number("points", { min: 4, max: 12, default: 5, step: 1 });
+const t = 4;      // thickness
+const inlay = 1;  // how deep the star sits in the top
+
+// A star outline, alternating outer and inner corners
+const outline = [];
+for (let i = 0; i < points * 2; i++) {
+  const a = (i * Math.PI) / points + Math.PI / 2;
+  const d = i % 2 ? r * 0.3 : r * 0.72;
+  outline.push([Math.cos(a) * d, Math.sin(a) * d]);
+}
+const star = polygon(outline);
+
+// Cut a star-shaped pocket into the top, then fill it with the star
+const disc = cylinder(r, t, { center: false, segments: 96 });
+const pocket = extrude(star, inlay + 1).translate(0, 0, t - inlay);
+const fill = extrude(star, inlay).translate(0, 0, t - inlay);
+
+return disc.subtract(pocket).color("#1d3557").union(fill.color("gold"));`,
 };
 
 export const defaultExample = "Parametric plate";

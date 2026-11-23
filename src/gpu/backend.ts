@@ -35,13 +35,16 @@ export interface RenderBackend {
   resize(width: number, height: number): void;
   /**
    * Upload the solid. `edges` holds three flags per vertex (the same for all
-   * three vertices of a triangle): flag `i` draws the edge opposite the
-   * triangle's vertex `i`
+   * three vertices of a triangle): flag `i` is 0 to skip the edge opposite the
+   * triangle's vertex `i`, or EDGE_DRAWN plus where that vertex projects along
+   * the edge to draw it (see renderMode.ts). `colors` holds an rgba per vertex: a part color
+   * where alpha is 1, the frame's base color where it is 0
    */
   setMesh(
     positions: Float32Array,
     normals: Float32Array,
     edges: Float32Array,
+    colors: Float32Array,
     triangleCount: number,
   ): void;
   /** Replace the edge flags of the current solid (same triangle count) */
