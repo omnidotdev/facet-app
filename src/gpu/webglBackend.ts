@@ -86,7 +86,12 @@ void main() {
   float line = (1.0 - smoothstep(uStyle.z - 0.5, uStyle.z + 0.5, d)) * uStyle.y;
   float alpha = max(uStyle.x, line);
   if (alpha < 0.004) discard;
-  outColor = vec4(mix(shaded, uEdgeColor.rgb, line), alpha);
+  // The mode's line color is tuned for the default color; on a dark part
+  // color (navy, black) it would vanish, so a solid colored part with a dark
+  // color gets a light line instead
+  float dark = step(dot(base, vec3(0.2126, 0.7152, 0.0722)), 0.3);
+  vec3 edgeColor = mix(uEdgeColor.rgb, mix(base, vec3(1.0), 0.8), dark * vColor.a * step(0.99, uStyle.x));
+  outColor = vec4(mix(shaded, edgeColor, line), alpha);
 }`;
 
 const GRID_VERTEX = `#version 300 es

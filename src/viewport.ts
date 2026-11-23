@@ -382,6 +382,10 @@ export class Viewport {
     if (this.disposed || !this.ready || !this.canvas) return;
     this.measure();
     this.backend?.resize(this.canvas.width, this.canvas.height);
+    // Sizing the canvas clears it, and the observer runs after this frame's
+    // draw, so draw again now; otherwise the view shows blank while a pane
+    // divider or the window is being dragged
+    this.render();
   }
 
   private frame = (): void => {

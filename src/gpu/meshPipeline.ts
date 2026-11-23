@@ -146,7 +146,17 @@ const fragmentMain = tgpu.fragmentFn({
   if (alpha < 0.004) {
     std.discard();
   }
-  return d.vec4f(std.mix(shaded, scene.edgeColor.xyz, line), alpha);
+  // The mode's line color is tuned for the default color; on a dark part
+  // color (navy, black) it would vanish, so a solid colored part with a dark
+  // color gets a light line instead
+  const dark = std.step(std.dot(base, d.vec3f(0.2126, 0.7152, 0.0722)), 0.3);
+  const light = std.mix(base, d.vec3f(1, 1, 1), 0.8);
+  const edgeColor = std.mix(
+    scene.edgeColor.xyz,
+    light,
+    dark * input.color.w * std.step(0.99, scene.style.x),
+  );
+  return d.vec4f(std.mix(shaded, edgeColor, line), alpha);
 });
 
 /** Blending for the see-through modes; harmless for opaque ones (alpha 1) */
