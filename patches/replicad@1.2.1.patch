@@ -1,0 +1,507 @@
+diff --git a/dist/casting-BnJHCnOw.js b/dist/casting-BnJHCnOw.js
+index 93958d46f9fc319f941a887dd85bf7642de75497..fa0f5133e51136dccf1ade5cc92353334ed54bbf 100644
+--- a/dist/casting-BnJHCnOw.js
++++ b/dist/casting-BnJHCnOw.js
+@@ -1466,30 +1466,42 @@ function* mapSelectedEdges(edges, map) {
+ }
+ function filletShape(shapeInput, edges) {
+ 	const oc = getOC();
+-	const builder = GCWithScope()(new oc.BRepFilletAPI_MakeFillet(unwrapShape(shapeInput), oc.ChFi3d_FilletShape.ChFi3d_Rational));
+-	let edgeCount = 0;
+-	for (const { radius, edge: edgeInput } of edges) {
+-		const edge = unwrapShape(edgeInput);
+-		if (typeof radius === "number") builder.Add(radius, edge);
+-		else builder.Add(radius[0], radius[1], edge);
+-		edgeCount += 1;
+-	}
+-	if (!edgeCount) throw new Error("Could not fillet, no edge was selected");
+-	return builder.Shape();
++	const builder = new oc.BRepFilletAPI_MakeFillet(unwrapShape(shapeInput), oc.ChFi3d_FilletShape.ChFi3d_Rational);
++	// Free the builder once the result is copied out: it holds the whole
++	// operation history, which scope-GC would keep until a JS collection
++	try {
++		let edgeCount = 0;
++		for (const { radius, edge: edgeInput } of edges) {
++			const edge = unwrapShape(edgeInput);
++			if (typeof radius === "number") builder.Add(radius, edge);
++			else builder.Add(radius[0], radius[1], edge);
++			edgeCount += 1;
++		}
++		if (!edgeCount) throw new Error("Could not fillet, no edge was selected");
++		return builder.Shape();
++	} finally {
++		builder.delete();
++	}
+ }
+ function chamferShape(shapeInput, edges) {
+ 	const oc = getOC();
+-	const builder = GCWithScope()(new oc.BRepFilletAPI_MakeChamfer(unwrapShape(shapeInput)));
+-	let edgeCount = 0;
+-	for (const config of edges) {
+-		const edge = unwrapShape(config.edge);
+-		if ("radius" in config) builder.Add(config.radius, edge);
+-		else if ("distances" in config) builder.Add(config.distances[0] ?? 1, config.distances[1] ?? 1, edge, unwrapShape(config.face));
+-		else builder.AddDA(config.distance, config.angle * DEG2RAD, edge, unwrapShape(config.face));
+-		edgeCount += 1;
+-	}
+-	if (!edgeCount) throw new Error("Could not chamfer, no edge was selected");
+-	return builder.Shape();
++	const builder = new oc.BRepFilletAPI_MakeChamfer(unwrapShape(shapeInput));
++	// Free the builder once the result is copied out: it holds the whole
++	// operation history, which scope-GC would keep until a JS collection
++	try {
++		let edgeCount = 0;
++		for (const config of edges) {
++			const edge = unwrapShape(config.edge);
++			if ("radius" in config) builder.Add(config.radius, edge);
++			else if ("distances" in config) builder.Add(config.distances[0] ?? 1, config.distances[1] ?? 1, edge, unwrapShape(config.face));
++			else builder.AddDA(config.distance, config.angle * DEG2RAD, edge, unwrapShape(config.face));
++			edgeCount += 1;
++		}
++		if (!edgeCount) throw new Error("Could not chamfer, no edge was selected");
++		return builder.Shape();
++	} finally {
++		builder.delete();
++	}
+ }
+ //#endregion
+ //#region src/shapeFunctions/casting.ts
+diff --git a/dist/replicad.js b/dist/replicad.js
+index 5668332f5683e74710e075a24c859a64a1cd2437..a35e81f32e35a2b20128098c7fd05e84f74e3676 100644
+--- a/dist/replicad.js
++++ b/dist/replicad.js
+@@ -182,6 +182,26 @@ var determinant2x2 = (matrix) => {
+ function deserializeCurve2D(data) {
+ 	return new Curve2D(getOC().GeomToolsWrapper.Read(data));
+ }
++// One point projector reused for every projection (Init releases the previous
++// result), so a 2D boolean's hundreds of projections leave nothing to collect
++var sharedProjector = {
++	oc: null,
++	value: null
++};
++var pointProjector = (point, curve) => {
++	const oc = getOC();
++	if (sharedProjector.oc !== oc) {
++		sharedProjector.oc = oc;
++		sharedProjector.value = new oc.Geom2dAPI_ProjectPointOnCurve();
++	}
++	const p = pnt(point);
++	try {
++		sharedProjector.value.Init(p, curve);
++	} finally {
++		p.delete();
++	}
++	return sharedProjector.value;
++};
+ var Curve2D = class Curve2D extends WrappingObj {
+ 	constructor(handle) {
+ 		super(handle);
+@@ -238,11 +258,12 @@ var Curve2D = class Curve2D extends WrappingObj {
+ 		this.innerCurve.Reverse();
+ 	}
+ 	distanceFromPoint(point) {
+-		const oc = getOC();
+-		const r = GCWithScope();
+-		const projector = r(new oc.Geom2dAPI_ProjectPointOnCurve(r(pnt(point)), this.wrapped));
++		const projector = pointProjector(point, this.wrapped);
+ 		let curveToPoint = Infinity;
+-		try {
++		// LowerDistance throws when the point projects onto no part of the
++		// curve, and a C++ exception caught in JS leaks wasm memory, so check
++		// for a projection first
++		if (projector.NbPoints() > 0) try {
+ 			curveToPoint = projector.LowerDistance();
+ 		} catch (e) {
+ 			curveToPoint = Infinity;
+@@ -254,7 +275,9 @@ var Curve2D = class Curve2D extends WrappingObj {
+ 		const r = GCWithScope();
+ 		let curveDistance = Infinity;
+ 		const projector = r(new oc.Geom2dAPI_ExtremaCurveCurve(this.wrapped, curve.wrapped, this.firstParameter, this.lastParameter, curve.firstParameter, curve.lastParameter));
+-		try {
++		// Parallel curves have no isolated extremum and LowerDistance throws;
++		// check first, since a C++ exception caught in JS leaks wasm memory
++		if (projector.NbExtrema() > 0) try {
+ 			curveDistance = projector.LowerDistance();
+ 		} catch (e) {
+ 			curveDistance = Infinity;
+@@ -269,12 +292,12 @@ var Curve2D = class Curve2D extends WrappingObj {
+ 		return this.distanceFromPoint(point) < 1e-9;
+ 	}
+ 	parameter(point, precision = 1e-9) {
+-		const oc = getOC();
+-		const r = GCWithScope();
+ 		let lowerDistance;
+ 		let lowerDistanceParameter;
+ 		try {
+-			const projector = r(new oc.Geom2dAPI_ProjectPointOnCurve(r(pnt(point)), this.wrapped));
++			const projector = pointProjector(point, this.wrapped);
++			// Avoid the C++ throw (it leaks wasm memory) when nothing projects
++			if (projector.NbPoints() === 0) throw new Error("No projection on the curve");
+ 			lowerDistance = projector.LowerDistance();
+ 			lowerDistanceParameter = projector.LowerDistanceParameter();
+ 		} catch (e) {
+@@ -401,7 +424,9 @@ function* pointsIteration(intersector) {
+ 	if (!nPoints) return;
+ 	for (let i = 1; i <= nPoints; i++) {
+ 		const point = intersector.Point(i);
+-		yield [point.X(), point.Y()];
++		const xy = [point.X(), point.Y()];
++		point.delete();
++		yield xy;
+ 	}
+ }
+ function* commonSegmentsIteration(intersector) {
+@@ -415,13 +440,28 @@ function* commonSegmentsIteration(intersector) {
+ 		continue;
+ 	}
+ }
++// One intersector reused for every curve pair: Init releases the previous
++// result, so nothing is left to free, and the early returns in isInside and
++// intersects no longer leak a fresh intersector each
++var sharedIntersector = {
++	oc: null,
++	value: null
++};
++var curveIntersector = () => {
++	const oc = getOC();
++	if (sharedIntersector.oc !== oc) {
++		sharedIntersector.oc = oc;
++		sharedIntersector.value = new oc.Geom2dAPI_InterCurveCurve();
++	}
++	return sharedIntersector.value;
++};
+ var intersectCurves = (first, second, precision = 1e-9) => {
+ 	if (first.boundingBox.isOut(second.boundingBox)) return {
+ 		intersections: [],
+ 		commonSegments: [],
+ 		commonSegmentsPoints: []
+ 	};
+-	const intersector = new (getOC()).Geom2dAPI_InterCurveCurve();
++	const intersector = curveIntersector();
+ 	let intersections;
+ 	let commonSegments;
+ 	try {
+@@ -431,8 +471,6 @@ var intersectCurves = (first, second, precision = 1e-9) => {
+ 	} catch (e) {
+ 		console.error(first, second, e);
+ 		throw new Error("Intersections failed between curves");
+-	} finally {
+-		intersector.delete();
+ 	}
+ 	const segmentsAsPoints = commonSegments.filter((c) => samePoint$2(c.firstPoint, c.lastPoint, precision)).map((c) => c.firstPoint);
+ 	if (segmentsAsPoints.length) {
+@@ -447,15 +485,13 @@ var intersectCurves = (first, second, precision = 1e-9) => {
+ 	};
+ };
+ var selfIntersections = (curve, precision = 1e-9) => {
+-	const intersector = new (getOC()).Geom2dAPI_InterCurveCurve();
++	const intersector = curveIntersector();
+ 	let intersections;
+ 	try {
+ 		intersector.Init(curve.wrapped, curve.wrapped, precision);
+ 		intersections = Array.from(pointsIteration(intersector));
+ 	} catch (e) {
+ 		throw new Error("Self intersection failed");
+-	} finally {
+-		intersector.delete();
+ 	}
+ 	return intersections;
+ };
+@@ -2511,7 +2547,7 @@ var Shape = class extends WrappingObj {
+ 	simplify() {
+ 		const shapeUpgrader = new (getOC()).ShapeUpgrade_UnifySameDomain(this.wrapped, true, true, false);
+ 		shapeUpgrader.Build();
+-		const newShape = cast(shapeUpgrader.Shape());
++		const newShape = castFresh(shapeUpgrader.Shape());
+ 		shapeUpgrader.delete();
+ 		if (this.constructor !== newShape.constructor) throw new Error("unexpected types mismatch");
+ 		return newShape;
+@@ -2522,7 +2558,7 @@ var Shape = class extends WrappingObj {
+ 			yDist,
+ 			zDist
+ 		] : vectorOrxDist;
+-		const newShape = cast(translate(this.wrapped, translation));
++		const newShape = castFresh(translate(this.wrapped, translation));
+ 		this.delete();
+ 		if (this.constructor !== newShape.constructor) throw new Error("unexpected types mismatch");
+ 		return newShape;
+@@ -2577,7 +2613,7 @@ var Shape = class extends WrappingObj {
+ 		0,
+ 		1
+ 	]) {
+-		const newShape = cast(rotate(this.wrapped, angle, position, direction));
++		const newShape = castFresh(rotate(this.wrapped, angle, position, direction));
+ 		this.delete();
+ 		if (this.constructor !== newShape.constructor) throw new Error("unexpected types mismatch");
+ 		return newShape;
+@@ -2588,7 +2624,7 @@ var Shape = class extends WrappingObj {
+ 	* @category Shape Transformations
+ 	*/
+ 	mirror(inputPlane, origin) {
+-		const newShape = cast(mirror(this.wrapped, inputPlane, origin));
++		const newShape = castFresh(mirror(this.wrapped, inputPlane, origin));
+ 		this.delete();
+ 		if (this.constructor !== newShape.constructor) throw new Error("unexpected types mismatch");
+ 		return newShape;
+@@ -2603,7 +2639,7 @@ var Shape = class extends WrappingObj {
+ 		0,
+ 		0
+ 	]) {
+-		const newShape = cast(scale(this.wrapped, center, scale$1));
++		const newShape = castFresh(scale(this.wrapped, center, scale$1));
+ 		this.delete();
+ 		if (this.constructor !== newShape.constructor) throw new Error("unexpected types mismatch");
+ 		return newShape;
+@@ -2778,7 +2814,7 @@ var Wire = class Wire extends _1DShape {
+ 		};
+ 		const offsetter = new this.oc.BRepOffsetAPI_MakeOffset(this.wrapped, kinds[kind], false);
+ 		offsetter.Perform(offset, 0);
+-		const newShape = cast(offsetter.Shape());
++		const newShape = castFresh(offsetter.Shape());
+ 		offsetter.delete();
+ 		this.delete();
+ 		if (!(newShape instanceof Wire)) throw new Error("Could not offset with a wire");
+@@ -2846,7 +2882,7 @@ var _3DShape = class extends Shape {
+ 	* @category Shape Modifications
+ 	*/
+ 	fuse(other, options = {}) {
+-		const newShape = cast(fuseShapes(this.wrapped, other.wrapped, options));
++		const newShape = castFresh(fuseShapes(this.wrapped, other.wrapped, options));
+ 		if (!isShape3D(newShape)) throw new Error("Could not fuse as a 3d shape");
+ 		return newShape;
+ 	}
+@@ -2859,7 +2895,7 @@ var _3DShape = class extends Shape {
+ 	* @category Shape Modifications
+ 	*/
+ 	cut(tool, options = {}) {
+-		const newShape = cast(cutShape(this.wrapped, tool.wrapped, options));
++		const newShape = castFresh(cutShape(this.wrapped, tool.wrapped, options));
+ 		if (!isShape3D(newShape)) throw new Error("Could not cut as a 3d shape");
+ 		return newShape;
+ 	}
+@@ -2872,7 +2908,7 @@ var _3DShape = class extends Shape {
+ 	* @category Shape Modifications
+ 	*/
+ 	intersect(tool, options) {
+-		const newShape = cast(intersectShapes(this.wrapped, tool.wrapped, options));
++		const newShape = castFresh(intersectShapes(this.wrapped, tool.wrapped, options));
+ 		if (!isShape3D(newShape)) throw new Error("Could not intersect as a 3d shape");
+ 		return newShape;
+ 	}
+@@ -2939,7 +2975,7 @@ var _3DShape = class extends Shape {
+ 			filter = thicknessOrConfig.filter;
+ 		}
+ 		const filteredFaces = filter.find(this);
+-		const newShape = cast(shellShape(this.wrapped, {
++		const newShape = castFresh(shellShape(this.wrapped, {
+ 			faces: filteredFaces,
+ 			thickness,
+ 			tolerance: tol
+@@ -2970,7 +3006,7 @@ var _3DShape = class extends Shape {
+ 			filter: filter(new EdgeFinder(), this)
+ 		};
+ 		const selectedEdges = selectEdgeRadii(this.wrapped, config, isFilletRadius, (edge) => new Edge(edge));
+-		const newShape = cast(filletShape(this.wrapped, selectedEdges));
++		const newShape = castFresh(filletShape(this.wrapped, selectedEdges));
+ 		if (!isShape3D(newShape)) throw new Error("Could not fillet as a 3d shape");
+ 		return newShape;
+ 	}
+@@ -3015,7 +3051,7 @@ var _3DShape = class extends Shape {
+ 				angle: radius.angle
+ 			};
+ 		});
+-		const newShape = cast(chamferShape(this.wrapped, chamfers));
++		const newShape = castFresh(chamferShape(this.wrapped, chamfers));
+ 		if (!isShape3D(newShape)) throw new Error("Could not chamfer as a 3d shape");
+ 		return newShape;
+ 	}
+@@ -3037,7 +3073,7 @@ var _3DShape = class extends Shape {
+ 	*/
+ 	draft(angle, faceFinder, neutralPlane = "XY") {
+ 		const faces = faceFinder(new FaceFinder(), this).find(this);
+-		const newShape = cast(draftShape(this.wrapped, {
++		const newShape = castFresh(draftShape(this.wrapped, {
+ 			faces,
+ 			angle,
+ 			neutralPlane
+@@ -3066,6 +3102,16 @@ var cast = makeCaster({
+ 	solidCompound: CompSolid,
+ 	compound: Compound
+ });
++// cast wraps a downcast copy of the shape, so free a freshly built input after
++// casting it: its handle references the whole topology, and leaving it alive
++// pins that topology (and any mesh computed on it) in wasm memory
++var castFresh = (shape) => {
++	try {
++		return cast(shape);
++	} finally {
++		shape.delete();
++	}
++};
+ //#endregion
+ //#region src/shapeHelpers.ts
+ var makeLine = (v1, v2) => {
+@@ -3245,7 +3291,7 @@ var makeNonPlanarFace = (wire) => {
+ 		faceBuilder.Add(r(edge).wrapped, oc.GeomAbs_Shape.GeomAbs_C0, true);
+ 	});
+ 	faceBuilder.Build();
+-	const newFace = cast(faceBuilder.Shape());
++	const newFace = castFresh(faceBuilder.Shape());
+ 	gc();
+ 	if (!(newFace instanceof Face)) throw new Error("Failed to create a face");
+ 	return newFace;
+@@ -3387,7 +3433,8 @@ var compoundShapes = (shapeArray) => {
+ 		builder.Add(compound, s.wrapped);
+ 		s.delete();
+ 	});
+-	return cast(compound);
++	builder.delete();
++	return castFresh(compound);
+ };
+ var makeCompound = compoundShapes;
+ function _weld(facesOrShells) {
+@@ -3631,7 +3678,9 @@ function extrudeFaceUntil(profile, target, extrusionDirection) {
+ //#region src/addThickness.ts
+ var basicFaceExtrusion = (face, extrusionVec) => {
+ 	const solidBuilder = new (getOC()).BRepPrimAPI_MakePrism(face.wrapped, extrusionVec.wrapped, false, true);
+-	const solid = new Solid(downcast(solidBuilder.Shape()));
++	const shape = solidBuilder.Shape();
++	const solid = new Solid(downcast(shape));
++	shape.delete();
+ 	solidBuilder.delete();
+ 	return solid;
+ };
+@@ -3647,7 +3696,7 @@ var revolution = (face, center = [
+ 	const oc = getOC();
+ 	const ax = makeAx1(center, direction);
+ 	const revolBuilder = new oc.BRepPrimAPI_MakeRevol(face.wrapped, ax, angle * DEG2RAD, false);
+-	const shape = cast(revolBuilder.Shape());
++	const shape = castFresh(revolBuilder.Shape());
+ 	ax.delete();
+ 	revolBuilder.delete();
+ 	if (!isShape3D(shape)) throw new Error("Could not revolve to a 3d shape");
+@@ -3672,11 +3721,11 @@ function genericSweep(wire, spine, { frenet = false, auxiliarySpine, law = null,
+ 	else sweepBuilder.SetLaw(wire.wrapped, law, !!withContact, withCorrection);
+ 	sweepBuilder.Build();
+ 	if (!shellMode) sweepBuilder.MakeSolid();
+-	const shape = cast(sweepBuilder.Shape());
++	const shape = castFresh(sweepBuilder.Shape());
+ 	if (!isShape3D(shape)) throw new Error("Could not sweep to a 3d shape");
+ 	if (shellMode) {
+-		const startWire = cast(sweepBuilder.FirstShape());
+-		const endWire = cast(sweepBuilder.LastShape());
++		const startWire = castFresh(sweepBuilder.FirstShape());
++		const endWire = castFresh(sweepBuilder.LastShape());
+ 		if (!isWire(startWire)) throw new Error("Could not sweep with one start wire");
+ 		if (!isWire(endWire)) throw new Error("Could not sweep with one end wire");
+ 		sweepBuilder.delete();
+@@ -3735,7 +3784,7 @@ var loft = (wires, { ruled = true, startPoint, endPoint } = {}, returnShell = fa
+ 	wires.forEach((w) => loftBuilder.AddWire(w.wrapped));
+ 	if (endPoint) loftBuilder.AddVertex(r(makeVertex(endPoint)).wrapped);
+ 	loftBuilder.Build();
+-	const shape = cast(loftBuilder.Shape());
++	const shape = castFresh(loftBuilder.Shape());
+ 	gc();
+ 	if (!isShape3D(shape)) throw new Error("Could not loft to a 3d shape");
+ 	return shape;
+@@ -4175,8 +4224,11 @@ function curvesAsEdgesOnPlane(curves, plane) {
+ 	const ax = r(makeAx2(plane.origin, plane.zDir, plane.xDir));
+ 	const oc = getOC();
+ 	const edges = curves.map((curve) => {
+-		const curve3d = oc.GeomLib.To3d(ax, curve.wrapped);
+-		return new Edge(new oc.BRepBuilderAPI_MakeEdge(curve3d).Edge());
++		// Free the 3D curve handle and the builder with the scope: the builder
++		// keeps its own reference to the edge, which otherwise pins the edge's
++		// topology in wasm memory long after the edge itself is deleted
++		const curve3d = r(oc.GeomLib.To3d(ax, curve.wrapped));
++		return new Edge(r(new oc.BRepBuilderAPI_MakeEdge(curve3d)).Edge());
+ 	});
+ 	gc();
+ 	return edges;
+@@ -4213,7 +4265,7 @@ var stretchTransform2d = (ratio, direction, origin = [0, 0]) => {
+ var translationTransform2d = (translation) => {
+ 	const oc = getOC();
+ 	const [r, gc] = localGC();
+-	const rotation = new oc.gp_Trsf2d();
++	const rotation = r(new oc.gp_Trsf2d());
+ 	rotation.SetTranslation(r(vec(translation)));
+ 	const transform = new oc.gp_GTrsf2d(rotation);
+ 	gc();
+@@ -4222,7 +4274,7 @@ var translationTransform2d = (translation) => {
+ var mirrorTransform2d = (centerOrDirection, origin = [0, 0], mode = "center") => {
+ 	const oc = getOC();
+ 	const [r, gc] = localGC();
+-	const rotation = new oc.gp_Trsf2d();
++	const rotation = r(new oc.gp_Trsf2d());
+ 	if (mode === "center") rotation.SetMirror(r(pnt(centerOrDirection)));
+ 	else rotation.SetMirror(r(axis2d(origin, centerOrDirection)));
+ 	const transform = new oc.gp_GTrsf2d(rotation);
+@@ -4232,7 +4284,7 @@ var mirrorTransform2d = (centerOrDirection, origin = [0, 0], mode = "center") =>
+ var rotateTransform2d = (angle, center = [0, 0]) => {
+ 	const oc = getOC();
+ 	const [r, gc] = localGC();
+-	const rotation = new oc.gp_Trsf2d();
++	const rotation = r(new oc.gp_Trsf2d());
+ 	rotation.SetRotation(r(pnt(center)), angle);
+ 	const transform = new oc.gp_GTrsf2d(rotation);
+ 	gc();
+@@ -4241,7 +4293,7 @@ var rotateTransform2d = (angle, center = [0, 0]) => {
+ var scaleTransform2d = (scaleFactor, center = [0, 0]) => {
+ 	const oc = getOC();
+ 	const [r, gc] = localGC();
+-	const scaling = new oc.gp_Trsf2d();
++	const scaling = r(new oc.gp_Trsf2d());
+ 	scaling.SetScale(r(pnt(center)), scaleFactor);
+ 	const transform = new oc.gp_GTrsf2d(scaling);
+ 	gc();
+@@ -4459,7 +4511,7 @@ var Blueprint = class Blueprint {
+ 		const maker = gc(new oc.BRepFeat_MakeDPrism(shape.wrapped, hole.wrapped, foundFace.wrapped, draftAngle * DEG2RAD, 0, false));
+ 		if (height) maker.Perform(height);
+ 		else maker.PerformThruAll();
+-		return cast(maker.Shape());
++		return castFresh(maker.Shape());
+ 	}
+ 	toSVGPathD() {
+ 		const r = GCWithScope();
+@@ -4490,7 +4542,7 @@ var Blueprint = class Blueprint {
+ 	}
+ 	isInside(point) {
+ 		if (!this.boundingBox.containsPoint(point)) return false;
+-		const intersector = new (getOC()).Geom2dAPI_InterCurveCurve();
++		const intersector = curveIntersector();
+ 		const segment = make2dSegmentCurve(point, this.boundingBox.outsidePoint());
+ 		let crossCounts = 0;
+ 		if (this.curves.find((c) => c.isOnCurve(point))) return false;
+@@ -4499,21 +4551,19 @@ var Blueprint = class Blueprint {
+ 			intersector.Init(segment.wrapped, c.wrapped, 1e-9);
+ 			crossCounts += intersector.NbPoints();
+ 		});
+-		intersector.delete();
+ 		return !!(crossCounts % 2);
+ 	}
+ 	isClosed() {
+ 		return samePoint$2(this.firstPoint, this.lastPoint);
+ 	}
+ 	intersects(other) {
+-		const intersector = new (getOC()).Geom2dAPI_InterCurveCurve();
++		const intersector = curveIntersector();
+ 		if (this.boundingBox.isOut(other.boundingBox)) return false;
+ 		for (const myCurve of this.curves) for (const otherCurve of other.curves) {
+ 			if (myCurve.boundingBox.isOut(otherCurve.boundingBox)) continue;
+ 			intersector.Init(myCurve.wrapped, otherCurve.wrapped, 1e-9);
+ 			if (intersector.NbPoints() || intersector.NbSegments()) return true;
+ 		}
+-		intersector.delete();
+ 		return false;
+ 	}
+ };
+@@ -4907,7 +4957,7 @@ var guessFaceFromWires = (wires) => {
+ 		});
+ 	});
+ 	faceBuilder.Build();
+-	const newFace = cast(faceBuilder.Shape());
++	const newFace = castFresh(faceBuilder.Shape());
+ 	faceBuilder.delete();
+ 	if (!(newFace instanceof Face)) throw new Error("Failed to create a face");
+ 	return newFace;

@@ -1025,3 +1025,48 @@ describe("OCCT B-rep kernel profile cross-check", () => {
     },
   );
 });
+
+describe("OCCT B-rep kernel memory", () => {
+  // A glyph built from round-capped strokes at many angles, as zodiac and
+  // lettering models are: every rebuild runs hundreds of exact 2D curve
+  // intersections and projections, then extrudes and meshes the result
+  const strokes = `
+    const w = 4;
+    function seg(p, q) {
+      const dx = q[0] - p[0], dy = q[1] - p[1];
+      const body = square([Math.hypot(dx, dy), w], { center: true })
+        .rotate((Math.atan2(dy, dx) * 180) / Math.PI)
+        .translate((p[0] + q[0]) / 2, (p[1] + q[1]) / 2);
+      return body
+        .union(circle(w / 2, { segments: 24 }).translate(p[0], p[1]))
+        .union(circle(w / 2, { segments: 24 }).translate(q[0], q[1]));
+    }
+    let sym = seg([2, 2], [2, 26]);
+    for (let i = 0; i < 16; i++) {
+      const a0 = Math.PI - (Math.PI * i) / 16;
+      const a1 = Math.PI - (Math.PI * (i + 1)) / 16;
+      sym = sym.union(seg([8 + Math.cos(a0) * 6, 26 + Math.sin(a0) * 6], [8 + Math.cos(a1) * 6, 26 + Math.sin(a1) * 6]));
+    }
+    sym = sym.union(seg([14, 26], [14, 2]));
+    return extrude(sym, 4);
+  `;
+
+  test.skipIf(!rc)(
+    "repeated rebuilds of a stroke sketch keep the wasm heap flat",
+    () => {
+      const built = buildModel(strokes, {});
+      if (!built.ok) throw new Error(built.error);
+      const heap = () => rc!.getOC().wasmMemory.buffer.byteLength;
+      // Warm up so one-time allocations (shared intersector, caches) settle
+      for (let i = 0; i < 3; i++) evaluateOpGraph(rc!, built.node);
+      const before = heap();
+      // No forced GC: freed memory must not depend on a JS collection, which a
+      // worker doing little JS work rarely triggers. Before the replicad patch,
+      // these 30 rebuilds grew the heap by 44 MB; the heap grows in coarse
+      // steps, so any step at all means memory is escaping again
+      for (let i = 0; i < 30; i++) evaluateOpGraph(rc!, built.node);
+      expect(heap() - before).toBeLessThan(16 * 1024 * 1024);
+    },
+    120_000,
+  );
+});
