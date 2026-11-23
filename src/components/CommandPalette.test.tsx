@@ -1,19 +1,22 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildCommands } from "./CommandPalette";
+import { VIEW_KEYS } from "@/gpu/views";
+import { SHORTCUT_GROUPS, buildCommands } from "./CommandPalette";
 
 describe("command palette actions", () => {
-  test("exposes Home and Studio navigation plus a theme toggle", () => {
+  test("exposes Home and Studio navigation, a theme toggle, and the shortcuts list", () => {
     const commands = buildCommands({
       navigate: () => {},
       theme: "dark",
       onToggleTheme: () => {},
+      onShowShortcuts: () => {},
     });
 
     expect(commands.map((c) => c.id)).toEqual([
       "home",
       "studio",
       "toggle-theme",
+      "keyboard-shortcuts",
     ]);
     expect(
       commands.filter((c) => c.group === "Navigation").map((c) => c.label),
@@ -26,6 +29,7 @@ describe("command palette actions", () => {
       navigate: (to) => routes.push(to),
       theme: "dark",
       onToggleTheme: () => {},
+      onShowShortcuts: () => {},
     });
 
     commands.find((c) => c.id === "home")?.onSelect();
@@ -39,6 +43,7 @@ describe("command palette actions", () => {
       navigate: () => {},
       theme: "dark",
       onToggleTheme: () => toggled++,
+      onShowShortcuts: () => {},
     }).find((c) => c.id === "toggle-theme");
     expect(dark?.label).toBe("Switch to light theme");
 
@@ -46,6 +51,7 @@ describe("command palette actions", () => {
       navigate: () => {},
       theme: "light",
       onToggleTheme: () => {},
+      onShowShortcuts: () => {},
     }).find((c) => c.id === "toggle-theme");
     expect(light?.label).toBe("Switch to dark theme");
 
@@ -58,6 +64,7 @@ describe("command palette actions", () => {
       navigate: () => {},
       theme: "dark" as const,
       onToggleTheme: () => {},
+      onShowShortcuts: () => {},
     };
     expect(buildCommands(base).some((c) => c.group === "View")).toBe(false);
 
@@ -106,5 +113,28 @@ describe("command palette actions", () => {
       "projection",
       "display:xray",
     ]);
+  });
+  test("shortcuts action opens the list and shows the ? hotkey", () => {
+    let opened = 0;
+    const entry = buildCommands({
+      navigate: () => {},
+      theme: "dark",
+      onToggleTheme: () => {},
+      onShowShortcuts: () => opened++,
+    }).find((c) => c.id === "keyboard-shortcuts");
+
+    expect(entry?.group).toBe("Preferences");
+    expect(entry?.shortcut).toBe("?");
+    entry?.onSelect();
+    expect(opened).toBe(1);
+  });
+
+  test("shortcuts list mirrors every view key the viewport binds", () => {
+    const viewGroup = SHORTCUT_GROUPS.find((g) => g.title === "View");
+    const keys = viewGroup?.shortcuts.map((s) => s.keys) ?? [];
+
+    expect(keys.length).toBe(Object.keys(VIEW_KEYS).length);
+    expect(keys).toContain("ctrl+1");
+    expect(keys).not.toContain("Ctrl 1");
   });
 });
