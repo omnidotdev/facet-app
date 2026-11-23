@@ -146,6 +146,8 @@ export class Viewport {
   private gizmo: ViewGizmo | null = null;
   /** Whether the pointer is over the viewport, which scopes the view keys */
   private hovering = false;
+  /** Orbit drags (on the view and on the gizmo) turn the opposite way */
+  private invertDrag = false;
 
   /** Told whenever the projection changes, so the UI can show it */
   onProjectionChange: (projection: Projection) => void = () => {};
@@ -485,9 +487,19 @@ export class Viewport {
     s.color = this.theme === "dark" ? "#c9d3de" : "#3a3326";
   }
 
+  /**
+   * Reverse which way a drag orbits, for people used to modelers that move the
+   * camera rather than the model. Applies to drags on the view and the gizmo;
+   * the arrow keys keep their fixed directions
+   */
+  setInvertDrag(inverted: boolean): void {
+    this.invertDrag = inverted;
+  }
+
   /** Orbit by a pointer drag, leaving an automatic orthographic view */
   private orbitBy(dx: number, dy: number): void {
-    this.orbitAngles(-dx * ORBIT_SPEED, dy * ORBIT_SPEED);
+    const sign = this.invertDrag ? -1 : 1;
+    this.orbitAngles(-dx * ORBIT_SPEED * sign, dy * ORBIT_SPEED * sign);
   }
 
   /** Orbit by angles, leaving an automatic orthographic view */

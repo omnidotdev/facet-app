@@ -153,3 +153,71 @@ export function saveParamsCollapsed(collapsed: boolean): void {
     // storage unavailable - the panel still toggles, it just won't persist
   }
 }
+
+const INVERT_DRAG_KEY = "facet:invert-drag:v1";
+
+/**
+ * Whether dragging the view orbits the opposite way. A per-browser input
+ * preference, since which way feels natural depends on the modeler a person
+ * learned on
+ */
+export function loadInvertDrag(): boolean {
+  try {
+    return localStorage.getItem(INVERT_DRAG_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Persist the orbit drag direction. Silently no-ops without storage */
+export function saveInvertDrag(inverted: boolean): void {
+  try {
+    localStorage.setItem(INVERT_DRAG_KEY, inverted ? "1" : "0");
+  } catch {
+    // storage unavailable - the setting applies for this session only
+  }
+}
+
+const EDITOR_WIDTH_KEY = "facet:editor-width:v1";
+
+/** The editor's share of the Studio width when nothing is saved */
+export const DEFAULT_EDITOR_FRACTION = 0.4;
+/** The narrowest the code editor gets, in CSS pixels */
+export const MIN_EDITOR_PX = 280;
+/** The narrowest the 3D view gets, in CSS pixels */
+export const MIN_VIEWPORT_PX = 320;
+
+/**
+ * Clamp the editor's share of a Studio `total` pixels wide so both panes keep
+ * a usable minimum. When the window is too narrow for both minimums, the
+ * editor keeps its minimum and the view takes the rest
+ */
+export function clampEditorFraction(fraction: number, total: number): number {
+  if (!Number.isFinite(fraction) || total <= 0) return DEFAULT_EDITOR_FRACTION;
+  const min = MIN_EDITOR_PX / total;
+  const max = 1 - MIN_VIEWPORT_PX / total;
+  if (max <= min) return Math.min(min, 1);
+  return Math.min(Math.max(fraction, min), max);
+}
+
+/** The saved editor share of the Studio width, or null to use the default */
+export function loadEditorFraction(): number | null {
+  try {
+    const raw = localStorage.getItem(EDITOR_WIDTH_KEY);
+    if (raw === null) return null;
+    const value = Number(raw);
+    return Number.isFinite(value) && value > 0 && value < 1 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the editor share, or forget it (back to the default) with null */
+export function saveEditorFraction(fraction: number | null): void {
+  try {
+    if (fraction === null) localStorage.removeItem(EDITOR_WIDTH_KEY);
+    else localStorage.setItem(EDITOR_WIDTH_KEY, fraction.toFixed(4));
+  } catch {
+    // storage unavailable - the split still moves, it just won't persist
+  }
+}
