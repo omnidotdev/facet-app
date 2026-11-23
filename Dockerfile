@@ -7,7 +7,10 @@ FROM oven/bun:1.4.4 AS base
 WORKDIR /app
 
 FROM base AS deps
+# patches/ holds the bun patch for replicad (OCCT memory fixes), which install
+# applies, so it must be present before bun install runs
 COPY package.json bun.lock ./
+COPY patches ./patches
 RUN bun install --frozen-lockfile
 
 FROM base AS builder
