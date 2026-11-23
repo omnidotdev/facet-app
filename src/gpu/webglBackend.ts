@@ -24,23 +24,38 @@ import type { FrameParams, RenderBackend } from "./backend";
 // depth to -1..1, so remap z after the multiply
 const DEPTH_REMAP = "gl_Position.z = gl_Position.z * 2.0 - gl_Position.w;";
 
+// Meshes are non-indexed, three vertices per triangle, so a vertex's place in
+// its triangle (gl_VertexID % 3) gives the barycentric corner it stands for;
+// interpolated, that is each fragment's distance to the three edges
 const MESH_VERTEX = `#version 300 es
 uniform mat4 uViewProj;
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec3 aNormal;
+layout(location = 2) in vec3 aEdges;
 out vec3 vNormal;
+out vec3 vBary;
+flat out vec3 vEdges;
 void main() {
   gl_Position = uViewProj * vec4(aPosition, 1.0);
   ${DEPTH_REMAP}
   vNormal = aNormal;
+  int corner = gl_VertexID % 3;
+  vBary = vec3(corner == 0 ? 1.0 : 0.0, corner == 1 ? 1.0 : 0.0, corner == 2 ? 1.0 : 0.0);
+  vEdges = aEdges;
 }`;
 
-// Mirrors the WebGPU mesh fragment shader (key light plus Z-up hemisphere fill)
+// Mirrors the WebGPU mesh fragment shader: key light plus Z-up hemisphere
+// fill, then the render mode's lines and fill opacity (uStyle: fill opacity,
+// edge strength, line half-width in device pixels)
 const MESH_FRAGMENT = `#version 300 es
 precision highp float;
 uniform vec3 uLightDir;
 uniform vec4 uBaseColor;
+uniform vec4 uStyle;
+uniform vec4 uEdgeColor;
 in vec3 vNormal;
+in vec3 vBary;
+flat in vec3 vEdges;
 out vec4 outColor;
 void main() {
   vec3 n = normalize(vNormal);
@@ -49,7 +64,15 @@ void main() {
   float hemiFactor = n.z * 0.5 + 0.5;
   vec3 hemi = mix(vec3(0.38, 0.38, 0.36), vec3(1.0), hemiFactor);
   vec3 lighting = hemi * 0.85 + vec3(key);
-  outColor = vec4(uBaseColor.rgb * lighting, 1.0);
+  vec3 shaded = uBaseColor.rgb * lighting;
+  // Distance to each edge in device pixels; unflagged edges are pushed far away
+  vec3 px = vBary / max(fwidth(vBary), vec3(1e-6));
+  vec3 dist = mix(vec3(1e6), px, vEdges);
+  float d = min(min(dist.x, dist.y), dist.z);
+  float line = (1.0 - smoothstep(uStyle.z - 0.5, uStyle.z + 0.5, d)) * uStyle.y;
+  float alpha = max(uStyle.x, line);
+  if (alpha < 0.004) discard;
+  outColor = vec4(mix(shaded, uEdgeColor.rgb, line), alpha);
 }`;
 
 const GRID_VERTEX = `#version 300 es
@@ -149,11 +172,14 @@ class WebGlBackend implements RenderBackend {
   private readonly gridVao: WebGLVertexArrayObject;
   private readonly positionBuffer: WebGLBuffer;
   private readonly normalBuffer: WebGLBuffer;
+  private readonly edgeBuffer: WebGLBuffer;
   private readonly gridBuffer: WebGLBuffer;
   private readonly loc: {
     meshViewProj: WebGLUniformLocation | null;
     lightDir: WebGLUniformLocation | null;
     baseColor: WebGLUniformLocation | null;
+    style: WebGLUniformLocation | null;
+    edgeColor: WebGLUniformLocation | null;
     gridViewProj: WebGLUniformLocation | null;
     gridColor: WebGLUniformLocation | null;
   };
@@ -172,12 +198,15 @@ class WebGlBackend implements RenderBackend {
       meshViewProj: uniform(gl, this.meshProgram, "uViewProj"),
       lightDir: uniform(gl, this.meshProgram, "uLightDir"),
       baseColor: uniform(gl, this.meshProgram, "uBaseColor"),
+      style: uniform(gl, this.meshProgram, "uStyle"),
+      edgeColor: uniform(gl, this.meshProgram, "uEdgeColor"),
       gridViewProj: uniform(gl, this.gridProgram, "uViewProj"),
       gridColor: uniform(gl, this.gridProgram, "uColor"),
     };
 
     this.positionBuffer = gl.createBuffer();
     this.normalBuffer = gl.createBuffer();
+    this.edgeBuffer = gl.createBuffer();
     this.meshVao = gl.createVertexArray();
     gl.bindVertexArray(this.meshVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
@@ -186,6 +215,9 @@ class WebGlBackend implements RenderBackend {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.normalBuffer);
     gl.enableVertexAttribArray(1);
     gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeBuffer);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, 0);
 
     this.gridBuffer = gl.createBuffer();
     this.gridVao = gl.createVertexArray();
@@ -216,6 +248,7 @@ class WebGlBackend implements RenderBackend {
   setMesh(
     positions: Float32Array,
     normals: Float32Array,
+    edges: Float32Array,
     triangleCount: number,
   ): void {
     if (this.lost) return;
@@ -224,7 +257,16 @@ class WebGlBackend implements RenderBackend {
     gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.normalBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, normals, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, edges, gl.DYNAMIC_DRAW);
     this.vertexCount = triangleCount * 3;
+  }
+
+  setEdges(edges: Float32Array): void {
+    if (this.lost) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, edges, gl.DYNAMIC_DRAW);
   }
 
   draw(frame: FrameParams): void {
@@ -314,10 +356,15 @@ class WebGlBackend implements RenderBackend {
     gl.bindVertexArray(this.gridVao);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-    // Solid
+    // Solid. A see-through mode (fill opacity below 1) blends and stops
+    // writing depth, so every layer behind the front faces shows too
+    const seeThrough = frame.style[0] < 1;
+    gl.depthMask(!seeThrough);
+    if (seeThrough) gl.enable(gl.BLEND);
+    else gl.disable(gl.BLEND);
+    if (this.vertexCount > 0) this.drawMesh(frame);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
-    if (this.vertexCount > 0) this.drawMesh(frame);
     gl.bindVertexArray(null);
   }
 
@@ -327,6 +374,8 @@ class WebGlBackend implements RenderBackend {
     gl.uniformMatrix4fv(this.loc.meshViewProj, false, frame.viewProj);
     gl.uniform3fv(this.loc.lightDir, frame.lightDir);
     gl.uniform4fv(this.loc.baseColor, frame.baseColor);
+    gl.uniform4fv(this.loc.style, frame.style);
+    gl.uniform4fv(this.loc.edgeColor, frame.edgeColor);
     gl.bindVertexArray(this.meshVao);
     gl.drawArrays(gl.TRIANGLES, 0, this.vertexCount);
   }
@@ -336,6 +385,7 @@ class WebGlBackend implements RenderBackend {
     this.canvas.removeEventListener("webglcontextlost", this.onContextLost);
     gl.deleteBuffer(this.positionBuffer);
     gl.deleteBuffer(this.normalBuffer);
+    gl.deleteBuffer(this.edgeBuffer);
     gl.deleteBuffer(this.gridBuffer);
     gl.deleteVertexArray(this.meshVao);
     gl.deleteVertexArray(this.gridVao);

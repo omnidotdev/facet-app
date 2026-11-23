@@ -44,9 +44,14 @@ class WebGpuBackend implements RenderBackend {
   setMesh(
     positions: Float32Array,
     normals: Float32Array,
+    edges: Float32Array,
     triangleCount: number,
   ): void {
-    this.mesh.setMesh(positions, normals, triangleCount);
+    this.mesh.setMesh(positions, normals, edges, triangleCount);
+  }
+
+  setEdges(edges: Float32Array): void {
+    this.mesh.setEdges(edges);
   }
 
   draw(frame: FrameParams): void {
@@ -125,6 +130,8 @@ class WebGpuBackend implements RenderBackend {
       viewProj: frame.viewProj,
       lightDir: frame.lightDir,
       baseColor: frame.baseColor,
+      style: frame.style,
+      edgeColor: frame.edgeColor,
     });
     this.grid.setColor(frame.grid);
 
@@ -147,7 +154,8 @@ class WebGpuBackend implements RenderBackend {
       },
     });
     this.grid.render(pass, this.mesh.bindGroup);
-    this.mesh.render(pass);
+    // A see-through mode (fill opacity below 1) skips depth writes
+    this.mesh.render(pass, frame.style[0] < 1);
     pass.end();
     encoder.submit();
   }

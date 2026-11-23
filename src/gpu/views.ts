@@ -209,7 +209,8 @@ export type ViewKeyAction =
   | { kind: "frame" }
   | { kind: "projection" }
   | { kind: "orbit"; azimuth: number; polar: number }
-  | { kind: "zoom"; factor: number };
+  | { kind: "zoom"; factor: number }
+  | { kind: "renderMode" };
 
 /**
  * The conventional numpad view keys, with the number row working the same
@@ -221,6 +222,7 @@ export type ViewKeyAction =
  *   steps; the arrow keys orbit too
  * - plus and minus zoom; 5 toggles orthographic; period or Home frames the
  *   model
+ * - Z cycles the display mode (shaded, edges, wireframe, X-ray)
  */
 export const viewKeyAction = (e: {
   code: string;
@@ -257,6 +259,7 @@ export const viewKeyAction = (e: {
     return { kind: "zoom", factor: ZOOM_STEP };
   if (e.code === "NumpadDecimal" || e.code === "Period" || e.code === "Home")
     return { kind: "frame" };
+  if (e.code === "KeyZ") return { kind: "renderMode" };
   return null;
 };
 
@@ -272,4 +275,5 @@ export const VIEW_KEYS = {
   flip: "9",
   frame: "Home",
   projection: "5",
+  renderMode: "Z",
 } as const;

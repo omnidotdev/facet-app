@@ -8,6 +8,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { Axis3d, Box, Focus, HomeIcon, MoonStar, Rotate3d } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
+import { RENDER_MODE_ICONS } from "@/components/renderModeIcons";
+import { RENDER_MODES, RENDER_MODE_LABELS } from "@/gpu/renderMode";
 import { VIEW_KEYS, VIEW_LABELS } from "@/gpu/views";
 import { getTheme, subscribe, toggleTheme } from "@/themeStore";
 import { getViewControl, subscribeViewControl } from "@/viewControl";
@@ -81,6 +83,26 @@ const viewCommands = (view: ViewControl): CommandAction[] => [
     shortcut: VIEW_KEYS.projection,
     onSelect: view.toggleProjection,
   },
+  ...RENDER_MODES.map(
+    (mode): CommandAction => ({
+      id: `view-display-${mode}`,
+      label: `Display: ${RENDER_MODE_LABELS[mode]}`,
+      group: "View",
+      icon: RENDER_MODE_ICONS[mode],
+      keywords: [
+        "display",
+        "render",
+        "mode",
+        "shading",
+        "edges",
+        "wireframe",
+        "x-ray",
+        "xray",
+        "transparent",
+      ],
+      onSelect: () => view.setRenderMode(mode),
+    }),
+  ),
 ];
 
 /**

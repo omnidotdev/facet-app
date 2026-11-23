@@ -7,6 +7,7 @@ import AccountControl from "@/components/auth/AccountControl";
 import ExamplesMenu from "@/components/ExamplesMenu";
 import ImportArtButton from "@/components/ImportArtButton";
 import PaneSplitter from "@/components/PaneSplitter";
+import { RENDER_MODE_ICONS } from "@/components/renderModeIcons";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import ViewNavButton from "@/components/ViewNavButton";
 import { createEditor } from "@/editor";
@@ -27,6 +28,12 @@ import {
   rendererLabel,
   saveRendererPreference,
 } from "@/gpu/rendererPreference";
+import {
+  RENDER_MODE_LABELS,
+  loadRenderMode,
+  nextRenderMode,
+  saveRenderMode,
+} from "@/gpu/renderMode";
 import { VIEW_KEYS } from "@/gpu/views";
 import { ParamStore, formatParamNumber, parseParamInput } from "@/params";
 import { createRunWaiters } from "@/runWaiters";
@@ -57,6 +64,7 @@ import type { AsyncKernel } from "@/facet/kernel";
 import type { BrepNeed } from "@/facet/opgraph";
 import type { RendererKind } from "@/gpu/backend";
 import type { RendererPreference } from "@/gpu/rendererPreference";
+import type { RenderMode } from "@/gpu/renderMode";
 import type { SavedWorkspace } from "@/storage";
 import type { TabsState } from "@/tabs";
 import type { Theme } from "@/theme";
@@ -149,6 +157,9 @@ export default function FacetStudio() {
   );
   // Which way a drag orbits the view (saved per browser)
   const [invertDrag, setInvertDrag] = useState(loadInvertDrag);
+  // How the solid is drawn (saved per browser); the viewport owns the value
+  // and reports changes from its Z key, the button, and the palette
+  const [renderMode, setRenderMode] = useState<RenderMode>(loadRenderMode);
   // The editor and 3D view grid, which the pane splitter resizes
   const mainRef = useRef<HTMLElement>(null);
 
@@ -453,8 +464,13 @@ export default function FacetStudio() {
     );
     viewportRef.current = viewport;
     viewport.onProjectionChange = setProjection;
-    // Read the saved choice directly: this setup effect runs once
+    // Read the saved choices directly: this setup effect runs once
     viewport.setInvertDrag(loadInvertDrag());
+    viewport.setRenderMode(loadRenderMode());
+    viewport.onRenderModeChange = (mode) => {
+      setRenderMode(mode);
+      saveRenderMode(mode);
+    };
     if (gizmoMount.current) viewport.mountGizmo(gizmoMount.current);
     // The B-rep kernel runs in its own worker (AsyncKernel); the mesh and Rust
     // kernels are fast enough to stay in-process
@@ -996,8 +1012,11 @@ export default function FacetStudio() {
       flipView: () => viewport.flipView(),
       frameModel: () => viewport.frameModel(),
       toggleProjection: () => viewport.toggleProjection(),
+      setRenderMode: (mode) => viewport.setRenderMode(mode),
     });
   }, []);
+
+  const RenderModeIcon = RENDER_MODE_ICONS[renderMode];
 
   // Keep the retained name current while the confirm dialog is open
   if (closing) closingNameRef.current = closing.name;
@@ -1292,6 +1311,13 @@ export default function FacetStudio() {
                 onClick={() => viewportRef.current?.setView("home")}
               >
                 <House size={15} />
+              </ViewNavButton>
+              <ViewNavButton
+                label={`Display: ${RENDER_MODE_LABELS[renderMode]}. Switch to ${RENDER_MODE_LABELS[nextRenderMode(renderMode)].toLowerCase()}`}
+                shortcut={VIEW_KEYS.renderMode}
+                onClick={() => viewportRef.current?.cycleRenderMode()}
+              >
+                <RenderModeIcon size={15} />
               </ViewNavButton>
             </div>
           </div>
