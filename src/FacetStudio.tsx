@@ -6,6 +6,7 @@ import GeneratePanel from "@/components/ai/GeneratePanel";
 import AccountControl from "@/components/auth/AccountControl";
 import ExamplesMenu from "@/components/ExamplesMenu";
 import ImportArtButton from "@/components/ImportArtButton";
+import PaneSplitter from "@/components/PaneSplitter";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import ViewNavButton from "@/components/ViewNavButton";
 import { createEditor } from "@/editor";
@@ -30,8 +31,10 @@ import { VIEW_KEYS } from "@/gpu/views";
 import { ParamStore, formatParamNumber, parseParamInput } from "@/params";
 import { createRunWaiters } from "@/runWaiters";
 import {
+  loadInvertDrag,
   loadParamsCollapsed,
   loadWorkspace,
+  saveInvertDrag,
   saveParamsCollapsed,
   saveWorkspace,
 } from "@/storage";
@@ -144,6 +147,10 @@ export default function FacetStudio() {
   const [activeRenderer, setActiveRenderer] = useState<RendererKind | null>(
     null,
   );
+  // Which way a drag orbits the view (saved per browser)
+  const [invertDrag, setInvertDrag] = useState(loadInvertDrag);
+  // The editor and 3D view grid, which the pane splitter resizes
+  const mainRef = useRef<HTMLElement>(null);
 
   // The whole workspace (tabs + prefs) is restored once; the useState seed and
   // the setup effect share this object so they never disagree on the first model
@@ -446,6 +453,8 @@ export default function FacetStudio() {
     );
     viewportRef.current = viewport;
     viewport.onProjectionChange = setProjection;
+    // Read the saved choice directly: this setup effect runs once
+    viewport.setInvertDrag(loadInvertDrag());
     if (gizmoMount.current) viewport.mountGizmo(gizmoMount.current);
     // The B-rep kernel runs in its own worker (AsyncKernel); the mesh and Rust
     // kernels are fast enough to stay in-process
@@ -1107,6 +1116,25 @@ export default function FacetStudio() {
                   <option value="webgl">WebGL</option>
                 </NativeSelect>
               </label>
+              <label
+                className="settings-row"
+                title="Which way dragging the 3D view (or the axis gizmo) turns it"
+              >
+                <span className="settings-label">Orbit drag</span>
+                <NativeSelect
+                  size="sm"
+                  value={invertDrag ? "inverted" : "standard"}
+                  onChange={(e) => {
+                    const next = e.target.value === "inverted";
+                    setInvertDrag(next);
+                    saveInvertDrag(next);
+                    viewportRef.current?.setInvertDrag(next);
+                  }}
+                >
+                  <option value="standard">Standard</option>
+                  <option value="inverted">Inverted</option>
+                </NativeSelect>
+              </label>
               <label className="settings-row">
                 <span className="settings-label">Export format</span>
                 <NativeSelect ref={formatRef} defaultValue="stl" size="sm">
@@ -1224,10 +1252,11 @@ export default function FacetStudio() {
         </button>
       </div>
 
-      <main className="facet-main" data-mobile-view={mobileView}>
+      <main className="facet-main" data-mobile-view={mobileView} ref={mainRef}>
         <section className="editor-pane">
           <div className="code" ref={editorMount} />
           <div className="status" ref={statusRef} />
+          <PaneSplitter container={mainRef} />
         </section>
         <section className="viewport">
           <div className="viewport-canvas" ref={viewportMount} />

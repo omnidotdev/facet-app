@@ -283,15 +283,59 @@ body,
 
 .facet-main {
   display: grid;
-  grid-template-columns: minmax(280px, 40%) 1fr;
+  /* The pane splitter sets --editor-fraction; the floor keeps the editor usable
+     even when a saved split meets a narrower window */
+  grid-template-columns: minmax(280px, var(--editor-fraction, 40%)) minmax(
+      0,
+      1fr
+    );
   min-height: 0;
 }
 
 .editor-pane {
+  /* Positioned and stacked above the view so the splitter's grab area can
+     overhang the border into the canvas */
+  position: relative;
+  z-index: 1;
   display: grid;
   grid-template-rows: 1fr auto auto;
   border-right: 1px solid var(--line);
   min-height: 0;
+  min-width: 0;
+}
+
+/* The editor and 3D view divider: an 8 px grab area centered on the border,
+   with an accent line while hovered, focused, or dragged */
+.pane-splitter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -5px;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.pane-splitter::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 3px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.pane-splitter:hover::after,
+.pane-splitter:focus-visible::after,
+.pane-splitter[data-dragging]::after {
+  opacity: 1;
+}
+/* While dragging, keep the resize cursor and stop text selection everywhere */
+.facet-main:has(.pane-splitter[data-dragging]) {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .editor-pane .code {
@@ -1173,6 +1217,10 @@ button.ai-job-btn:focus-visible {
   }
   .editor-pane {
     border-right: 0;
+  }
+  /* One pane at a time on a phone, so there is nothing to resize */
+  .pane-splitter {
+    display: none;
   }
 
   /* On a phone, drop the decorative tagline and tighten the controls so the
