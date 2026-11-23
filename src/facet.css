@@ -1,22 +1,25 @@
 /*
  * Studio token aliases, scoped to the .facet-app subtree. The Studio UI reads
- * these short names (--bg/--panel/--accent/...), but they are now ALIASES of
+ * these short names (--bg/--panel/--studio-accent/...), but they are ALIASES of
  * the Sigil SEMANTIC tokens defined on :root in styles.css, which already
  * switch light/dark via [data-theme]. So the palette has ONE source of truth
  * (the semantic layer) and the two can no longer drift out of sync; previously
  * both layers hardcoded the same hexes and a comment warned they "must stay in
- * sync". The names stay .facet-app-scoped on purpose, so --accent/--muted keep
- * their Studio meaning here without clobbering the Sigil tokens on :root. Only
- * --ok (success green) has no semantic equivalent, so it stays explicit
+ * sync". The accent and muted aliases carry a `studio-` prefix because the
+ * shared names would shadow the Sigil tokens for this whole subtree: Tailwind
+ * compiles `hover:bg-accent` and `bg-muted` to `var(--accent)` / `var(--muted)`,
+ * which resolve at the element, so a scoped `--accent: var(--primary)` turned
+ * every Thornberry hover inside the Studio into the primary color. Only --ok
+ * (success green) has no semantic equivalent, so it stays explicit
  */
 .facet-app {
-  --accent: var(--primary);
-  --accent-ink: var(--primary-foreground);
+  --studio-accent: var(--primary);
+  --studio-accent-ink: var(--primary-foreground);
   --bg: var(--background);
   --panel: var(--card);
   --panel-2: var(--secondary);
   --text: var(--foreground);
-  --muted: var(--muted-foreground);
+  --studio-muted: var(--muted-foreground);
   --line: var(--border);
   --err: var(--destructive);
   --ok: #7fd6a3;
@@ -106,18 +109,18 @@ body,
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--amber, var(--accent));
-  border: 1px solid var(--amber, var(--accent));
+  color: var(--amber, var(--studio-accent));
+  border: 1px solid var(--amber, var(--studio-accent));
   border-radius: 999px;
   padding: 2px 7px;
   white-space: nowrap;
 }
 .facet-app .brand b {
-  color: var(--accent);
+  color: var(--studio-accent);
 }
 .facet-app .tag {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--studio-muted);
   white-space: nowrap;
 }
 /* The tagline is decorative: show it only when the header has room, so it never
@@ -144,9 +147,9 @@ body,
   white-space: nowrap;
 }
 .facet-app button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  background: var(--studio-accent);
+  border-color: var(--studio-accent);
+  color: var(--studio-accent-ink);
   font-weight: 600;
 }
 /* Destructive confirm action (e.g. closing a model) */
@@ -162,7 +165,7 @@ body,
 }
 .facet-app button:hover,
 .facet-app select.param-select:hover {
-  border-color: var(--accent);
+  border-color: var(--studio-accent);
 }
 .facet-app button.icon-btn {
   display: inline-flex;
@@ -178,7 +181,7 @@ body,
   border-bottom-width: 2px;
   border-radius: 4px;
   background: var(--panel);
-  color: var(--muted);
+  color: var(--studio-muted);
 }
 
 /* Phone-only tab bar: switch the editor and 3D viewport as full-screen panes.
@@ -192,13 +195,13 @@ body,
   border-radius: 0;
   border-bottom: 2px solid transparent;
   background: var(--panel);
-  color: var(--muted);
+  color: var(--studio-muted);
   font-weight: 600;
   padding: 10px 0;
 }
 .facet-app .mobile-tab[data-active="true"] {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--studio-accent);
+  border-bottom-color: var(--studio-accent);
 }
 
 /* Document tabs: one per open model, horizontally scrollable, with a new-tab
@@ -221,14 +224,14 @@ body,
   border-bottom: 2px solid transparent;
 }
 .doc-tab[data-active="true"] {
-  border-bottom-color: var(--accent);
+  border-bottom-color: var(--studio-accent);
   background: var(--panel-2);
 }
 .facet-app button.doc-tab-label {
   border: none;
   border-radius: 0;
   background: none;
-  color: var(--muted);
+  color: var(--studio-muted);
   font-size: 12px;
   padding: 9px 2px 9px 10px;
   max-width: 180px;
@@ -247,7 +250,7 @@ body,
   font-weight: 600;
   color: var(--text);
   background: var(--panel-2);
-  border: 1px solid var(--accent);
+  border: 1px solid var(--studio-accent);
   border-radius: 4px;
   padding: 4px 6px;
   margin: 4px 2px 4px 8px;
@@ -258,7 +261,7 @@ body,
   border: none;
   border-radius: 4px;
   background: none;
-  color: var(--muted);
+  color: var(--studio-muted);
   font-size: 14px;
   line-height: 1;
   padding: 4px 7px;
@@ -271,14 +274,14 @@ body,
 .facet-app button.doc-tab-new {
   border: none;
   background: none;
-  color: var(--muted);
+  color: var(--studio-muted);
   font-size: 19px;
   line-height: 1;
   padding: 4px 11px;
   flex: 0 0 auto;
 }
 .facet-app button.doc-tab-new:hover {
-  color: var(--accent);
+  color: var(--studio-accent);
 }
 
 .facet-main {
@@ -323,7 +326,7 @@ body,
   bottom: 0;
   left: 3px;
   width: 3px;
-  background: var(--accent);
+  background: var(--studio-accent);
   opacity: 0;
   transition: opacity 120ms ease;
 }
@@ -378,13 +381,13 @@ body,
   align-items: center;
   gap: 7px;
   font-weight: 600;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--studio-accent);
+  background: color-mix(in srgb, var(--studio-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--studio-accent) 45%, transparent);
 }
 .facet-app button.ai-trigger:hover {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--studio-accent) 20%, transparent);
+  border-color: var(--studio-accent);
 }
 .facet-app button.ai-trigger .ai-title {
   color: inherit;
@@ -425,13 +428,13 @@ body,
   padding: 2px 6px;
   border: none;
   background: none;
-  color: var(--muted);
+  color: var(--studio-muted);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
 }
 .facet-app button.ai-modal-close:hover {
-  color: var(--accent);
+  color: var(--studio-accent);
 }
 .ai-title {
   font-size: 13px;
@@ -448,20 +451,20 @@ body,
   text-transform: uppercase;
   padding: 1px 6px;
   border-radius: 999px;
-  color: var(--accent-ink);
-  background: var(--accent);
+  color: var(--studio-accent-ink);
+  background: var(--studio-accent);
 }
 .facet-app button.ai-signout {
   justify-self: start;
   padding: 2px 0;
   border: none;
   background: none;
-  color: var(--muted);
+  color: var(--studio-muted);
   font-size: 12px;
   cursor: pointer;
 }
 .facet-app button.ai-signout:hover {
-  color: var(--accent);
+  color: var(--studio-accent);
 }
 .ai-form {
   display: grid;
@@ -483,7 +486,7 @@ body,
 }
 .facet-app .ai-textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--studio-accent);
 }
 .ai-actions {
   display: flex;
@@ -511,7 +514,7 @@ body,
 /* The panel below renders inside the shared dialog, which portals to the body
    (outside the .facet-app subtree), so these rules use the Sigil SEMANTIC tokens
    defined on :root (--primary/--foreground/--muted-foreground) rather than the
-   Studio aliases (--accent/--text/--muted), which only exist under .facet-app */
+   Studio aliases (--studio-accent/--text/--studio-muted), which only exist under .facet-app */
 
 /* The "generation runs through Synapse" link in the panel description: the
    router is a visible, clickable part of the flow, so style it as a real link
@@ -600,7 +603,7 @@ button.ai-toast-action {
   background: none;
   font: inherit;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--studio-accent);
   cursor: pointer;
 }
 button.ai-toast-action:hover {
@@ -783,13 +786,13 @@ button.ai-job-btn:focus-visible {
   font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--studio-accent);
+  border: 1px solid color-mix(in srgb, var(--studio-accent) 45%, transparent);
 }
 .ai-queue-indicator[data-state="ready"] {
-  color: var(--accent-ink);
-  background: var(--accent);
-  border-color: var(--accent);
+  color: var(--studio-accent-ink);
+  background: var(--studio-accent);
+  border-color: var(--studio-accent);
 }
 .ai-sr-only {
   position: absolute;
@@ -811,12 +814,12 @@ button.ai-job-btn:focus-visible {
   padding: 2px 0;
   border: none;
   background: none;
-  color: var(--muted);
+  color: var(--studio-muted);
   font-size: 12px;
   cursor: pointer;
 }
 .facet-app button.ai-byok-toggle:hover {
-  color: var(--accent);
+  color: var(--studio-accent);
 }
 .ai-byok-body {
   display: grid;
@@ -835,18 +838,18 @@ button.ai-job-btn:focus-visible {
 }
 .facet-app .ai-byok-input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--studio-accent);
 }
 .ai-help {
   margin: 0;
   font-size: 11px;
   line-height: 1.45;
-  color: var(--muted);
+  color: var(--studio-muted);
 }
 /* Links in help text (e.g. Synapse) must read clearly as links, not blend into
    the muted copy around them */
 .facet-app .ai-help a {
-  color: var(--accent);
+  color: var(--studio-accent);
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -876,7 +879,7 @@ button.ai-job-btn:focus-visible {
   border: 1px solid var(--line);
   border-radius: 999px;
   font-size: 11px;
-  color: var(--muted);
+  color: var(--studio-muted);
   background: var(--panel);
   pointer-events: auto;
   user-select: none;
@@ -918,7 +921,7 @@ button.ai-job-btn:focus-visible {
 }
 .view-gizmo:focus-visible .view-gizmo-backdrop {
   opacity: 0.55;
-  stroke: var(--accent);
+  stroke: var(--studio-accent);
   stroke-width: 2;
 }
 /* The 3D view takes keyboard focus for the view keys; ring it only when
@@ -927,7 +930,7 @@ button.ai-job-btn:focus-visible {
   outline: none;
 }
 .viewport-canvas:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--studio-accent);
   outline-offset: -2px;
 }
 .view-gizmo-backdrop {
@@ -1000,7 +1003,7 @@ button.ai-job-btn:focus-visible {
   padding: 0;
   border: 0;
   border-radius: 6px;
-  color: var(--muted);
+  color: var(--studio-muted);
   background: transparent;
   cursor: pointer;
 }
@@ -1009,7 +1012,7 @@ button.ai-job-btn:focus-visible {
   background: var(--panel-2);
 }
 .facet-app .view-nav-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--studio-accent);
   outline-offset: 1px;
 }
 /* Tooltip on the view buttons: what it does, then the matching key */
@@ -1019,7 +1022,7 @@ button.ai-job-btn:focus-visible {
   font-size: 12px;
   white-space: nowrap;
 }
-/* The Studio's --muted alias (muted text) shadows the Sigil surface token the
+/* The Studio's --studio-muted alias (muted text) shadows the Sigil surface token the
    key chip's bg-muted reads, which would paint the chip in its own text color */
 .view-nav-tip kbd {
   background: var(--panel-2);
@@ -1027,7 +1030,7 @@ button.ai-job-btn:focus-visible {
   border-color: var(--line);
 }
 .facet-app .view-nav-btn[aria-pressed="true"] {
-  color: var(--accent);
+  color: var(--studio-accent);
 }
 
 .params {
@@ -1047,7 +1050,7 @@ button.ai-job-btn:focus-visible {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: var(--studio-muted);
   margin-bottom: 8px;
 }
 /* Collapsed, the panel folds to its title so it stops covering the model */
@@ -1075,7 +1078,7 @@ button.ai-job-btn:focus-visible {
   color: var(--text);
 }
 .facet-app .params-toggle:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--studio-accent);
   outline-offset: 2px;
 }
 .params[data-collapsed] .params-toggle {
@@ -1118,7 +1121,7 @@ button.ai-job-btn:focus-visible {
 .param-value {
   font-family: ui-monospace, monospace;
   font-size: 12px;
-  color: var(--accent);
+  color: var(--studio-accent);
 }
 /* The value is an editable field that reads as plain text until hovered or
    focused, sized to its contents */
@@ -1144,7 +1147,7 @@ button.ai-job-btn:focus-visible {
 }
 .param-row input.param-value-input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--studio-accent);
   background: var(--panel-2);
 }
 .param-row input.param-value-input[aria-invalid="true"] {
@@ -1159,32 +1162,32 @@ button.ai-job-btn:focus-visible {
 .param-row input[type="range"] {
   grid-column: 1 / -1;
   width: 100%;
-  accent-color: var(--accent);
+  accent-color: var(--studio-accent);
   cursor: pointer;
 }
 .param-row input[type="checkbox"].param-checkbox {
   justify-self: end;
-  accent-color: var(--accent);
+  accent-color: var(--studio-accent);
   cursor: pointer;
 }
 .param-row select.param-select {
   font-size: 12px;
   color: var(--text);
   background: var(--panel, transparent);
-  accent-color: var(--accent);
+  accent-color: var(--studio-accent);
   cursor: pointer;
 }
 
 .facet-app footer {
   padding: 7px 16px;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--studio-muted);
   background: var(--panel);
   border-top: 1px solid var(--line);
   text-align: center;
 }
 .facet-app footer a {
-  color: var(--accent);
+  color: var(--studio-accent);
   text-decoration: none;
   font-weight: 600;
 }
@@ -1258,9 +1261,9 @@ button.ai-job-btn:focus-visible {
 /* Account control (header sign-in / signed-in menu). Sits at the right of the
    header controls, the single identity entry point for the app */
 .facet-app button.account-signin {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--studio-accent);
+  background: color-mix(in srgb, var(--studio-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--studio-accent) 45%, transparent);
   font-weight: 600;
 }
 .facet-app .account-menu {
@@ -1281,8 +1284,8 @@ button.ai-job-btn:focus-visible {
   cursor: pointer;
 }
 .facet-app button.account-trigger:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--studio-accent);
+  color: var(--studio-accent);
 }
 .account-avatar {
   display: inline-flex;
@@ -1318,7 +1321,7 @@ button.ai-job-btn:focus-visible {
 }
 .facet-app .account-email {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--studio-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 220px;
@@ -1409,7 +1412,7 @@ button.ai-job-btn:focus-visible {
 .facet-app
   .account-consent-toggle[aria-checked="true"]
   .account-consent-switch {
-  background: var(--accent);
+  background: var(--studio-accent);
 }
 .facet-app .account-consent-knob {
   position: absolute;
@@ -1429,11 +1432,11 @@ button.ai-job-btn:focus-visible {
   margin: 6px 0 0;
   font-size: 11px;
   line-height: 1.4;
-  color: var(--muted);
+  color: var(--studio-muted);
   white-space: normal;
 }
 .facet-app .account-consent-desc a {
-  color: var(--accent);
+  color: var(--studio-accent);
   text-decoration: none;
 }
 .facet-app .account-consent-desc a:hover {
@@ -1481,7 +1484,7 @@ button.ai-job-btn:focus-visible {
   background: var(--panel-2);
 }
 .facet-app .examples-dropdown .examples-item[aria-current="true"] {
-  color: var(--accent);
+  color: var(--studio-accent);
   font-weight: 600;
 }
 
@@ -1507,7 +1510,7 @@ button.ai-job-btn:focus-visible {
 }
 .facet-app .import-hint {
   margin: 2px 4px 0;
-  color: var(--muted);
+  color: var(--studio-muted);
   font-size: 12px;
   line-height: 1.4;
 }
@@ -1553,7 +1556,7 @@ button.ai-job-btn:focus-visible {
 }
 .facet-app .settings-label {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--studio-muted);
   white-space: nowrap;
 }
 .facet-app .settings-value {
@@ -1569,7 +1572,7 @@ button.ai-job-btn:focus-visible {
   cursor: pointer;
 }
 .facet-app button.settings-row-btn:hover {
-  border-color: var(--accent);
+  border-color: var(--studio-accent);
 }
 
 /* Shared Ark UI dialog (ConfirmDialog): click-outside + Escape come from Ark;
@@ -1600,7 +1603,7 @@ button.ai-job-btn:focus-visible {
 }
 /*
  * Theme the dialog through the Sigil SEMANTIC tokens (defined on :root in
- * styles.css), never the .facet-app-scoped Studio tokens (--panel/--accent/...).
+ * styles.css), never the .facet-app-scoped Studio tokens (--panel/--studio-accent/...).
  * Ark can portal the dialog to <body>, outside .facet-app, where the Studio
  * tokens are undefined; the semantic tokens resolve everywhere, so the dialog
  * themes correctly whether it renders inline or portaled. Values mirror the

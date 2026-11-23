@@ -7,7 +7,9 @@
   --amber: #dd6e33;
   --amber-soft: #e79256;
   --text: #e7e2d8;
-  --muted: #93a8bd;
+  /* `landing-` prefix: a scoped --muted would shadow the shared muted surface
+     token for every component inside the landing page */
+  --landing-muted: #93a8bd;
   --line: rgba(120, 150, 180, 0.14);
   --line-strong: rgba(120, 150, 180, 0.28);
 
@@ -92,7 +94,7 @@
   align-items: center;
   gap: 22px;
   font-size: 14px;
-  color: var(--muted);
+  color: var(--landing-muted);
 }
 .fl-nav-links a:hover {
   color: var(--text);
@@ -125,7 +127,7 @@
 }
 .fl-sub {
   font-size: 18px;
-  color: var(--muted);
+  color: var(--landing-muted);
   max-width: 46ch;
   margin: 0 0 28px;
 }
@@ -235,7 +237,7 @@
   font-size: 12px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--landing-muted);
   margin-bottom: 22px;
 }
 .fl-steps {
@@ -261,7 +263,7 @@
 }
 .fl-step p {
   margin: 0;
-  color: var(--muted);
+  color: var(--landing-muted);
   font-size: 14px;
 }
 
@@ -296,7 +298,7 @@
 }
 .fl-card p {
   margin: 0;
-  color: var(--muted);
+  color: var(--landing-muted);
   font-size: 14px;
 }
 
@@ -318,7 +320,7 @@
   margin: 0 0 8px;
 }
 .fl-band p {
-  color: var(--muted);
+  color: var(--landing-muted);
   margin: 0 auto;
   max-width: 52ch;
 }
@@ -344,7 +346,7 @@
   margin: 0 0 8px;
 }
 .fl-print p {
-  color: var(--muted);
+  color: var(--landing-muted);
   margin: 0 0 20px;
   max-width: 52ch;
 }
@@ -366,7 +368,7 @@
 .fl-footer {
   border-top: 1px solid var(--line);
   padding: 28px 0 40px;
-  color: var(--muted);
+  color: var(--landing-muted);
   font-size: 14px;
   display: flex;
   flex-wrap: wrap;
