@@ -1,4 +1,5 @@
 import { AiDescribePanel } from "@omnidotdev/thornberry/ai-describe-panel";
+import { ConfirmDialog } from "@omnidotdev/thornberry/confirm-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { fetchCapabilities } from "@/ai/capabilities";
@@ -53,7 +54,6 @@ import {
 } from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
 import GenerationQueue from "@/components/ai/GenerationQueue";
-import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { isAuthConfigured, requireReauth } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
 import { nameFromPrompt } from "@/tabs";
@@ -1071,7 +1071,6 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
         description={confirmCopy?.description}
         confirmLabel={confirmCopy?.confirmLabel}
         cancelLabel={QUEUE_COPY.keep}
-        destructive
         onConfirm={discardConfirmed}
       />
 

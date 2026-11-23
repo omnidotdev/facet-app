@@ -1,12 +1,21 @@
 import { CommandPalette as CommandPaletteShell } from "@omnidotdev/thornberry/command-palette";
+import { ShortcutsDialog } from "@omnidotdev/thornberry/shortcuts-dialog";
 import {
   GLOBAL_HOTKEYS,
   hotkeyLabel,
   useHotkeys,
 } from "@omnidotdev/thornberry/use-hotkeys";
 import { useNavigate } from "@tanstack/react-router";
-import { Axis3d, Box, Focus, HomeIcon, MoonStar, Rotate3d } from "lucide-react";
-import { useSyncExternalStore } from "react";
+import {
+  Axis3d,
+  Box,
+  Focus,
+  HomeIcon,
+  Keyboard,
+  MoonStar,
+  Rotate3d,
+} from "lucide-react";
+import { useState, useSyncExternalStore } from "react";
 
 import { RENDER_MODE_ICONS } from "@/components/renderModeIcons";
 import { RENDER_MODES, RENDER_MODE_LABELS } from "@/gpu/renderMode";
@@ -26,6 +35,8 @@ interface BuildCommandsArgs {
   navigate: (to: FacetRoute) => void;
   theme: Theme;
   onToggleTheme: () => void;
+  /** Open the keyboard shortcuts list */
+  onShowShortcuts: () => void;
   /** The Studio viewport's camera actions, when the Studio is open */
   view?: ViewControl | null;
 }
@@ -105,6 +116,45 @@ const viewCommands = (view: ViewControl): CommandAction[] => [
   ),
 ];
 
+/** Display form of a view key ("Ctrl 1") as a hotkey binding ("ctrl+1") */
+const viewBinding = (name: keyof typeof VIEW_KEYS) =>
+  VIEW_KEYS[name].replace("Ctrl ", "ctrl+");
+
+/**
+ * Facet's own shortcuts for the shared shortcuts list (`?`). The view keys are
+ * derived from `VIEW_KEYS`, so the list always matches what the viewport binds
+ */
+export const SHORTCUT_GROUPS = [
+  {
+    title: "Studio",
+    shortcuts: [
+      { keys: "mod+s", label: "Save the model source" },
+      { keys: "mod+o", label: "Open a model file" },
+      { keys: "f2", label: "Rename the active tab" },
+    ],
+  },
+  {
+    title: "View",
+    hint: "With the viewport focused:",
+    shortcuts: [
+      ...VIEW_ORDER.map((name) => ({
+        keys: viewBinding(name),
+        label:
+          name === "home"
+            ? "Home view"
+            : `View from ${VIEW_LABELS[name].toLowerCase()}`,
+      })),
+      { keys: viewBinding("flip"), label: "View from the opposite side" },
+      { keys: viewBinding("frame"), label: "Frame model" },
+      {
+        keys: viewBinding("projection"),
+        label: "Toggle orthographic / perspective",
+      },
+      { keys: viewBinding("renderMode"), label: "Cycle display mode" },
+    ],
+  },
+];
+
 /**
  * Build Facet's command list. Pure so it can be unit tested without rendering
  * the palette.
@@ -113,6 +163,7 @@ export const buildCommands = ({
   navigate,
   theme,
   onToggleTheme,
+  onShowShortcuts,
   view,
 }: BuildCommandsArgs): CommandAction[] => [
   {
@@ -139,6 +190,15 @@ export const buildCommands = ({
     shortcut: hotkeyLabel(GLOBAL_HOTKEYS.toggleTheme),
     onSelect: onToggleTheme,
   },
+  {
+    id: "keyboard-shortcuts",
+    label: "Keyboard shortcuts",
+    group: "Preferences",
+    icon: Keyboard,
+    keywords: ["hotkeys", "keys", "help"],
+    shortcut: hotkeyLabel(GLOBAL_HOTKEYS.showShortcuts),
+    onSelect: onShowShortcuts,
+  },
   ...(view ? viewCommands(view) : []),
 ];
 
@@ -163,15 +223,29 @@ const CommandPalette = () => {
   // This is now the single owner of `t` fleet-wide (Studio delegates to it)
   useHotkeys(GLOBAL_HOTKEYS.toggleTheme, toggleTheme);
 
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
   const commands = buildCommands({
     navigate: (to) => navigate({ to }),
     theme,
     onToggleTheme: toggleTheme,
+    onShowShortcuts: () => setShortcutsOpen(true),
     view,
   });
 
   return (
-    <CommandPaletteShell commands={commands} placeholder="Search actions..." />
+    <>
+      <CommandPaletteShell
+        commands={commands}
+        placeholder="Search actions..."
+      />
+      {/* `?` opens it anywhere; the palette entry opens it too */}
+      <ShortcutsDialog
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+        groups={SHORTCUT_GROUPS}
+      />
+    </>
   );
 };
 

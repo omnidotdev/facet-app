@@ -1,3 +1,4 @@
+import { ConfirmDialog } from "@omnidotdev/thornberry/confirm-dialog";
 import { NativeSelect } from "@omnidotdev/thornberry/native-select";
 import { Box, Focus, House, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -8,7 +9,6 @@ import ExamplesMenu from "@/components/ExamplesMenu";
 import ImportArtButton from "@/components/ImportArtButton";
 import PaneSplitter from "@/components/PaneSplitter";
 import { RENDER_MODE_ICONS } from "@/components/renderModeIcons";
-import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import ViewNavButton from "@/components/ViewNavButton";
 import { createEditor } from "@/editor";
 import { defaultExample, examples, matchExample } from "@/examples";
@@ -1360,7 +1360,6 @@ export default function FacetStudio() {
         description="This model will be removed from your workspace and cannot be recovered."
         confirmLabel="Close model"
         cancelLabel="Cancel"
-        destructive
         onConfirm={() => {
           if (closing) doCloseTab(closing.id);
         }}
