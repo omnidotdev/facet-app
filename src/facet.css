@@ -886,6 +886,174 @@ button.ai-job-btn:focus-visible {
 }
 
 /*
+ * The chat for changing the open part, docked at the bottom center of the 3D
+ * view: an input, with the conversation above it once there is one. The dock
+ * passes clicks through except on the chat itself, so the view stays usable
+ * around it. Button rules carry the .facet-app scope to win over the
+ * Studio-wide button padding and border
+ */
+.chat-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 6;
+  width: min(520px, calc(100% - 140px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.chat-dock:empty {
+  display: none;
+}
+.part-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+}
+.part-chat-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.facet-app button.part-chat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--studio-muted);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: blur(6px);
+}
+.facet-app button.part-chat-icon:hover:not(:disabled) {
+  color: var(--text);
+}
+.part-chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(260px, 38vh);
+  margin: 0;
+  padding: 2px;
+  overflow-y: auto;
+  list-style: none;
+}
+.part-chat-line {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.part-chat-line[data-role="user"] {
+  align-items: flex-end;
+}
+.part-chat-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 85%;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.part-chat-line[data-role="user"] .part-chat-bubble {
+  color: var(--studio-accent-ink);
+  background: var(--studio-accent);
+  border-color: transparent;
+}
+.part-chat-bubble[data-status="pending"],
+.part-chat-bubble[data-status="undone"] {
+  color: var(--studio-muted);
+}
+.part-chat-bubble[data-status="failed"] {
+  color: var(--err);
+}
+.part-chat-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--studio-muted);
+}
+.facet-app button.part-chat-undo {
+  padding: 0;
+  border: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--studio-accent);
+  background: none;
+}
+.facet-app button.part-chat-undo:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.part-chat-input {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 5px 5px 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.part-chat-input:focus-within {
+  border-color: color-mix(in srgb, var(--studio-accent) 60%, var(--line));
+}
+.part-chat-input textarea {
+  flex: 1;
+  min-width: 0;
+  max-height: 96px;
+  padding: 5px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  field-sizing: content;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  background: transparent;
+}
+.part-chat-input textarea::placeholder {
+  color: var(--studio-muted);
+}
+.facet-app button.part-chat-send {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--studio-accent-ink);
+  background: var(--studio-accent);
+}
+.facet-app button.part-chat-send:disabled {
+  opacity: 0.4;
+}
+@media (max-width: 760px) {
+  .chat-dock {
+    width: calc(100% - 24px);
+    bottom: 44px;
+  }
+}
+
+/*
  * View navigation: the axis gizmo with the projection, frame, and home
  * buttons. The button rules carry the .facet-app scope so they win over the
  * Studio-wide button padding and border, which would push the icon off center

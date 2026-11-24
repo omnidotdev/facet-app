@@ -116,6 +116,16 @@ export interface GenerateRefine {
   suggestion: string;
 }
 
+/** The open model an edit request changes (the prompt says how) */
+export interface GenerateEdit {
+  code: string;
+  /**
+   * The values its parameter sliders are set to, by name, so the updated
+   * model's defaults carry them forward
+   */
+  params?: Record<string, number | boolean | string>;
+}
+
 export interface GenerateOptions {
   /** A user-supplied Synapse key. When set, the gateway bills the caller. */
   byokKey?: string;
@@ -123,6 +133,11 @@ export interface GenerateOptions {
   previous?: GeneratePrevious;
   /** Prior code plus the critic's suggestion, present only on a refine pass. */
   refine?: GenerateRefine;
+  /**
+   * The model open in the editor, when the prompt asks for a change to it.
+   * Sent on that edit's repairs too, so a fix still knows what was asked
+   */
+  edit?: GenerateEdit;
   /** Repair attempt counter (0 for the first generation). */
   attempt?: number;
   /**
@@ -158,6 +173,7 @@ export async function generateModel(
   const body: Record<string, unknown> = { prompt };
   if (opts.previous) body.previous = opts.previous;
   if (opts.refine) body.refine = opts.refine;
+  if (opts.edit) body.edit = opts.edit;
   if (typeof opts.attempt === "number") body.attempt = opts.attempt;
   if (opts.generationId) body.generationId = opts.generationId;
 

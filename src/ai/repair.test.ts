@@ -228,6 +228,37 @@ describe("generateAndRun", () => {
     expect(calls[1]?.opts.previous).toEqual({ code: "broken", error: "boom" });
   });
 
+  test("forwards edit on the first call and on every repair", async () => {
+    const { fn, calls } = fakeGenerate(["broken", "fixed"]);
+    const runner = fakeRunner([{ ok: false, error: "boom" }, { ok: true }]);
+    const edit = { code: "return cube(10);" };
+
+    await generateAndRun("make it taller", runner, { generate: fn, edit });
+
+    expect(calls[0]?.opts.edit).toEqual(edit);
+    expect(calls[1]?.opts.edit).toEqual(edit);
+    expect(calls[1]?.opts.previous).toEqual({ code: "broken", error: "boom" });
+  });
+
+  test("an edit that never runs keeps the open model and says the change failed", async () => {
+    const { fn } = fakeGenerate(["broken"]);
+    const runner = fakeRunner(
+      [{ ok: false, error: "boom" }],
+      "return cube(10);",
+    );
+
+    const result = await generateAndRun("make it taller", runner, {
+      generate: fn,
+      edit: { code: "return cube(10);" },
+    });
+
+    expect(result).toMatchObject({
+      status: "error",
+      message: "Could not make that change. Try rephrasing your request.",
+    });
+    expect(runner.loaded.at(-1)).toBe("return cube(10);");
+  });
+
   test("captures the gateway's generationId and returns it", async () => {
     const calls: Array<{ opts: GenerateOptions }> = [];
     const fn = (_p: string, opts: GenerateOptions = {}) => {

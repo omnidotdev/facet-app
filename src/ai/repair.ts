@@ -1,6 +1,6 @@
 import { GenerateError, generateModel } from "./generate";
 
-import type { GenerateResult } from "./generate";
+import type { GenerateEdit, GenerateResult } from "./generate";
 
 /**
  * Client-side repair loop. Generates Facet code, runs it through the SAME
@@ -18,6 +18,9 @@ export const MAX_REPAIR_ATTEMPTS = 2;
 // Generic on purpose: no kernel error or internal detail reaches the user
 const COULD_NOT_GENERATE =
   "Could not generate a working model. Try rephrasing your request.";
+// The same, for a change to the open model (which is kept as it was)
+const COULD_NOT_EDIT =
+  "Could not make that change. Try rephrasing your request.";
 const GENERIC_FAILURE = "AI generation failed. Please try again.";
 
 /** The Studio surface the loop drives: read the editor, load + run code. */
@@ -38,6 +41,11 @@ export interface GenerateAndRunOptions {
    * kernel error, the repair loop takes over with `previous` instead
    */
   refine?: { code: string; suggestion: string };
+  /**
+   * A change to the open model: its code, which the prompt asks to change.
+   * Forwarded on every call, repairs included, so a fix still sees the request
+   */
+  edit?: GenerateEdit;
   /**
    * The generation chain id to continue, so a refine pass driven from outside
    * (the panel re-enters with the critic's suggestion) stays correlated to the
@@ -95,6 +103,7 @@ export async function generateAndRun(
   const maxAttempts = opts.maxAttempts ?? MAX_REPAIR_ATTEMPTS;
   const restorePrior = opts.restorePriorOnFailure ?? true;
   const byok = opts.byokKey ? { byokKey: opts.byokKey } : {};
+  const edit = opts.edit ? { edit: opts.edit } : {};
   const priorCode = runner.getCode();
   let touched = false;
 
@@ -113,6 +122,7 @@ export async function generateAndRun(
       opts.initial ??
       (await generate(prompt, {
         ...byok,
+        ...edit,
         ...(opts.refine ? { refine: opts.refine } : {}),
         ...(chainId ? { generationId: chainId } : {}),
       }));
@@ -126,6 +136,7 @@ export async function generateAndRun(
       attempt += 1;
       result = await generate(prompt, {
         ...byok,
+        ...edit,
         previous: { code: result.code, error: outcome.error ?? "" },
         attempt,
         ...(chainId ? { generationId: chainId } : {}),
@@ -142,7 +153,7 @@ export async function generateAndRun(
       if (restorePrior) await runner.loadCode(priorCode);
       return {
         status: "error",
-        message: COULD_NOT_GENERATE,
+        message: opts.edit ? COULD_NOT_EDIT : COULD_NOT_GENERATE,
         repairs: calls - 1,
         ...(chainId ? { generationId: chainId } : {}),
       };
