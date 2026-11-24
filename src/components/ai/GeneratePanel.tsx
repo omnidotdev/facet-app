@@ -1,5 +1,6 @@
 import { AiDescribePanel } from "@omnidotdev/thornberry/ai-describe-panel";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { fetchCapabilities } from "@/ai/capabilities";
 import { critiqueModel } from "@/ai/critique";
@@ -53,6 +54,7 @@ import {
 } from "@/ai/panelState";
 import { generateAndRun } from "@/ai/repair";
 import GenerationQueue from "@/components/ai/GenerationQueue";
+import PartChat from "@/components/ai/PartChat";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { isAuthConfigured, requireReauth } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
@@ -70,7 +72,9 @@ import type {
 } from "@/ai/panelState";
 import type { ModelRunner } from "@/ai/repair";
 import type { JobFailureLinks } from "@/components/ai/GenerationQueue";
+import type { ChatMessage } from "@/components/ai/PartChat";
 import type { StudioHandle } from "@/FacetStudio";
+import type { ParamValue } from "@/params";
 
 // Kept out of our servers: a BYOK Synapse key lives only in this browser. Used
 // in the no-auth (local/dev) fallback and by a signed-in user who is not a
@@ -106,9 +110,23 @@ interface PanelToast {
 // Shown when a request failed with nothing user-safe to say about it
 const GENERIC_FAILURE = "AI generation failed. Please try again.";
 
+/** What the chat says back about a requested change */
+const CHAT_COPY = {
+  done: "Changed the part.",
+  undone: "Undone. The part is back as it was.",
+  switchedTabs: "You switched tabs, so the change was not made.",
+  undoOtherTab: "Switch back to that part's tab to undo the change.",
+  needsAccess: "Making changes uses AI credits. See your options to continue.",
+} as const;
+
 interface GeneratePanelProps {
   /** The Studio's editor + run handle, populated after its setup effect runs. */
   handle: RefObject<StudioHandle | null>;
+  /**
+   * Where the chat for changing the open part docks (under the 3D view), or
+   * null while it is not mounted yet
+   */
+  chatMount?: HTMLElement | null;
 }
 
 /** Read the saved BYOK key, tolerating private mode or disabled storage. */
@@ -180,13 +198,13 @@ function persistLastSpend(credits: number): void {
  * Renders nothing when no gateway is configured, so the static app still works,
  * and nothing here reads the auth session or touches the network in that case.
  */
-const GeneratePanel = ({ handle }: GeneratePanelProps) => {
+const GeneratePanel = ({ handle, chatMount }: GeneratePanelProps) => {
   // No gateway, no button, and no auth session read
   if (!import.meta.env.VITE_FACET_API_URL) return null;
-  return <GeneratePanelInner handle={handle} />;
+  return <GeneratePanelInner handle={handle} chatMount={chatMount} />;
 };
 
-const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
+const GeneratePanelInner = ({ handle, chatMount }: GeneratePanelProps) => {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -767,6 +785,134 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
     await runGeneration(studio, trimmed);
   };
 
+  // The chat that changes the open part in place: its conversation, whether a
+  // change is being made, and what each change replaced (for its Undo)
+  const [chat, setChat] = useState<ChatMessage[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const chatIdRef = useRef(0);
+  const undoRef = useRef(
+    new Map<
+      string,
+      { tabId: string; code: string; params: Record<string, ParamValue> }
+    >(),
+  );
+  const nextChatId = () => {
+    chatIdRef.current += 1;
+    return `chat-${chatIdRef.current}`;
+  };
+  const updateReply = (id: string, patch: Partial<ChatMessage>) =>
+    setChat((list) => list.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+
+  /**
+   * Change the open part as the user asked: send the model in the editor and
+   * the request, load the updated model into the same tab (repairing a kernel
+   * error like a generation does), and keep the part as it was if that fails.
+   * Runs in the foreground, BYOK or managed, since the result lands in the
+   * editor the user is looking at. Spend is read off the balance change
+   */
+  const onChatSend = async (text: string) => {
+    const studio = handle.current;
+    if (!studio || chatBusy || busy) return;
+    const askId = nextChatId();
+    const replyId = nextChatId();
+    setChat((list) => [
+      ...list,
+      { id: askId, role: "user", text },
+      { id: replyId, role: "assistant", text: "", status: "pending" },
+    ]);
+
+    if (!canGenerate) {
+      // The panel explains the ways forward (paid access, or the user's own
+      // key in local/dev)
+      updateReply(replyId, { status: "failed", text: CHAT_COPY.needsAccess });
+      setOpen(true);
+      return;
+    }
+
+    setChatBusy(true);
+    const tabId = studio.getTabId();
+    const before = studio.getCode();
+    // The model goes out without its provenance header, which goes back on
+    // whatever comes back, so the part still records where it came from
+    const model = stripProvenanceHeader(before);
+    const header = before.slice(0, before.length - model.length);
+    // The sliders as they are now: sent along so the updated model's defaults
+    // carry them forward, and put back if the change fails or is undone
+    const params = studio.getParams();
+    const balanceBefore = credits?.balance ?? null;
+    const runner: ModelRunner = {
+      getCode: () => studio.getCode(),
+      loadCode: (code) => {
+        // Never write into a tab the user switched to while this ran
+        if (studio.getTabId() !== tabId) {
+          return Promise.reject(new Error("The tab changed"));
+        }
+        // Restoring the part as it was puts its sliders back too; an updated
+        // model starts its sliders at its new defaults
+        return code === before
+          ? studio.loadCode(before, params)
+          : studio.loadCode(header + stripProvenanceHeader(code), {});
+      },
+    };
+
+    const result = await generateAndRun(text, runner, {
+      ...(hasByok ? { byokKey } : {}),
+      edit: { code: model, params },
+      restorePriorOnFailure: true,
+    });
+
+    const switched = studio.getTabId() !== tabId;
+    const spentCredits = hasByok
+      ? null
+      : creditsSpent(balanceBefore, await refreshBalance());
+    const note = spentCredits ? formatSpentNote(spentCredits) : undefined;
+
+    if (result.status === "ok") {
+      undoRef.current.set(replyId, { tabId, code: before, params });
+      updateReply(replyId, { status: "done", text: CHAT_COPY.done, note });
+    } else {
+      updateReply(replyId, {
+        status: "failed",
+        text: switched ? CHAT_COPY.switchedTabs : result.message,
+        note,
+      });
+      // A billing or sign-in refusal: the panel shows why, and the way forward
+      const action = classifyGenerateError(result.httpStatus, result.errorCode);
+      if (!switched && action !== "generic") {
+        showFailure(result.httpStatus, result.errorCode, result.message);
+        if (action !== "signIn") setOpen(true);
+      }
+    }
+    setChatBusy(false);
+  };
+
+  // Put the part back as it was before a change, in the tab it was made in
+  const onChatUndo = (id: string) => {
+    const studio = handle.current;
+    const saved = undoRef.current.get(id);
+    if (!studio || !saved || chatBusy) return;
+    if (studio.getTabId() !== saved.tabId) {
+      setChat((list) => [
+        ...list,
+        {
+          id: nextChatId(),
+          role: "assistant",
+          text: CHAT_COPY.undoOtherTab,
+          status: "failed",
+        },
+      ]);
+      return;
+    }
+    undoRef.current.delete(id);
+    void studio.loadCode(saved.code, saved.params);
+    updateReply(id, { status: "undone", text: CHAT_COPY.undone });
+  };
+
+  const onChatClear = () => {
+    undoRef.current.clear();
+    setChat([]);
+  };
+
   // Forget a part locally and on the gateway (which deletes its prompt and
   // result). A ready part left unopened is reported as discarded
   const dismissJob = (job: GenerationJob) => {
@@ -1061,6 +1207,19 @@ const GeneratePanelInner = ({ handle }: GeneratePanelProps) => {
             : undefined
         }
       />
+
+      {chatMount
+        ? createPortal(
+            <PartChat
+              messages={chat}
+              busy={chatBusy || busy}
+              onSend={(text) => void onChatSend(text)}
+              onUndo={onChatUndo}
+              onClear={onChatClear}
+            />,
+            chatMount,
+          )
+        : null}
 
       <ConfirmDialog
         open={confirming !== null}

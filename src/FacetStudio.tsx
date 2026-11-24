@@ -66,6 +66,7 @@ import type { BrepNeed } from "@/facet/opgraph";
 import type { RendererKind } from "@/gpu/backend";
 import type { RendererPreference } from "@/gpu/rendererPreference";
 import type { RenderMode } from "@/gpu/renderMode";
+import type { ParamValue } from "@/params";
 import type { SavedWorkspace } from "@/storage";
 import type { TabsState } from "@/tabs";
 import type { Theme } from "@/theme";
@@ -103,13 +104,27 @@ export type RunOutcome = { ok: true } | { ok: false; error: string };
 export interface StudioHandle {
   /** The code currently in the editor. */
   getCode: () => string;
-  /** Replace the editor contents, run, and resolve with the run outcome. */
-  loadCode: (code: string) => Promise<RunOutcome>;
+  /**
+   * Replace the editor contents, run, and resolve with the run outcome. With
+   * `params`, the parameter values are replaced by those first (an empty
+   * object puts every parameter at its declared default)
+   */
+  loadCode: (
+    code: string,
+    params?: Record<string, ParamValue>,
+  ) => Promise<RunOutcome>;
+  /** The values the open model's parameters are set to, by name */
+  getParams: () => Record<string, ParamValue>;
   /**
    * Open a fresh, empty tab (named from the prompt) and make it active, so a
    * generation lands in its own tab instead of overwriting the current model.
    */
   openGeneratedTab: (name: string) => void;
+  /**
+   * The active tab's id, so a change requested for one tab is never applied to
+   * another the user switched to while it was being made
+   */
+  getTabId: () => string;
   /**
    * Capture the current 3D view as a PNG for the AI critique loop. Resolves
    * null when there is nothing to capture (no WebGPU, no model) or the readback
@@ -128,8 +143,16 @@ interface StudioCore {
   getCode: () => string;
   /** Load a document into the editor, reset parameters, and run it. */
   openDoc: (code: string) => void;
-  /** Replace the editor contents, run, and resolve with the run outcome. */
-  loadCode: (code: string) => Promise<RunOutcome>;
+  /**
+   * Replace the editor contents, run, and resolve with the run outcome,
+   * replacing the parameter values with `params` first when given
+   */
+  loadCode: (
+    code: string,
+    params?: Record<string, ParamValue>,
+  ) => Promise<RunOutcome>;
+  /** The values the open model's parameters are set to, by name */
+  getParams: () => Record<string, ParamValue>;
   /** Persist the whole workspace (debounced). */
   save: () => void;
 }
@@ -139,6 +162,8 @@ export default function FacetStudio() {
   // side by side); on mobile the editor and the 3D viewport are full-screen tabs
   // so neither is cramped and the params overlay stops covering a tiny viewport
   const [mobileView, setMobileView] = useState<"code" | "view">("code");
+  // Where the AI panel docks its chat for changing the open part
+  const [chatMount, setChatMount] = useState<HTMLDivElement | null>(null);
   // Which named example the active model matches (or CUSTOM_OPTION for a custom
   // edit); drives the Examples menu's active marker. Kept in state (not a select
   // ref) so the menu reflects tab switches, restores, and generated tabs
@@ -396,13 +421,15 @@ export default function FacetStudio() {
   useEffect(() => {
     studioHandle.current = {
       getCode: () => coreRef.current?.getCode() ?? "",
-      loadCode: (code) =>
-        coreRef.current?.loadCode(code) ??
+      loadCode: (code, params) =>
+        coreRef.current?.loadCode(code, params) ??
         Promise.resolve<RunOutcome>({
           ok: false,
           error: "The Studio is not ready yet.",
         }),
       openGeneratedTab,
+      getParams: () => coreRef.current?.getParams() ?? {},
+      getTabId: () => tabsRef.current.activeId,
       capture: () => viewportRef.current?.capture() ?? Promise.resolve(null),
     };
   });
@@ -979,12 +1006,19 @@ export default function FacetStudio() {
     coreRef.current = {
       getCode: () => editor.getValue(),
       openDoc,
-      loadCode: (code) =>
+      loadCode: (code, params) =>
         new Promise<RunOutcome>((resolve) => {
+          if (params) {
+            store.seed(params);
+            // Rebuild the controls so the sliders show the new values
+            paramsSignature = " ";
+          }
           editor.setValue(code);
           setCurrentExample(matchExample(code) ?? CUSTOM_OPTION);
           run(true, resolve);
         }),
+      getParams: () =>
+        Object.fromEntries(store.list().map((d) => [d.name, d.value])),
       save: saveSoon,
     };
 
@@ -1039,7 +1073,7 @@ export default function FacetStudio() {
         </span>
         <span className="tag">code CAD · write code, get geometry</span>
         <div className="header-controls">
-          <GeneratePanel handle={studioHandle} />
+          <GeneratePanel handle={studioHandle} chatMount={chatMount} />
           <ImportArtButton handle={studioHandle} />
           <ExamplesMenu
             names={Object.keys(examples)}
@@ -1281,6 +1315,7 @@ export default function FacetStudio() {
         </section>
         <section className="viewport">
           <div className="viewport-canvas" ref={viewportMount} />
+          <div className="chat-dock" ref={setChatMount} />
           <div className="view-nav">
             <div className="view-nav-gizmo" ref={gizmoMount} />
             <div className="view-nav-buttons">

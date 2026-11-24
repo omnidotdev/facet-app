@@ -154,6 +154,21 @@ describe("generateModel", () => {
     });
   });
 
+  test("forwards edit (the open model) on a change request", async () => {
+    const lastCall = stubFetch(ok({ code: "taller" }));
+
+    await generateModel("make it taller", {
+      ...managed,
+      edit: { code: "return cube(10);", params: { size: 12 } },
+    });
+
+    const body = JSON.parse(lastCall().init.body as string);
+    expect(body).toEqual({
+      prompt: "make it taller",
+      edit: { code: "return cube(10);", params: { size: 12 } },
+    });
+  });
+
   test("forwards generationId when continuing a chain (refine/repair re-entry)", async () => {
     const lastCall = stubFetch(ok({ code: "better" }));
 
