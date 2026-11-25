@@ -10,6 +10,8 @@
 import { getAccessToken } from "@/lib/auth/session";
 
 export interface UserInfo {
+  /** The account's subject, which account hub links carry as a login hint */
+  sub?: string;
   name?: string;
   email?: string;
   picture?: string;
@@ -35,6 +37,7 @@ export async function fetchUserInfo(
     if (!res.ok) return null;
     const data = (await res.json()) as Record<string, unknown>;
     return {
+      sub: asString(data.sub),
       name: asString(data.name),
       email: asString(data.email),
       // OIDC uses `picture`; Better Auth user rows use `image`

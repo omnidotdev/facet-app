@@ -1,3 +1,4 @@
+import { accountUrl } from "@omnidotdev/providers/react";
 import { useEffect, useRef, useState } from "react";
 
 import { fetchCapabilities } from "@/ai/capabilities";
@@ -219,7 +220,7 @@ const AccountControl = () => {
           {ACCOUNT_URL ? (
             <a
               className="account-item"
-              href={`${ACCOUNT_URL.replace(/\/+$/, "")}/`}
+              href={accountUrl(ACCOUNT_URL, { loginHint: userInfo?.sub })}
               target="_blank"
               rel="noopener noreferrer"
               role="menuitem"
