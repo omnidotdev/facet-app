@@ -1,5 +1,61 @@
 # @omnidotdev/facet
 
+## 0.9.0
+
+### Minor Changes
+
+- [#135](https://github.com/omnidotdev/facet-app/pull/135) [`9650ec9`](https://github.com/omnidotdev/facet-app/commit/9650ec9641b9c9b60edd846783eecb8874942b6d) Thanks [@coopbri](https://github.com/coopbri)! - Fold the parameters panel away when it covers the model. Click the Parameters title (or Tab to it and press Enter) to collapse the panel to a small label that shows how many sliders it holds, and click again to bring them back. Facet remembers the choice in your browser.
+
+- [#143](https://github.com/omnidotdev/facet-app/pull/143) [`f212bfd`](https://github.com/omnidotdev/facet-app/commit/f212bfdedf9acd1b489c2277d58f8645b1afe732) Thanks [@coopbri](https://github.com/coopbri)! - Change a part by chatting with it. A chat docked under the 3D view takes plain requests like "make the ring thicker" and updates the open model in the same tab, so each request builds on the last. Your slider settings carry over into the updated model, a change that does not build is repaired or left out, and Undo puts the part and its sliders back as they were. Changes use AI credits like Describe a part, or your own Synapse key.
+
+- [#144](https://github.com/omnidotdev/facet-app/pull/144) [`58ca28e`](https://github.com/omnidotdev/facet-app/commit/58ca28e371ad8afb21f354db3f18ff79d91216fd) Thanks [@coopbri](https://github.com/coopbri)! - Links from Facet to your Omni account (Manage account, Buy credits, Upgrade to Pro) now open it as the same account you use in Facet, even when another account is signed in on the browser
+
+- [#133](https://github.com/omnidotdev/facet-app/pull/133) [`411c2bd`](https://github.com/omnidotdev/facet-app/commit/411c2bd1e335f06956e4f5353ed230a86e78b277) Thanks [@coopbri](https://github.com/coopbri)! - Type exact parameter values. Click a slider's value (or Tab to it) and type a number, and the model rebuilds with exactly that value, even one the slider's step can't reach. Simple math works too ("50/2", "12 + 3.5"), and so does the unit ("25mm"). Enter applies, Esc cancels, and the arrow keys step like the slider (Shift for ten steps). Values outside a parameter's range are clamped to it, and anything that isn't a number is flagged and put back.
+
+- [#132](https://github.com/omnidotdev/facet-app/pull/132) [`9ba4907`](https://github.com/omnidotdev/facet-app/commit/9ba490722171db8ce6a48d2cd7e9856ac20a060d) Thanks [@coopbri](https://github.com/coopbri)! - Navigate the 3D viewport like a desktop modeler. A navigation gizmo in the corner shows the X, Y, and Z axes: click an axis to look from that side (click it again to look from the opposite side), or drag it to orbit. Buttons below it switch between perspective and orthographic, fit the model in view, and reset to the home view, each with a tooltip naming its key.
+
+  Everything works from the keyboard too, while the pointer is over the view or after you click or Tab into it: 1 front, 3 right, 7 top (Ctrl for the opposite side), 9 to flip, 0 for the home view, the arrow keys or 4/6/8/2 to orbit, plus and minus to zoom, 5 to toggle orthographic, and Home or period to fit the model. Axis views switch to orthographic automatically and orbiting returns to perspective. All of these are also in the command palette.
+
+### Patch Changes
+
+- [#136](https://github.com/omnidotdev/facet-app/pull/136) [`e3cd72a`](https://github.com/omnidotdev/facet-app/commit/e3cd72ab5f884690fbdccd5aa62b0238270f5e50) Thanks [@coopbri](https://github.com/coopbri)! - The B-rep kernel no longer leaks memory as a model rebuilds. Models built from many 2D strokes, like the zodiac keychains, used to grow memory by about 10 to 20 MB on every slider change until the tab slowed down or ran out. Rebuilds now reuse the same memory, so a long editing session stays as fast as the first build.
+
+- [#134](https://github.com/omnidotdev/facet-app/pull/134) [`a421034`](https://github.com/omnidotdev/facet-app/commit/a4210342f5865f432fe193ba78e12a03fc4e00de) Thanks [@coopbri](https://github.com/coopbri)! - When a model switches to the B-rep kernel automatically, the status line now says what needed it (fillets, chamfers, and shells; text; SVG shapes; or combined 2D sketches) instead of always naming fillets, chamfers, and shells.
+
+- [#128](https://github.com/omnidotdev/facet-app/pull/128) [`797bd8f`](https://github.com/omnidotdev/facet-app/commit/797bd8f3d17bbeafb9e00880af42335d3b618e58) Thanks [@coopbri](https://github.com/coopbri)! - Dropdowns now match the rest of the interface.
+
+- [#139](https://github.com/omnidotdev/facet-app/pull/139) [`e8057e1`](https://github.com/omnidotdev/facet-app/commit/e8057e14ac73175e44af68d26a888fa458e40c11) Thanks [@coopbri](https://github.com/coopbri)! - Color your parts. `.color("gold")`, `.color("#1d3557")`, or `.color([1, 0.5, 0])` paints a part in the 3D view, and a 3MF export writes each color as its own part of one object, so a multi-color printer can print each part in its own filament. Differently colored parts stay separate, a cut goes through every colored part, and an inner color wins over an outer one. The new Two-color coaster example shows an inlay: a pocket cut into the base and filled with a second color.
+
+- [#138](https://github.com/omnidotdev/facet-app/pull/138) [`2e2d9da`](https://github.com/omnidotdev/facet-app/commit/2e2d9da5ec910d345aab1593ed3eb97ba9c9ba68) Thanks [@coopbri](https://github.com/coopbri)! - Switch how the 3D view draws your part. The new display button next to the view controls, the Z key, and the command palette cycle through four modes, and Facet remembers your choice:
+
+  - **Shaded**, the familiar solid look
+  - **Shaded with edges** outlines every crease and rim, so flat parts and small steps read clearly
+  - **Wireframe** shows every triangle, the same mesh an export carries
+  - **X-ray** turns the part translucent, so holes and anything behind the front faces show through
+
+- [#131](https://github.com/omnidotdev/facet-app/pull/131) [`a95dc30`](https://github.com/omnidotdev/facet-app/commit/a95dc303a015614e084227f96c49611214e36b00) Thanks [@coopbri](https://github.com/coopbri)! - Models built from many round-capped strokes (zodiac glyphs, lettering, outlines) build reliably at any size and stroke width:
+
+  - When the exact sketch merge can't resolve nearly overlapping curves, Facet falls back to a fine polygon merge instead of failing the model.
+  - The exact merge can also go wrong silently and leave a pinhole the sketch never had. Facet now cross-checks every merged profile before extruding or revolving it and uses the polygon merge when the two disagree.
+  - The polygon merge retries on a fine grid when it hits a floating-point edge case, which also keeps live slider previews from failing.
+
+- [#140](https://github.com/omnidotdev/facet-app/pull/140) [`e80ee12`](https://github.com/omnidotdev/facet-app/commit/e80ee1274787dd8f3afb84aed9adedf32ed2d8f4) Thanks [@coopbri](https://github.com/coopbri)! - Menus, buttons, and other shared controls inside the studio and on the landing page hover and highlight with the theme's subtle surface instead of the bright primary color
+
+- [#142](https://github.com/omnidotdev/facet-app/pull/142) [`0ebfa90`](https://github.com/omnidotdev/facet-app/commit/0ebfa90b456fb505b069b862db0decd68e1cffa0) Thanks [@coopbri](https://github.com/coopbri)! - Edges stay visible on dark part colors. In the shaded-with-edges display, a part colored navy, black, or another dark color now gets light edge lines, where the dark lines used to disappear into it.
+
+  The 3D view no longer goes blank while you drag the divider between the code and the view, or resize the window. It keeps drawing the part the whole time.
+
+- [#137](https://github.com/omnidotdev/facet-app/pull/137) [`ecdb5f5`](https://github.com/omnidotdev/facet-app/commit/ecdb5f524a73f83e7ff496ffde524c96f5c62c4d) Thanks [@coopbri](https://github.com/coopbri)! - Make the Studio layout and controls fit how you work:
+
+  - Drag the divider between the code editor and the 3D view to give either one more room. It also works from the keyboard (arrow keys, Home, End), double-click resets it, and Facet remembers the split.
+  - Choose which way dragging turns the view in Settings, under Orbit drag. Inverted suits people used to modelers that move the camera instead of the part. It applies to the view and the axis gizmo.
+
+- [#130](https://github.com/omnidotdev/facet-app/pull/130) [`bb18c5d`](https://github.com/omnidotdev/facet-app/commit/bb18c5d1efee753f51912f188c1270d6f42e1c0d) Thanks [@coopbri](https://github.com/coopbri)! - Fix STL and 3MF exports so every part reaches the slicer as one closed solid. Holes such as a keychain's ring hole no longer get filled in when a 3MF is sliced.
+
+  - 3MF and STL exports are now watertight, so slicers no longer have to repair them.
+  - Extruded and revolved parts built with the TS or Rust kernel no longer export inside-out. This was most visible with clockwise or mirrored profiles, downward extrudes, and negative revolve angles.
+  - A twisted extrude can now be combined with other shapes in the TS and Rust kernels instead of failing.
+
 ## 0.8.0
 
 ### Minor Changes
