@@ -58,6 +58,7 @@ import PartChat from "@/components/ai/PartChat";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { isAuthConfigured, requireReauth } from "@/lib/auth/session";
 import { useAuthSession } from "@/lib/auth/useAuthSession";
+import useHubLoginHint from "@/lib/auth/useHubLoginHint";
 import { nameFromPrompt } from "@/tabs";
 
 import type { RefObject } from "react";
@@ -278,6 +279,8 @@ const GeneratePanelInner = ({ handle, chatMount }: GeneratePanelProps) => {
   }, [open]);
 
   const { signedIn } = useAuthSession();
+  // Hub links open the hub as the account Facet is signed in as
+  const loginHint = useHubLoginHint();
 
   const authConfigured = isAuthConfigured();
 
@@ -976,10 +979,11 @@ const GeneratePanelInner = ({ handle, chatMount }: GeneratePanelProps) => {
 
   // Billing links into the account hub, deep-linked to the workspace Facet
   // bills when the gateway reports it
-  const buyCreditsHref = billingHubUrl(ACCOUNT_URL, workspaceSlug);
+  const buyCreditsHref = billingHubUrl(ACCOUNT_URL, workspaceSlug, loginHint);
   const upgradeHref = upgradeUrl(ACCOUNT_URL, {
     workspaceSlug,
     returnUrl: studioReturnUrl(window.location.origin),
+    loginHint,
   });
   // The paid-access state always offers the ways to pay; otherwise the links
   // follow whatever failure the notice reports

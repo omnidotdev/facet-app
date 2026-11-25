@@ -1,4 +1,5 @@
 import { formatCredits } from "@omnidotdev/providers/billing";
+import { hubCreditsUrl, hubPlanUrl } from "@omnidotdev/providers/react";
 
 import type { Capabilities } from "./capabilities";
 
@@ -359,20 +360,26 @@ const hubBase = (accountBaseUrl: string | undefined): string | null => {
  * hub on its credits section, and the workspace slug selects the personal
  * workspace Facet bills, so a purchase lands in the balance Facet spends. An
  * older gateway sends no slug; the link then opens the hub's default account.
- * Returns null when `VITE_ACCOUNT_URL` is unset so the caller omits the CTA
+ * The signed-in account's subject rides along as `loginHint`, so the hub opens
+ * as the same account. Returns null when `VITE_ACCOUNT_URL` is unset so the
+ * caller omits the CTA
  * @param accountBaseUrl - The account hub base URL
  * @param workspaceSlug - The personal workspace Facet bills, when known
+ * @param loginHint - The signed-in account's subject, when known
  */
 export const billingHubUrl = (
   accountBaseUrl: string | undefined,
   workspaceSlug?: string,
+  loginHint?: string | null,
 ): string | null => {
   const base = hubBase(accountBaseUrl);
   if (!base) return null;
 
-  const params = new URLSearchParams({ product: FACET_PRODUCT_ID, tab: "ai" });
-  if (workspaceSlug) params.set("workspace", workspaceSlug);
-  return `${base}/billing?${params.toString()}`;
+  return hubCreditsUrl(base, {
+    product: FACET_PRODUCT_ID,
+    workspace: workspaceSlug,
+    loginHint,
+  });
 };
 
 /**
@@ -380,25 +387,36 @@ export const billingHubUrl = (
  * hub is configured. The hub answers it with Stripe Checkout for Facet Pro on
  * the named workspace and sends the user back to `returnUrl` afterwards (the
  * hub only honors first-party Omni https origins there). Without a workspace
- * the hub asks which one to upgrade; without a return URL it stays in the hub
+ * the hub asks which one to upgrade; without a return URL it stays in the hub.
+ * The signed-in account's subject rides along as `loginHint`, so the hub opens
+ * as the same account
  * @param accountBaseUrl - The account hub base URL
- * @param options - The workspace to upgrade and where to return, when known
+ * @param options - The workspace to upgrade, where to return, and the
+ * signed-in account's subject, when known
  */
 export const upgradeUrl = (
   accountBaseUrl: string | undefined,
-  { workspaceSlug, returnUrl }: { workspaceSlug?: string; returnUrl?: string },
+  {
+    workspaceSlug,
+    returnUrl,
+    loginHint,
+  }: {
+    workspaceSlug?: string;
+    returnUrl?: string;
+    loginHint?: string | null;
+  },
 ): string | null => {
   const base = hubBase(accountBaseUrl);
   if (!base) return null;
 
-  const params = new URLSearchParams({
+  return hubPlanUrl(base, {
     product: FACET_PRODUCT_ID,
     plan: PRO_PLAN,
     interval: PRO_INTERVAL,
+    workspace: workspaceSlug,
+    returnUrl,
+    loginHint,
   });
-  if (workspaceSlug) params.set("workspace", workspaceSlug);
-  if (returnUrl) params.set("return", returnUrl);
-  return `${base}/billing?${params.toString()}`;
 };
 
 /**

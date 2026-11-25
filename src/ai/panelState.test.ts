@@ -31,6 +31,8 @@ import {
   withProvenanceHeader,
 } from "./panelState";
 
+const params = (url: string) => Object.fromEntries(new URL(url).searchParams);
+
 describe("resolvePanelMode", () => {
   test("signed in generates regardless of key or auth config", () => {
     expect(
@@ -409,9 +411,13 @@ describe("billingHubUrl", () => {
   test("a 402 funnels to the credits section of the personal workspace", () => {
     // 402 is the out-of-credits status the panel surfaces the buy CTA for
     expect(classifyGenerateError(402)).toBe("outOfCredits");
-    expect(billingHubUrl("https://account.omni.dev", "ada")).toBe(
-      "https://account.omni.dev/billing?product=facet&tab=ai&workspace=ada",
-    );
+    const url = billingHubUrl("https://account.omni.dev", "ada") ?? "";
+    expect(url.startsWith("https://account.omni.dev/billing?")).toBe(true);
+    expect(params(url)).toEqual({
+      product: "facet",
+      tab: "ai",
+      workspace: "ada",
+    });
   });
 
   test("still opens the credits section when the workspace is unknown", () => {
@@ -421,9 +427,24 @@ describe("billingHubUrl", () => {
   });
 
   test("trims a trailing slash before appending the billing path", () => {
-    expect(billingHubUrl("https://account.omni.dev/", "ada")).toBe(
-      "https://account.omni.dev/billing?product=facet&tab=ai&workspace=ada",
-    );
+    const url = billingHubUrl("https://account.omni.dev/", "ada") ?? "";
+    expect(url.startsWith("https://account.omni.dev/billing?")).toBe(true);
+    expect(params(url)).toEqual({
+      product: "facet",
+      tab: "ai",
+      workspace: "ada",
+    });
+  });
+
+  test("opens the hub as the signed-in account", () => {
+    expect(
+      params(
+        billingHubUrl("https://account.omni.dev", "ada", "user-123") ?? "",
+      ),
+    ).toHaveProperty("login_hint", "user-123");
+    expect(
+      params(billingHubUrl("https://account.omni.dev", "ada") ?? ""),
+    ).not.toHaveProperty("login_hint");
   });
 
   test("returns null when no account hub is configured", () => {
@@ -449,6 +470,22 @@ describe("upgradeUrl", () => {
     expect(upgradeUrl("https://account.omni.dev/", {})).toBe(
       "https://account.omni.dev/billing?product=facet&plan=pro&interval=month",
     );
+  });
+
+  test("opens the hub as the signed-in account", () => {
+    expect(
+      params(
+        upgradeUrl("https://account.omni.dev", {
+          workspaceSlug: "ada",
+          loginHint: "user-123",
+        }) ?? "",
+      ),
+    ).toHaveProperty("login_hint", "user-123");
+    expect(
+      params(
+        upgradeUrl("https://account.omni.dev", { workspaceSlug: "ada" }) ?? "",
+      ),
+    ).not.toHaveProperty("login_hint");
   });
 
   test("returns null when no account hub is configured", () => {
