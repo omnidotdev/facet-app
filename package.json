@@ -4,7 +4,7 @@
   "private": true,
   "description": "Facet - code-first parametric CAD. Write TypeScript, get geometry.",
   "type": "module",
-  "packageManager": "bun@1.4.4",
+  "packageManager": "bun@1.4.5",
   "repository": {
     "type": "git",
     "url": "https://github.com/omnidotdev/facet-app.git"
@@ -52,13 +52,13 @@
     "@omnidotdev/providers": "github:omnidotdev/providers#v0.8.0",
     "@omnidotdev/thornberry": "github:omnidotdev/thornberry#87cc2d6",
     "@tanstack/react-router": "^1.170.38",
-    "@tauri-apps/api": "~2.11",
-    "@tauri-apps/plugin-deep-link": "~2.4",
-    "@tauri-apps/plugin-geolocation": "~2.3",
-    "@tauri-apps/plugin-notification": "~2.4",
-    "@tauri-apps/plugin-opener": "~2.5",
-    "@tauri-apps/plugin-process": "~2.3",
-    "@tauri-apps/plugin-updater": "~2.12",
+    "@tauri-apps/api": "~2.12.0",
+    "@tauri-apps/plugin-deep-link": "~2.6.0",
+    "@tauri-apps/plugin-geolocation": "~2.5.0",
+    "@tauri-apps/plugin-notification": "~2.8.0",
+    "@tauri-apps/plugin-opener": "~2.7.0",
+    "@tauri-apps/plugin-process": "~2.4.0",
+    "@tauri-apps/plugin-updater": "~2.14.0",
     "cmdk": "^1.1.1",
     "codemirror": "^6.0.2",
     "lucide-react": "^0.563.0",
@@ -75,7 +75,7 @@
     "wgpu-matrix": "3.4.2"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.12",
+    "@biomejs/biome": "2.6.9",
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.31.1",
     "@tailwindcss/vite": "^4.3.3",
