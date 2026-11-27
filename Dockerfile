@@ -3,7 +3,7 @@
 # Build the static Vite/TanStack SPA, then serve it with nginx. The Rust/WASM
 # kernel is vendored in src/wasm, so no Rust toolchain is needed at build time.
 
-FROM oven/bun:1.4.4 AS base
+FROM oven/bun:1.4.5@sha256:3aa040e5445efa09d75bb428a64ba50db13e2b3ac9b6b0c7f145615f62b2ee18 AS base
 WORKDIR /app
 
 FROM base AS deps
@@ -28,7 +28,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN bun run build
 
-FROM nginx:1.27-alpine AS runner
+FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS runner
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080
