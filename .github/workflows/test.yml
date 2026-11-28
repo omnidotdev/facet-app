@@ -13,7 +13,7 @@ jobs:
     timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -39,7 +39,7 @@ jobs:
       # Restore the Tauri apt packages from cache: a cold install from the
       # runner's mirror can crawl past the job cap, a restore takes seconds
       - name: Install Tauri dependencies
-        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        uses: awalsh128/cache-apt-pkgs-action@009d70260b0f2e115cfa77447f8bd04c8e797064 # v2.0.0
         with:
           packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf imagemagick
           version: 2
